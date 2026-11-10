@@ -1,0 +1,38 @@
+# Postgres 16 + PostGIS and Redis 7 for local development.
+# Host ports differ from the defaults (5433 / 6380) so they do not clash with a local Postgres/Redis.
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: oxxy-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASS:-postgres}
+      POSTGRES_DB: ${DB_NAME:-oxxy}
+    ports:
+      - "${DB_PORT:-5433}:5432"
+    volumes:
+      - oxxy_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-oxxy}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: oxxy-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - oxxy_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  oxxy_pgdata:
+  oxxy_redisdata:

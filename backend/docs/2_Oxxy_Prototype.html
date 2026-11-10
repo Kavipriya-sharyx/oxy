@@ -1,0 +1,1807 @@
+<meta charset="utf-8">
+<title>Oxxy Sales Console</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: fixed left rail (nav) + working canvas; collapses to a top bar + scrollable tabs under 860px. */
+:root{
+  --bg:#f3f6f5; --surface:#ffffff; --sunk:#e8eeec; --line:#d5dfdc; --fg:#15211f; --muted:#5b6b67;
+  --accent:#0d6b5c; --accent-ink:#ffffff; --accent-soft:#d8ece7;
+  --ok:#1f7a3f; --ok-soft:#dcf1e2; --warn:#9a5b00; --warn-soft:#fbecd2; --crit:#b42318; --crit-soft:#fbe0dc;
+  --info:#2c5aa0; --info-soft:#dfe8f7;
+  --bubble-in:#ffffff; --bubble-out:#dff3ea; --chatbg:#e9efe9;
+  --font-ui:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  --r:8px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1715; --surface:#16211e; --sunk:#1c2925; --line:#2a3a35; --fg:#e4ece9; --muted:#93a59f;
+  --accent:#4cc2a8; --accent-ink:#06211b; --accent-soft:#163a32;
+  --ok:#5fd08a; --ok-soft:#163824; --warn:#f0b45a; --warn-soft:#3a2a10; --crit:#ff8a7a; --crit-soft:#41191a;
+  --info:#8fb3ef; --info-soft:#1a2a45;
+  --bubble-in:#1c2925; --bubble-out:#14453a; --chatbg:#111c19; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1715; --surface:#16211e; --sunk:#1c2925; --line:#2a3a35; --fg:#e4ece9; --muted:#93a59f;
+  --accent:#4cc2a8; --accent-ink:#06211b; --accent-soft:#163a32;
+  --ok:#5fd08a; --ok-soft:#163824; --warn:#f0b45a; --warn-soft:#3a2a10; --crit:#ff8a7a; --crit-soft:#41191a;
+  --info:#8fb3ef; --info-soft:#1a2a45;
+  --bubble-in:#1c2925; --bubble-out:#14453a; --chatbg:#111c19; color-scheme:dark}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-ui);font-size:14px;line-height:1.45}
+*{box-sizing:border-box}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+h1,h2,h3{margin:0;text-wrap:balance}
+h1{font-size:22px;font-weight:600;letter-spacing:-.01em}
+h2{font-size:16px;font-weight:600}
+h3{font-size:13px;font-weight:600}
+.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+
+/* shell */
+.app{display:grid;grid-template-columns:232px 1fr;height:100%}
+.rail{background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:16px 10px;gap:4px;overflow-y:auto}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px}
+.mark{width:30px;height:30px;border-radius:8px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:700;font-size:15px}
+.brand b{display:block;font-size:15px}
+.brand span{font-size:11px;color:var(--muted)}
+.navgroup{margin-top:10px;padding:0 8px 4px}
+.nav a{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px;color:var(--fg);text-decoration:none;font-weight:500}
+.nav a:hover{background:var(--sunk)}
+.nav a.on{background:var(--accent-soft);color:var(--accent)}
+.nav a .count{margin-left:auto;font-size:11px;background:var(--sunk);padding:1px 7px;border-radius:10px;color:var(--muted)}
+.nav a.on .count{background:var(--surface);color:var(--accent)}
+.nav svg{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7}
+.rail .me{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px 8px;border-top:1px solid var(--line)}
+.avatar{width:30px;height:30px;border-radius:50%;background:var(--sunk);display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+.main{overflow-y:auto;min-width:0}
+.menubtn{border:1px solid var(--line);background:var(--surface);width:34px;height:34px;border-radius:6px;display:grid;place-items:center;cursor:pointer;flex:none}
+.menubtn:hover{background:var(--sunk)}
+.menubtn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8}
+.navscrim{display:none;position:fixed;inset:0;background:rgba(10,20,18,.38);z-index:34}
+.app.mini{grid-template-columns:68px 1fr}
+.app.mini .rail{padding-inline:10px;align-items:stretch}
+.app.mini .nav a{justify-content:center;padding:9px}
+.app.mini .nav a span,.app.mini .nav a .count,.app.mini .brand div,.app.mini .me div,.app.mini .me button{display:none}
+.app.mini .navgroup{height:1px;background:var(--line);padding:0;margin:8px 4px;font-size:0}
+.app.mini .brand{justify-content:center;padding:4px 0 12px}
+.app.mini .me{justify-content:center;padding-inline:0}
+.steps{display:flex;flex-direction:column}
+.step{display:grid;grid-template-columns:28px minmax(0,1fr);gap:12px;position:relative;padding-bottom:16px}
+.step:last-child{padding-bottom:0}
+.step .n{width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:600;font-family:var(--font-mono);font-size:12px;position:relative;z-index:1}
+.step:not(:last-child)::before{content:"";position:absolute;left:13.5px;top:28px;bottom:0;width:1px;background:var(--line)}
+.branch{margin-top:6px;font-size:12px;padding:6px 10px;border-radius:6px;background:var(--sunk);color:var(--muted)}
+.branch.crit{background:var(--crit-soft);color:var(--crit)}.branch.warn{background:var(--warn-soft);color:var(--warn)}
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.chain .arr{color:var(--muted);font-size:16px}
+.tchip{display:inline-flex;gap:7px;align-items:center;border:1px solid var(--line);border-radius:6px;padding:7px 10px;background:var(--surface);font-size:13px;max-width:100%}
+.tchip b{font-family:var(--font-mono);color:var(--accent)}
+.tchip em{font-style:normal;color:var(--muted)}
+.tchip.plain{border-style:dashed;color:var(--muted)}
+.matrix td,.matrix th{text-align:center}
+.matrix td:first-child,.matrix th:first-child{text-align:left}
+.tick{color:var(--ok);font-weight:700}.cross{color:var(--muted)}
+.chart{display:flex;align-items:flex-end;gap:10px;height:160px;padding-top:10px}
+.chart div{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end;min-width:0}
+.chart i{display:block;width:100%;max-width:38px;background:var(--accent);border-radius:4px 4px 0 0}
+.chart small{font-size:11px;color:var(--muted);font-family:var(--font-mono)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--ok)}
+.dot.warn{background:var(--warn)}.dot.crit{background:var(--crit)}
+.topbar{display:flex;align-items:center;gap:12px;padding-block:14px;padding-left:max(24px,env(safe-area-inset-left,0px));padding-right:max(24px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line);background:var(--surface);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+.topbar .search{margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--sunk);border-radius:6px;padding:6px 10px;min-width:0;width:260px;max-width:100%}
+.topbar .search input{border:0;background:transparent;outline:0;width:100%}
+.content{padding-block:20px 40px;padding-left:max(24px,env(safe-area-inset-left,0px));padding-right:max(24px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:18px}
+.proto-note{font-size:12px;color:var(--warn);background:var(--warn-soft);padding:4px 10px;border-radius:20px;white-space:nowrap}
+
+/* primitives */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);min-width:0}
+.panel-h{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.panel-b{padding:14px 16px}
+.grid{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g21{grid-template-columns:2fr 1fr}
+.stat{padding:14px 16px;display:flex;flex-direction:column;gap:4px}
+.stat .v{font-size:26px;font-weight:600;font-family:var(--font-mono);letter-spacing:-.02em}
+.stat .d{font-size:12px;color:var(--muted)}
+.btn{border:1px solid var(--line);background:var(--surface);padding:7px 12px;border-radius:6px;cursor:pointer;font-weight:500;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn:hover{background:var(--sunk)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.pri:hover{filter:brightness(1.08)}
+.btn.danger{color:var(--crit);border-color:var(--crit)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.sm{padding:4px 9px;font-size:12px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:20px;background:var(--sunk);color:var(--muted);white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.crit{background:var(--crit-soft);color:var(--crit)}
+.pill.info{background:var(--info-soft);color:var(--info)}
+.pill.acc{background:var(--accent-soft);color:var(--accent)}
+.pill.plain::before{display:none}
+.tag{font-family:var(--font-mono);font-size:11px;padding:1px 6px;border-radius:4px;background:var(--accent-soft);color:var(--accent);font-weight:500}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;padding:9px 16px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px 16px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover{background:var(--sunk)}
+.tabs{display:flex;gap:2px;background:var(--sunk);padding:3px;border-radius:7px;flex-wrap:wrap}
+.tabs button{border:0;background:transparent;padding:5px 11px;border-radius:5px;cursor:pointer;font-weight:500;color:var(--muted)}
+.tabs button.on{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:12px;font-weight:600;color:var(--muted)}
+.input,select.input,textarea.input{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:8px 10px;width:100%}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.spacer{flex:1}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:13px;padding:5px 0}
+.check i{flex:none;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:10px;font-weight:700;margin-top:1px}
+.check i.y{background:var(--ok-soft);color:var(--ok)}
+.check i.n{background:var(--crit-soft);color:var(--crit)}
+.check i.w{background:var(--warn-soft);color:var(--warn)}
+.bar{height:8px;background:var(--sunk);border-radius:4px;overflow:hidden}
+.bar span{display:block;height:100%;background:var(--accent);border-radius:4px}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+
+/* inbox */
+.inbox{display:grid;grid-template-columns:300px minmax(0,1fr) 300px;height:calc(100vh - 160px);min-height:560px}
+.inbox > *{min-height:0}
+.ilist{border-right:1px solid var(--line);overflow-y:auto}
+.iitem{display:flex;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);cursor:pointer}
+.iitem:hover{background:var(--sunk)}
+.iitem.on{background:var(--accent-soft)}
+.iitem .t{min-width:0;flex:1}
+.iitem .t b{display:flex;justify-content:space-between;gap:6px;font-weight:600}
+.iitem .t p{margin:2px 0 4px;color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thread{display:flex;flex-direction:column;background:var(--chatbg);min-width:0}
+.thread .msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px}
+.bub{max-width:78%;padding:8px 11px;border-radius:9px;background:var(--bubble-in);box-shadow:0 1px 1px rgba(0,0,0,.06);white-space:pre-wrap;overflow-wrap:anywhere}
+.bub.out{align-self:flex-end;background:var(--bubble-out)}
+.bub .meta{display:flex;gap:6px;align-items:center;justify-content:flex-end;font-size:10.5px;color:var(--muted);margin-top:4px}
+.bub .btns{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+.bub .btns span{display:block;text-align:center;padding:6px;border-top:1px solid var(--line);color:var(--info);font-weight:600;font-size:13px}
+.sys{align-self:center;font-size:11.5px;background:var(--surface);color:var(--muted);padding:3px 10px;border-radius:12px}
+.composer{border-top:1px solid var(--line);background:var(--surface);padding:10px;display:flex;gap:8px;align-items:flex-end}
+.composer textarea{resize:none;height:40px}
+.side{border-left:1px solid var(--line);overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:14px}
+.draftbox{border:1px dashed var(--accent);border-radius:8px;padding:10px;background:var(--accent-soft);font-size:13px}
+
+/* drawer */
+.scrim{position:fixed;inset:0;background:rgba(10,20,18,.38);z-index:30;display:flex;justify-content:flex-end}
+.drawer{width:440px;max-width:100%;background:var(--surface);height:100%;overflow-y:auto;padding:20px;padding-top:calc(20px + env(safe-area-inset-top,0px));padding-right:max(20px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px;border-left:1px solid var(--line)}
+.toast{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:8px;z-index:40;font-weight:500;max-width:calc(100% - 32px)}
+
+/* login */
+.login{min-height:100%;display:grid;grid-template-columns:1fr 1fr}
+.login .l{padding:48px max(32px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;justify-content:center;gap:18px;max-width:440px;margin:0 auto;width:100%}
+.login .r{background:var(--accent);color:var(--accent-ink);padding:48px;display:flex;flex-direction:column;justify-content:flex-end;gap:12px}
+.login .r p{max-width:40ch;opacity:.9;margin:0}
+.login .r blockquote{margin:0;font-size:24px;font-weight:600;line-height:1.25;max-width:22ch;letter-spacing:-.01em}
+
+/* phone simulator */
+.simwrap{display:grid;grid-template-columns:380px minmax(0,1fr);gap:20px;align-items:start}
+.phone{border:10px solid var(--fg);border-radius:34px;overflow:hidden;height:700px;max-width:100%;display:flex;flex-direction:column;background:var(--chatbg)}
+.phone .hd{background:var(--accent);color:var(--accent-ink);padding:12px 14px;display:flex;align-items:center;gap:10px}
+.phone .hd .avatar{background:var(--accent-ink);color:var(--accent)}
+.phone .msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:7px}
+.phone .bub{max-width:86%;font-size:13.5px}
+.phone .bub.me{align-self:flex-end;background:var(--bubble-out)}
+.qr{display:flex;flex-direction:column;gap:5px;align-self:flex-start;width:86%}
+.qr button{background:var(--bubble-in);border:0;border-radius:8px;padding:8px;color:var(--info);font-weight:600;cursor:pointer;box-shadow:0 1px 1px rgba(0,0,0,.06)}
+.qr button:hover{filter:brightness(.97)}
+.listmsg{background:var(--bubble-in);border-radius:8px;overflow:hidden;width:86%;box-shadow:0 1px 1px rgba(0,0,0,.06)}
+.listmsg button{display:block;width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--line);padding:9px 11px;cursor:pointer}
+.listmsg button:hover{background:var(--sunk)}
+.phone .typer{display:flex;gap:6px;padding:8px;background:var(--surface)}
+.phone .typer input{flex:1;border-radius:20px;border:1px solid var(--line);padding:8px 12px;background:var(--bg);min-width:0}
+.phone .typer button{border-radius:50%;width:38px;height:38px;border:0;background:var(--accent);color:var(--accent-ink);cursor:pointer;flex:none}
+.trace{font-family:var(--font-mono);font-size:12px;display:flex;flex-direction:column;gap:6px;max-height:640px;overflow-y:auto}
+.trace div{padding:7px 10px;border-radius:6px;background:var(--sunk);overflow-wrap:anywhere}
+.trace div b{color:var(--accent);font-weight:500}
+
+/* responsive */
+@media (max-width:1180px){.inbox{grid-template-columns:260px minmax(0,1fr)}.inbox .side{display:none}.g4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:860px){
+  .app,.app.mini{grid-template-columns:1fr}
+  .rail{position:fixed;inset:0 auto 0 0;width:270px;max-width:86%;z-index:35;transform:translateX(-102%);transition:transform .2s ease;padding-top:calc(16px + env(safe-area-inset-top,0px));padding-left:max(10px,env(safe-area-inset-left,0px));padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+  .app.navopen .rail{transform:none;box-shadow:0 0 40px rgba(0,0,0,.25)}
+  .app.navopen .navscrim{display:block}
+  .app.mini .rail .nav a span,.app.mini .navgroup,.app.mini .brand div,.app.mini .me div,.app.mini .me button{display:revert}
+  .app.mini .navgroup{height:auto;background:none;font-size:11px;padding:0 8px 4px;margin:10px 0 0}
+  .app.mini .nav a{justify-content:flex-start;padding:7px 10px}
+  .app.mini .brand{justify-content:flex-start;padding:4px 8px 16px}
+  .g3,.g2,.g21{grid-template-columns:1fr}
+  .inbox{grid-template-columns:1fr;height:auto}
+  .ilist{max-height:260px;border-right:0;border-bottom:1px solid var(--line)}
+  .thread{height:520px}
+  .simwrap{grid-template-columns:1fr}
+  .login{grid-template-columns:1fr}.login .r{display:none}
+  .topbar .search{width:100%;margin-left:0}
+}
+@media (max-width:520px){.g4{grid-template-columns:1fr 1fr}.content,.topbar{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}.proto-note{display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div id="root"></div>
+
+<script>
+/* ---------- Sample data (prototype only; customers are invented, product facts from the revised Playbook) ---------- */
+const TODAY = new Date('2026-11-10T10:30:00+05:30');
+const GST = 0.18; // [CONFIRM] Playbook 22.2
+const PLANS = [
+  {code:'everyday',name:'Everyday',monthly:999,yearly:10000,age:'Up to 70',maxAge:70,cap:20,limit:'Bills up to ₹10 lakh',fit:'Routine OPD, new diseases, eye and dental check-ups'},
+  {code:'vital',name:'Vital',monthly:1999,yearly:20000,age:'Up to 75',maxAge:75,cap:25,limit:'Bills up to ₹20 lakh',fit:'Broader OPD and IPD, eye, dental and skin check-ups'},
+  {code:'thrive',name:'Thrive',monthly:2999,yearly:30000,age:'Up to 80',maxAge:80,cap:30,limit:'Bills up to ₹30 lakh',fit:'New and pre-existing diseases, larger expected expense'},
+  {code:'infinity',name:'Infinity',monthly:3999,yearly:40000,age:'No age limit',maxAge:999,cap:30,maxSaving:40,limit:'No upper bill limit',fit:'Broadest OPD and IPD; pregnancy, IVF, cosmetic, hair, bariatric'},
+];
+const CMB = {monthly:4999,yearly:19999,activation:'5 to 10 working days'};
+const PLAN_REASON = {everyday:'it suits routine consultations, tests and check-ups',vital:'it covers OPD and possible hospitalisation',thrive:'it supports pre-existing conditions and larger expected expenses',infinity:'it has no age limit and the broadest scope'};
+const TRIGGERS = {A:'Trust and legitimacy pack',B:'Health insurance vs Oxxy',C:'Why activate Oxxy?',D:'Nearby healthcare centres',E:'Plan recommendation and activation',F:'Personalised savings illustration',G:'Booking request',H:'Booking saved',I:'Cut Medi Bills route',J:'Insurance coordination',K:'Medicines',L:'News and testimonials',M:'One objection, one resolution',N:'Agreed follow-up',O:'Senior callback',P:'Payment completed',Q:'Incomplete activation',R:'Stop commercial flow'};
+const TRIG_MAP = {
+  A:['Trust / legitimacy doubt','Review official information','Trust'],B:['Insurance comparison','See where Oxxy helps','Education'],C:['"Why activate?" or no urgency','Check relevance','Education'],
+  D:['Provider or location question','Choose a centre','Personalisation'],E:['Plan interest or activation readiness','Activate selected plan','Action'],F:['Bill amount or annual spend shared','See estimated saving','Personalisation'],
+  G:['Appointment or provider choice','Request booking','Action'],H:['Booking request saved','Review request','Action'],I:['One specific upcoming expense','Check eligibility','Personalisation'],
+  J:['Has insurance for planned service','Inform service team','Service'],K:['Medicine requirement','Share medicine need','Personalisation'],L:['Wants proof from others','Verify independently','Trust'],
+  M:['Objection or hesitation','Resolve one concern','Recovery'],N:['Asks for time or is busy','Choose follow-up time','Recovery'],O:['Fact cannot be confirmed','Book callback','Service'],
+  P:['Says payment completed','Confirm activation','Action'],Q:['Link sent, payment not completed','Resume or ask question','Recovery'],R:['Refusal, opt-out, emergency, privacy','No activation call to action','Safety']
+};
+const TRIG_STATS = {A:412,B:188,C:240,D:356,E:301,F:207,G:164,H:151,I:96,J:44,K:121,L:38,M:133,N:118,O:52,P:87,Q:64,R:29};
+const TRIG_RESP = {A:71,B:64,C:48,D:69,E:58,F:62,G:88,H:74,I:66,J:59,K:52,L:44,M:51,N:47,O:83,P:96,Q:38,R:100};
+
+// Playbook section 3 state machine (+ PAUSED for emergencies)
+const STATES = {
+  NEW:['New','plain'],INTENT_MENU:['Intent menu','info'],NEED_DISCOVERY:['Need discovery','info'],OXXY_EXPLAIN:['Explaining Oxxy','info'],
+  SERVICE_OR_ESCALATION:['Existing customer','info'],FOLLOW_UP_TIME:['Asking follow-up time','plain'],DISCOVERY:['Discovery','info'],ROUTING:['Routing','info'],
+  PLAN_FIT:['Plan fit','acc'],CUT_MEDI_BILLS_FIT:['Cut Medi Bills fit','acc'],CENTRE_SEARCH:['Centre search','info'],BOOKING_CAPTURE:['Booking capture','info'],
+  BOOKING_RECORDED:['Booking recorded','acc'],ACTIVATION:['Activation','acc'],AWAITING_PAYMENT:['Awaiting payment','warn'],FOLLOW_UP:['Follow-up','plain'],
+  ESCALATED:['Escalated to a person','warn'],PAUSED:['Paused (emergency)','crit'],CLOSED:['Closed','plain'],OPTED_OUT:['Opted out','plain']
+};
+
+let customers = [
+  {id:'C-1042',name:'Lakshmi Narayanan',phone:'+91 98•••• 4417',city:'Chennai, Adyar',lang:'English',product:'oxxy',plan:'infinity',state:'BOOKING_CAPTURE',consent:true,health:true,unread:2,last:'1. Can I book for my mother?',time:'10:24',triggers:['A','D'],spend:180000,age:81,beneficiary:'Mother (81)',need:'Knee check-up, orthopaedics',reason:'Age is above the other plans\' limits'},
+  {id:'C-1039',name:'Arjun Mehta',phone:'+91 99•••• 2290',city:'Bengaluru, HSR Layout',lang:'English',product:'oxxy',plan:'thrive',state:'AWAITING_PAYMENT',consent:true,health:true,unread:0,last:'Activation link',time:'10:02',triggers:['E','F'],spend:150000,age:68,beneficiary:'Father (68)',need:'Diabetes follow-ups and tests',reason:'Supports a pre-existing condition'},
+  {id:'C-1037',name:'Fathima Rahman',phone:'+91 90•••• 7781',city:'Coimbatore, RS Puram',lang:'Hinglish',product:'cmb',plan:null,state:'CUT_MEDI_BILLS_FIT',consent:true,health:true,unread:1,last:'Nothing done yet',time:'09:51',triggers:['I'],bill:180000,age:47,beneficiary:'Self',need:'Gallbladder surgery in December',reason:'One specific upcoming expense'},
+  {id:'C-1031',name:'Ravi Shankar',phone:'+91 94•••• 1108',city:'Madurai',lang:'English',product:null,plan:null,state:'PAUSED',consent:true,health:false,unread:0,last:'father has chest pain and difficulty breathing',time:'09:40',triggers:['R']},
+  {id:'C-1029',name:'Priya Iyer',phone:'+91 98•••• 6650',city:'Chennai, Velachery',lang:'English',product:'oxxy',plan:'everyday',state:'CLOSED',consent:true,health:true,unread:0,last:'Thank you',time:'Yesterday',triggers:['E','F','P'],spend:60000,age:29,beneficiary:'Self',need:'Routine OPD, eye and dental check-ups',reason:'Routine care, lower exposure',active:true},
+  {id:'C-1024',name:'Mohammed Asif',phone:'+91 97•••• 3302',city:'Hyderabad, Kondapur',lang:'Hinglish',product:'oxxy',plan:'thrive',state:'PLAN_FIT',consent:true,health:true,unread:0,last:'Is this insurance?',time:'Yesterday',triggers:['B'],spend:40000,age:36,beneficiary:'Family',need:'General family healthcare',reason:'Considering Thrive'},
+  {id:'C-1019',name:'Deepa Krishnan',phone:'+91 91•••• 5523',city:'Tiruchirappalli',lang:'English',product:null,plan:null,state:'NEW',consent:true,health:false,unread:1,last:'Hi',time:'Mon',triggers:[]},
+  {id:'C-1011',name:'Suresh Babu',phone:'+91 93•••• 8840',city:'Salem',lang:'Hindi',product:null,plan:null,state:'OPTED_OUT',consent:false,health:false,unread:0,last:'STOP',time:'Sun',triggers:['R']},
+  {id:'C-1006',name:'Ananya Rao',phone:'+91 96•••• 0071',city:'Bengaluru, Indiranagar',lang:'English',product:'oxxy',plan:'infinity',state:'ESCALATED',consent:true,health:true,unread:0,last:'I was charged twice',time:'Sat',triggers:['O'],spend:300000,age:44,beneficiary:'Father',need:'Cardiology care',reason:'Recurring high expense',active:true},
+];
+
+const HEALTH_NOTICE = 'Before you share health details: Oxxy uses them only to arrange your booking, savings and support, keeps them for {{Retention_Period}}, and you can ask for deletion anytime at {{Privacy_Contact}}. Is that okay?';
+const NEUTRAL = 'Any saving at a specific centre is confirmed separately by the Oxxy team and may depend on the centre, service and plan.';
+const EMERGENCY_MSG = 'This may need immediate medical attention. Please call 112 (or 108 for an ambulance) or go to the nearest emergency department now. I will pause the plan and activation discussion.';
+
+const THREADS = {
+ 'C-1042':[
+  {s:'sys',t:'Customer started the chat · 8 Nov, 18:09 · WhatsApp consent: customer-initiated'},
+  {s:'cust',t:'Hi, I saw Oxxy in the newspaper. Is this genuine?',at:'18:09'},
+  {s:'bot',t:'It is sensible to verify any healthcare service before paying. For your convenience, I am sending Oxxy’s official website, policy page, support contacts and a few approved independent references. Please review them and activate only through an official secure link. What would you like to verify first?',trig:'A',at:'18:10'},
+  {s:'cust',t:'OK. My mother needs a knee check-up. Any hospitals near Adyar?',at:'18:14'},
+  {s:'bot',t:HEALTH_NOTICE,at:'18:14',btns:['Yes, that is okay','No, thanks']},
+  {s:'cust',t:'Yes, that is okay',at:'18:15'},
+  {s:'sys',t:'health_data_consent recorded · notice v1'},
+  {s:'bot',t:'Based on Adyar and your need for orthopaedics, here are suitable private healthcare-centre options:\n1. Adyar Ortho Care – Adyar | Specialist | Orthopaedics\n2. Sri Ramana Multispeciality – Kotturpuram | Multispeciality\n3. Kauvery Hospital – Alwarpet | Multispeciality\n\nReply with 1-5, or send the name of another centre you prefer.',trig:'D',at:'18:16'},
+  {s:'cust',t:'1. Can I book for my mother?',at:'10:24'},
+ ],
+ 'C-1039':[
+  {s:'cust',t:'Which plan is best? My father (68) has diabetes. We spend about 1.5 lakh a year.',at:'09:30'},
+  {s:'bot',t:'Based on your father’s diabetes care, I recommend the Thrive plan because it supports pre-existing conditions. The current price is ₹2,999 monthly or ₹30,000 yearly plus applicable GST.',trig:'E',at:'09:31'},
+  {s:'bot',t:'You mentioned that your family spends approximately ₹1,50,000 on healthcare each year. As an easy illustration, the Thrive plan could help you save about ₹45,000 a year, against a plan price of ₹30,000 plus GST. Actual saving depends on the services and providers used. Would you like the plan details?',trig:'F',at:'09:31',btns:['Official details','Activation link','Book a centre']},
+  {s:'cust',t:'Activation link',at:'09:58'},
+  {s:'bot',t:'Selected plan: Thrive. Price: ₹30,000 yearly plus applicable GST. Renewal: as shown on the official plan page. Please review the official page before payment: https://www.oxxy.in/… Reply DONE after completing it.',trig:'E',at:'10:02'},
+  {s:'sys',t:'activation_link_sent_at 10:02 · state AWAITING_PAYMENT · Trigger Q allowed once'},
+ ],
+ 'C-1031':[
+  {s:'cust',t:'father has chest pain and difficulty breathing, which hospital?',at:'09:40'},
+  {s:'bot',t:EMERGENCY_MSG,trig:'R',at:'09:40'},
+  {s:'sys',t:'Guardrail ran before Claude: emergency signal → state PAUSED · safety task T-552 (urgent) · all commercial triggers suppressed'},
+ ],
+ 'C-1024':[
+  {s:'cust',t:'Plans dekhne hain. Is this insurance?',at:'Yesterday'},
+  {s:'bot',t:'No. Oxxy is not insurance and does not pay or reimburse claims. It is a healthcare-savings and support service that can work alongside your insurance. Are you asking for a specific planned service?',trig:'B',at:'Yesterday'},
+ ],
+ 'C-1037':[
+  {s:'cust',t:'Mujhe sirf gallbladder surgery ke liye help chahiye, December mein. Estimate 1.8 lakh hai.',at:'09:45'},
+  {s:'bot',t:'Cut Medi Bills is Oxxy’s quick medical-savings service for an upcoming requirement. Before activation, has any appointment or registration been done, treatment started, or payment made at the preferred centre?',trig:'I',at:'09:46',btns:['Nothing done yet','Yes, already done']},
+  {s:'cust',t:'Nothing done yet',at:'09:51'},
+ ],
+ 'C-1011':[
+  {s:'cust',t:'STOP',at:'Sun'},
+  {s:'bot',t:'Certainly. I have recorded that you do not want further WhatsApp communication. I will end the chat now.',trig:'R',at:'Sun'},
+ ],
+ 'C-1006':[
+  {s:'cust',t:'I was charged twice for Infinity',at:'Sat'},
+  {s:'bot',t:'I am sorry about that. Please share the transaction dates or references, and I will escalate this urgently to payment support. Please do not share any OTP, PIN or password.',trig:'O',at:'Sat'},
+  {s:'sys',t:'Escalated · task T-551 (urgent) · activation prompts suppressed while the payment issue is open'},
+ ],
+};
+const defaultThread = c => [{s:'cust',t:c.last,at:c.time}];
+
+let bookings = [
+  {id:'BR-3318',cust:'C-1042',centre:'Adyar Ortho Care, Adyar',service:'Orthopaedics – knee review',date:'2026-11-14',slot:'10:00–12:00',status:'pending_confirmation',created:'Today 10:26',for:'Mother (81)'},
+  {id:'BR-3314',cust:'C-1024',centre:'Apollo Clinic, Kondapur',service:'Full body health check',date:'2026-11-20',slot:'08:00–10:00',status:'pending_confirmation',created:'Yesterday',for:'Self'},
+  {id:'BR-3309',cust:'C-1029',centre:'Kauvery Hospital, Alwarpet',service:'Dermatology consultation',date:'2026-11-17',slot:'17:00–19:00',status:'confirmed',created:'7 Nov',for:'Self',confirmedBy:'Kavya S.'},
+  {id:'BR-3301',cust:'C-1006',centre:'Manipal Hospital, Old Airport Road',service:'Cardiology review',date:'2026-12-02',slot:'14:00–16:00',status:'pending_confirmation',created:'5 Nov',for:'Father'},
+  {id:'BR-3297',cust:'C-1037',centre:'KMCH, Avinashi Road',service:'General surgery consultation',date:'2026-11-18',slot:'09:00–11:00',status:'cancelled',created:'4 Nov',for:'Self'},
+];
+let tasks = [
+  {id:'T-552',type:'emergency',title:'Safety event – check on Ravi Shankar (automation paused)',cust:'C-1031',prio:'urgent',due:'Now',status:'open',owner:null},
+  {id:'T-551',type:'payment_issue',title:'Charged twice for Infinity – escalate to payment support',cust:'C-1006',prio:'urgent',due:'Today 12:00',status:'in_progress',owner:'You'},
+  {id:'T-549',type:'booking_confirm',title:'Confirm BR-3318 with Adyar Ortho Care (activation questions allowed)',cust:'C-1042',prio:'high',due:'Today 13:00',status:'open',owner:'Kavya S.'},
+  {id:'T-541',type:'eligibility_review',title:'Cut Medi Bills – check surgery estimate and centre status',cust:'C-1037',prio:'normal',due:'Tomorrow',status:'open',owner:null},
+  {id:'T-538',type:'senior_callback',title:'Family pricing question – callback (not in Playbook yet)',cust:'C-1024',prio:'normal',due:'Tomorrow',status:'open',owner:null},
+  {id:'T-530',type:'booking_confirm',title:'Confirm BR-3314 with Apollo Clinic (booking only, activation declined)',cust:'C-1024',prio:'normal',due:'Tomorrow',status:'open',owner:'Kavya S.'},
+  {id:'T-524',type:'activation_verification',title:'Customer replied DONE – verify Everyday payment',cust:'C-1029',prio:'normal',due:'9 Nov',status:'done',owner:'Kavya S.'},
+];
+let followups = [
+  {id:'F-901',cust:'C-1039',trig:'Q',template:'incomplete_activation_v1',when:'2026-11-10 16:00',status:'scheduled',note:'One reminder only'},
+  {id:'F-899',cust:'C-1024',trig:'N',template:'agreed_followup_v1',when:'2026-11-11 11:00',status:'scheduled',note:'Customer chose this time'},
+  {id:'F-896',cust:'C-1019',trig:'—',template:'rescue_no_response_v1',when:'2026-11-10 22:15',status:'blocked',note:'Quiet hours (after 21:00): moved to 09:00'},
+  {id:'F-893',cust:'C-1029',trig:'L',template:'news_digest_v1',when:'2026-11-10 10:00',status:'frequency_cap',note:'Meta marketing limit: not retried today'},
+  {id:'F-890',cust:'C-1011',trig:'N',template:'agreed_followup_v1',when:'2026-11-09 10:00',status:'suppressed',note:'Opted out (R)'},
+  {id:'F-884',cust:'C-1029',trig:'P',template:'payment_recorded_v1',when:'2026-11-09 09:12',status:'sent',note:''},
+];
+const centres = [
+  {name:'Adyar Ortho Care',city:'Chennai',area:'Adyar',type:'Specialist centre',services:'Orthopaedics, Physiotherapy, X-ray',verified:'2026-10-14',active:true,source:'Hospital website + NABH list'},
+  {name:'Kauvery Hospital',city:'Chennai',area:'Alwarpet',type:'Multispeciality hospital',services:'Orthopaedics, Dermatology, Cardiology',verified:'2026-09-30',active:true,source:'Hospital website'},
+  {name:'Sri Ramana Multispeciality',city:'Chennai',area:'Kotturpuram',type:'Multispeciality hospital',services:'General medicine, Surgery, Orthopaedics',verified:'2026-10-02',active:true,source:'Hospital website'},
+  {name:'Apollo Clinic',city:'Hyderabad',area:'Kondapur',type:'Clinic',services:'Health checks, Lab, OPD',verified:'2026-08-21',active:true,source:'Clinic website'},
+  {name:'KMCH',city:'Coimbatore',area:'Avinashi Road',type:'Multispeciality hospital',services:'General surgery, Oncology, Cardiology',verified:'2026-07-11',active:true,source:'Hospital website'},
+  {name:'Manipal Hospital',city:'Bengaluru',area:'Old Airport Road',type:'Multispeciality hospital',services:'Cardiology, Oncology, Neurology',verified:'2026-05-02',active:true,source:'Hospital website'},
+  {name:'Government General Hospital',city:'Chennai',area:'Park Town',type:'Government hospital',services:'—',verified:'2026-09-01',active:false,source:'Excluded: government facility'},
+];
+let priceChanges = [
+  {id:'PC-12',plan:'vital',from:20000,to:22000,by:'Naveen R.',at:'9 Nov, 16:20',approver:null,reason:'Annual price revision (yearly price)'},
+];
+const audit = [
+  ['2026-11-10 10:26','bot','booking_requests.insert','BR-3318 · pending_confirmation','C-1042'],
+  ['2026-11-10 10:02','bot','messages.send','Activation link · Thrive yearly','C-1039'],
+  ['2026-11-10 09:40','guardrail','conversations.state','→ PAUSED (emergency signal)','C-1031'],
+  ['2026-11-10 09:40','system','crm_outbox.create_task','T-552 urgent → CRM','C-1031'],
+  ['2026-11-10 09:31','validator','draft.rejected','Savings 30% above Everyday cap 20% – redrafted','C-1029'],
+  ['2026-11-09 16:20','Naveen R.','plan_catalog.propose','Vital yearly ₹20,000 → ₹22,000','—'],
+  ['2026-11-09 11:05','Kavya S.','booking_requests.confirm','BR-3309 confirmed','C-1029'],
+  ['2026-11-08 19:44','system','consents.withdraw','Opt-out via STOP','C-1011'],
+];
+
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const inr = n => '₹' + Number(n).toLocaleString('en-IN');
+const cust = id => customers.find(c => c.id === id);
+const planName = p => (PLANS.find(x => x.code === p) || {}).name || '—';
+const initials = n => n.split(' ').map(x => x[0]).slice(0,2).join('');
+const statePill = s => { const [l,k] = STATES[s] || [s,'plain']; return `<span class="pill ${k}">${l}</span>`; };
+const SALES=['Rahul V.','Kavya S.','Divya M.'];
+const crmId = c => 'CRM-'+(20000+parseInt(c.id.slice(2),10));
+const ownerOf = c => SALES[parseInt(c.id.slice(2),10)%3];
+const crmBk = b => 'BK-'+(85000+parseInt(b.id.slice(3),10));
+const productLabel = c => c.product === 'cmb' ? 'Cut Medi Bills' : c.product === 'oxxy' ? ('Oxxy' + (c.plan ? ' · ' + planName(c.plan) : '')) : '<span class="muted">Not chosen</span>';
+const bookingPill = s => ({pending_confirmation:'<span class="pill warn">Pending confirmation</span>',confirmed:'<span class="pill ok">Confirmed</span>',cancelled:'<span class="pill plain">Cancelled</span>'}[s]);
+const prioPill = p => ({urgent:'<span class="pill crit">Urgent</span>',high:'<span class="pill warn">High</span>',normal:'<span class="pill plain">Normal</span>'}[p]);
+const fmtDate = iso => new Date(iso + 'T00:00:00+05:30').toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'});
+function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}
+function addMonths(d,n){const x=new Date(d);x.setMonth(x.getMonth()+n);return x}
+const isoDay = d => d.toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'});
+const WIN_MIN = isoDay(addDays(TODAY,3)), WIN_MAX = isoDay(addMonths(TODAY,6));
+function toast(msg){const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2600)}
+
+const ICONS = {
+  dash:'<path d="M3 13h8V3H3zM13 21h8V11h-8zM3 21h8v-6H3zM13 3v6h8V3z"/>',
+  chat:'<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+  users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/>',
+  cal:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  task:'<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  pin:'<path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+  tag:'<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
+  zap:'<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>',
+  card:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>',
+  log:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 14H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 3V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 10h0a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  phone:'<rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/>',
+  shield:'<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/>',
+  key:'<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/>',
+  plug:'<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"/>',
+  msg:'<path d="M4 4h16v12H8l-4 4z"/><path d="M8 9h8M8 12h5"/>',
+  lock:'<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  pulse:'<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  chart:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  flow:'<circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.5 6h9M6.5 8l4.3 7.8M17.5 8l-4.3 7.8"/>',
+  sync:'<path d="M20 7h-9a5 5 0 0 0 0 10h1M4 17h9a5 5 0 0 0 0-10h-1"/><path d="M17 4l3 3-3 3M7 20l-3-3 3-3"/>',
+  menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
+};
+const ic = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg>`;
+
+const NAV = [
+  ['Work',[['dashboard','Dashboard','dash'],['inbox','Conversations','chat',()=>customers.filter(c=>c.unread).length],['bookings','Booking requests','cal',()=>bookings.filter(b=>b.status==='pending_confirmation').length],['followups','Follow-ups','clock']]],
+  ['Directory',[['customers','Customers','users'],['centres','Centres','pin']]],
+  ['Control',[['plans','Plans and prices','tag'],['triggers','Triggers A–R','zap'],['flow','Trigger flow','flow'],['reports','Reports','chart']]],
+  ['Admin',[['admin','Admin overview','shield'],['users','Users','users',()=>staff.filter(u=>u.status==='invited').length],['roles','Roles and permissions','key'],['integrations','Integrations','plug'],['crm','CRM sync','sync',()=>outbox.filter(o=>o.status==='failed'||o.status==='dead').length],['templates','Message templates','msg',()=>templates.filter(t=>t.status==='In review').length],['privacy','Data requests','lock',()=>dataReqs.filter(d=>d.status!=='Completed').length],['health','System health','pulse'],['audit','Audit log','log'],['config','Configuration','gear']]],
+  ['Demo',[['simulator','WhatsApp simulator','phone']]],
+];
+
+/* ---------- state ---------- */
+let ui = {selConv:'C-1042', tabInbox:'all', tabBook:'pending_confirmation', tabTask:'open', custId:null, drawer:null, loggedIn:true, mini:false, navOpen:false};
+try{ ui.mini = localStorage.getItem('oxxy-mini')==='1'; }catch(e){}
+function toggleNav(){
+  if(window.innerWidth<=860){ ui.navOpen=!ui.navOpen; }
+  else { ui.mini=!ui.mini; try{localStorage.setItem('oxxy-mini',ui.mini?'1':'0')}catch(e){} }
+  render();
+}
+
+function route(){ return (location.hash || '#dashboard').slice(1) || 'dashboard'; }
+
+function shell(title, sub, body, actions=''){
+  const r = route().split('-')[0];
+  const nav = NAV.map(([g,items]) => `<div class="navgroup eyebrow">${g}</div><nav class="nav">${items.map(([k,l,i,cnt])=>{const n=cnt?cnt():0;return `<a href="#${k}" title="${l}" class="${r===k||(r==='customer'&&k==='customers')?'on':''}">${ic(i)}<span>${l}</span>${n?`<span class="count">${n}</span>`:''}</a>`}).join('')}</nav>`).join('');
+  return `<div class="app ${ui.mini?'mini':''} ${ui.navOpen?'navopen':''}">
+    <div class="navscrim" onclick="ui.navOpen=false;render()"></div>
+    <aside class="rail" aria-label="Main navigation">
+      <div class="brand"><div class="mark">O</div><div><b>Oxxy</b><span>Sales and bot console</span></div></div>
+      ${nav}
+      <div class="me"><div class="avatar">MK</div><div style="min-width:0"><b style="font-size:13px">Manoj K.</b><div class="small muted">Sales lead</div></div><button class="btn sm" style="margin-left:auto" onclick="logout()">Sign out</button></div>
+    </aside>
+    <main class="main">
+      <div class="topbar"><button class="menubtn" onclick="toggleNav()" aria-label="Show or hide the sidebar">${ic('menu')}</button><div style="min-width:0"><div class="eyebrow">${esc(sub)}</div><h1>${esc(title)}</h1></div>${actions}<span class="proto-note">Prototype · sample data</span>
+        <label class="search"><span class="muted small">Search</span><input id="gsearch" placeholder="Name, phone, booking ID" onkeydown="if(event.key==='Enter')globalSearch(this.value)"></label></div>
+      <div class="content">${body}</div>
+    </main>
+  </div>${ui.drawer?drawerHTML():''}`;
+}
+
+/* ---------- screens ---------- */
+function Login(){
+  return `<div class="login">
+    <div class="l">
+      <div class="brand" style="padding:0"><div class="mark">O</div><div><b>Oxxy</b><span>Sales and bot console</span></div></div>
+      <div><h1>Sign in</h1><p class="muted" style="margin:6px 0 0">For the Oxxy sales team and admins. Customer records, bookings and tasks stay in the Oxxy CRM.</p></div>
+      <form onsubmit="event.preventDefault();login()" class="grid" style="gap:12px">
+        <div class="field"><label for="em">Work email</label><input id="em" class="input" type="email" value="ops.demo@oxxy.test"></div>
+        <div class="field"><label for="pw">Password</label><input id="pw" class="input" type="password" value="demo-only"></div>
+        <button class="btn pri" style="justify-content:center;padding:10px">Sign in</button>
+        <p class="small muted" style="margin:0">Two-step verification is required for Admin and Pricing roles. This prototype signs in with any value.</p>
+      </form>
+    </div>
+    <div class="r"><div class="eyebrow" style="color:inherit;opacity:.8">How Oxxy runs</div><blockquote>Claude drafts. Code decides. A person confirms.</blockquote><p>Every booking stays pending until the sales team confirms it with the centre in the CRM. Every price change needs two approvers.</p></div>
+  </div>`;
+}
+
+function Dashboard(){
+  const pend = bookings.filter(b=>b.status==='pending_confirmation').length;
+  const urgent = tasks.filter(t=>t.prio==='urgent'&&t.status!=='done');
+  const funnel = [['Conversations started',1240],['Consent given',1012],['Need captured',744],['Plan recommended',438],['Activation link sent',212],['Paid / activated',151]];
+  const max = funnel[0][1];
+  return shell('Good morning, Manoj','Tuesday, 10 November 2026', `
+    ${urgent.length?`<div class="panel" style="border-color:var(--crit);background:var(--crit-soft)"><div class="panel-b row"><span class="pill crit">Urgent</span><b>${esc(urgent[0].title)}</b><span class="muted small">Emergency guardrail fired at 09:40. Automated messages are paused for this customer.</span><span class="spacer"></span><a class="btn sm" href="#tasks">Open task</a></div></div>`:''}
+    <div class="grid g4">
+      <div class="panel stat"><span class="eyebrow">Open conversations</span><span class="v">86</span><span class="d">${customers.filter(c=>c.unread).length} waiting for a reply</span></div>
+      <div class="panel stat"><span class="eyebrow">Bookings to confirm</span><span class="v">${pend}</span><span class="d">Oldest from 5 Nov</span></div>
+      <div class="panel stat"><span class="eyebrow">Activations this week</span><span class="v">37</span><span class="d">₹1,12,463 collected (excl. GST)</span></div>
+      <div class="panel stat"><span class="eyebrow">Drafts rejected by validator</span><span class="v">4.1%</span><span class="d">Mostly savings-cap and button-length rules</span></div>
+    </div>
+    <div class="grid g21">
+      <div class="panel"><div class="panel-h"><h2>Journey funnel</h2><span class="muted small">Last 30 days</span></div>
+        <div class="panel-b grid" style="gap:12px">${funnel.map(([l,v])=>`<div class="grid" style="grid-template-columns:170px 1fr 60px;gap:10px;align-items:center"><span class="small">${l}</span><div class="bar"><span style="width:${(v/max*100).toFixed(1)}%"></span></div><span class="mono small" style="text-align:right">${v.toLocaleString('en-IN')}</span></div>`).join('')}</div></div>
+      <div class="panel"><div class="panel-h"><h2>Escalations in the CRM</h2><span class="spacer"></span><a href="#tasks" class="small">Mirror</a></div>
+        ${tasks.filter(t=>t.status!=='done').slice(0,5).map(t=>`<div class="panel-b row" style="border-bottom:1px solid var(--line);gap:8px">${prioPill(t.prio)}<span style="flex:1;min-width:0">${esc(t.title)}</span><span class="muted small mono">${t.due}</span></div>`).join('')}
+      </div>
+    </div>
+    <div class="grid g2">
+      <div class="panel"><div class="panel-h"><h2>Bookings pending confirmation</h2><span class="spacer"></span><a href="#bookings" class="small">Open queue</a></div>
+        <div class="tbl-wrap"><table><thead><tr><th>ID</th><th>Customer</th><th>Centre</th><th>Date</th></tr></thead><tbody>
+        ${bookings.filter(b=>b.status==='pending_confirmation').map(b=>`<tr class="click" onclick="openBooking('${b.id}')"><td class="mono">${b.id}</td><td>${esc(cname(b.cust))}</td><td>${esc(b.centre)}</td><td class="mono">${fmtDate(b.date)}</td></tr>`).join('')}
+        </tbody></table></div></div>
+      <div class="panel"><div class="panel-h"><h2>Top triggers today</h2><span class="spacer"></span><a href="#triggers" class="small">All triggers</a></div>
+        <div class="panel-b grid" style="gap:10px">${['A','D','E','F','G'].map(k=>`<div class="row"><span class="tag">${k}</span><span style="flex:1">${TRIGGERS[k]}</span><span class="mono small">${Math.round(TRIG_STATS[k]/30)}</span></div>`).join('')}</div></div>
+    </div>`);
+}
+
+function Inbox(){
+  const filt = {all:()=>true, unread:c=>c.unread, handoff:c=>['ESCALATED','PAUSED'].includes(c.state), bookings:c=>['BOOKING_CAPTURE','BOOKING_RECORDED'].includes(c.state)};
+  const list = customers.filter(filt[ui.tabInbox]);
+  const c = cust(ui.selConv) || list[0] || customers[0];
+  if(!c) return shell('Conversations','WhatsApp inbox','<div class="panel empty">No conversations yet.</div>');
+  const thread = THREADS[c.id] || defaultThread(c);
+  const paused = ['PAUSED','OPTED_OUT'].includes(c.state);
+  const draft = c.id==='C-1042' ? `Yes, I can record a booking request for your mother at Adyar Ortho Care.\n\nWhich date works? Choose a date from 9 Nov 2026 onwards. The Oxxy team will confirm the slot with the centre.` : null;
+  return shell('Conversations','WhatsApp inbox', `
+    <div class="row"><div class="tabs">${[['all','All'],['unread','Unread'],['handoff','Needs a person'],['bookings','Booking in progress']].map(([k,l])=>`<button class="${ui.tabInbox===k?'on':''}" onclick="ui.tabInbox='${k}';render()">${l}</button>`).join('')}</div></div>
+    <div class="panel inbox">
+      <div class="ilist">${list.map(x=>`<div class="iitem ${x.id===c.id?'on':''}" onclick="ui.selConv='${x.id}';render()"><div class="avatar">${initials(x.name)}</div><div class="t"><b><span>${esc(x.name)}</span><span class="muted small mono" style="font-weight:400">${x.time}</span></b><p>${esc(x.last)}</p><div class="row" style="gap:6px">${statePill(x.state)}${x.unread?`<span class="pill info plain">${x.unread} new</span>`:''}</div></div></div>`).join('') || '<div class="empty">No conversations in this view.</div>'}</div>
+      <div class="thread">
+        <div class="panel-h" style="background:var(--surface)"><div class="avatar">${initials(c.name)}</div><div><b>${esc(c.name)}</b><div class="small muted mono">${c.phone}</div></div><span class="spacer"></span>${statePill(c.state)}
+          <button class="btn sm" onclick="takeOver('${c.id}')">${c.state==='ESCALATED'?'Return to bot':'Take over'}</button></div>
+        <div class="msgs">${thread.map(m=> m.s==='sys'?`<div class="sys">${esc(m.t)}</div>`:`<div class="bub ${m.s==='cust'?'':'out'}">${esc(m.t)}${m.btns?`<div class="btns">${m.btns.map(b=>`<span>${esc(b)}</span>`).join('')}</div>`:''}<div class="meta">${m.trig?`<span class="tag">${m.trig}</span>`:''}${m.s==='agent'?'<span>You</span>':m.s==='bot'?'<span>Bot</span>':''}<span>${m.at||''}</span></div></div>`).join('')}</div>
+        ${paused?`<div class="panel-b small" style="background:var(--crit-soft);color:var(--crit)">${c.state==='OPTED_OUT'?'Customer opted out. Only contact about an open booking or payment case is allowed.':'Automation paused (emergency). Reply manually only after checking on the customer.'}</div>`:''}
+        <div class="composer"><textarea id="reply" class="input" placeholder="Reply as Oxxy team (sent within the 24-hour window)"></textarea><button class="btn pri" onclick="sendReply('${c.id}')">Send</button></div>
+      </div>
+      <aside class="side">
+        <div><div class="eyebrow">Customer</div><dl class="kv" style="margin-top:8px"><dt>ID</dt><dd class="mono">${c.id}</dd><dt>CRM</dt><dd class="mono">${crmId(c)}</dd><dt>Sales owner</dt><dd>${ownerOf(c)}</dd><dt>City</dt><dd>${esc(c.city)}</dd><dt>Language</dt><dd>${esc(c.lang)}</dd><dt>Product</dt><dd>${productLabel(c)}</dd><dt>Consent</dt><dd>${c.consent?'<span class="pill ok">Given</span>':'<span class="pill warn">Not given</span>'}</dd></dl>
+          <div class="row" style="margin-top:10px;gap:6px"><a class="btn sm" href="#customer-${c.id}">Bot record</a><button class="btn sm" onclick="toast('Opens ${crmId(c)} in the CRM')">Open in CRM</button><button class="btn sm" onclick="customerForm('${c.id}')">Edit</button></div></div>
+        <div><div class="eyebrow">Triggers fired this journey</div><div class="row" style="margin-top:8px;gap:6px">${c.triggers.length?c.triggers.map(t=>`<span class="tag" title="${TRIGGERS[t]}">${t} · ${TRIGGERS[t]}</span>`).join(''):'<span class="muted small">None yet</span>'}</div></div>
+        ${draft?`<div><div class="eyebrow">Next bot reply (Claude draft)</div>
+          <div class="draftbox" style="margin-top:8px;white-space:pre-wrap">${esc(draft)}</div>
+          <div style="margin-top:8px">${[['y','Guardrails passed (no emergency, no opt-out)'],['y','One product: Oxxy · Vital'],['y','Date range shown: today + 3 days onwards'],['y','No promise that the booking is confirmed'],['y','1 call to action, 0 buttons over 20 chars']].map(([k,t])=>`<div class="check"><i class="${k}">${k==='y'?'✓':'!'}</i><span>${t}</span></div>`).join('')}</div>
+          <div class="row" style="margin-top:6px"><button class="btn sm pri" onclick="toast('Draft sent to customer (prototype)')">Approve and send</button><button class="btn sm" onclick="toast('Draft discarded; bot will redraft')">Redraft</button></div></div>`:''}
+      </aside>
+    </div>`);
+}
+
+function CustomerProfile(id){
+  const c = cust(id); if(!c) return shell('Not found','Customers','<div class="panel empty">No customer with this ID.</div>');
+  const plan = PLANS.find(p=>p.code===c.plan);
+  let value = '';
+  if(c.product==='oxxy' && plan && c.spend){
+    const s=Math.floor(c.spend*plan.cap/100/500)*500, cost=Math.round(plan.yearly*(1+GST)), ok=s>cost;
+    value = `<div class="panel"><div class="panel-h"><h2>Value check</h2><span class="muted small">Playbook 9.1 and 9.2</span></div><div class="panel-b"><dl class="kv">
+      <dt>Annual spend (customer said)</dt><dd class="mono">${inr(c.spend)}</dd>
+      <dt>Illustration rate</dt><dd class="mono">${plan.cap}% <span class="muted small">(${plan.name}${plan.cap<30?' cap':''})</span></dd>
+      <dt>Illustrated yearly saving</dt><dd class="mono">${inr(s)} <span class="muted small">rounded down to ₹500</span></dd>
+      <dt>Yearly price + 18% GST</dt><dd class="mono">${inr(cost)}</dd>
+      <dt>Result</dt><dd>${ok?'<span class="pill ok">Passes: savings close allowed</span>':'<span class="pill crit">Fails: no savings close; offer a lower plan or an honest answer</span>'}</dd></dl></div></div>`;
+  }
+  if(c.product==='cmb' && c.bill){
+    const s=Math.round(c.bill*.3), cost=Math.round(CMB.monthly*(1+GST));
+    value = `<div class="grid g2"><div class="panel"><div class="panel-h"><h2>Value check</h2><span class="muted small">Cut Medi Bills, Playbook 9.2</span></div><div class="panel-b"><dl class="kv">
+      <dt>Estimated bill</dt><dd class="mono">${inr(c.bill)}</dd><dt>30% illustration</dt><dd class="mono">${inr(s)}</dd><dt>Monthly price + GST</dt><dd class="mono">${inr(cost)}</dd>
+      <dt>Result</dt><dd>${s>cost?'<span class="pill ok">Passes</span>':'<span class="pill crit">Fails</span>'}</dd></dl></div></div>
+      <div class="panel"><div class="panel-h"><h2>Eligibility gate</h2><span class="muted small">Playbook 8.2</span></div><div class="panel-b"><dl class="kv">
+      <dt>Appointment</dt><dd>None</dd><dt>Registration</dt><dd>None</dd><dt>Treatment</dt><dd>Not started</dd><dt>Bill</dt><dd>Not generated</dd><dt>Insurance</dt><dd>Has insurance: team must be told before it is applied (Trigger J)</dd>
+      <dt>Result</dt><dd><span class="pill ok">Potentially eligible</span></dd></dl></div></div></div>`;
+  }
+  const bks = bookings.filter(b=>b.cust===id);
+  return shell(c.name, 'Bot record · ' + c.id + ' · ' + crmId(c), `
+    <div class="row"><a href="#inbox" class="btn sm">← Conversations</a><button class="btn sm" onclick="toast('Opens ${crmId(c)} in the CRM')">Open in CRM</button><a href="#inbox" onclick="ui.selConv='${c.id}'" class="btn sm">Open conversation</a><span class="spacer"></span><button class="btn sm" onclick="customerForm('${c.id}')">Edit</button><button class="btn sm danger" onclick="delCustomer('${c.id}')">Delete</button></div>
+    <div class="grid g3">
+      <div class="panel"><div class="panel-h"><h2>Profile</h2></div><div class="panel-b"><dl class="kv"><dt>Phone</dt><dd class="mono">${c.phone}</dd><dt>City</dt><dd>${esc(c.city)}</dd><dt>Language</dt><dd>${esc(c.lang)}</dd><dt>Beneficiary</dt><dd>${esc(c.beneficiary||'—')}</dd><dt>Need</dt><dd>${esc(c.need||'—')}</dd><dt>State</dt><dd>${statePill(c.state)}</dd></dl></div></div>
+      <div class="panel"><div class="panel-h"><h2>Routing</h2></div><div class="panel-b"><dl class="kv"><dt>Selected product</dt><dd>${productLabel(c)}</dd><dt>Reason</dt><dd>${esc(c.reason||'—')}</dd><dt>Other product</dt><dd>${c.product?'<span class="pill plain">Suppressed</span>':'—'}</dd><dt>Activation</dt><dd>${c.active?'<span class="pill ok">Active</span>':'<span class="pill plain">Not active</span>'}</dd></dl>
+        <p class="small muted" style="margin:10px 0 0">One customer, one product. The database allows only one pending or active product per customer.</p></div></div>
+      <div class="panel"><div class="panel-h"><h2>Consent (DPDP Act)</h2></div><div class="panel-b"><dl class="kv"><dt>WhatsApp</dt><dd>${c.consent?'<span class="pill ok">Given</span>':'<span class="pill plain">Withdrawn</span>'}</dd><dt>Health data</dt><dd>${c.health?'<span class="pill ok">Given · notice v1</span>':'<span class="pill warn">Not yet</span>'}</dd><dt>Marketing</dt><dd>${c.consent&&c.state!=='OPTED_OUT'?'<span class="pill ok">Allowed</span>':'<span class="pill plain">Off</span>'}</dd><dt>Retention</dt><dd>{{Retention_Period}} <span class="pill warn plain">Confirm</span></dd></dl>${c.consent?`<button class="btn sm danger" style="margin-top:10px" onclick="withdraw('${c.id}')">Record opt-out</button>`:''}</div></div>
+    </div>
+    ${value}
+    <div class="panel"><div class="panel-h"><h2>Booking requests</h2></div>${bks.length?`<div class="tbl-wrap"><table><thead><tr><th>ID</th><th>Centre</th><th>Service</th><th>Date</th><th>Time</th><th>Status</th></tr></thead><tbody>${bks.map(b=>`<tr class="click" onclick="openBooking('${b.id}')"><td class="mono">${b.id}</td><td>${esc(b.centre)}</td><td>${esc(b.service)}</td><td class="mono">${fmtDate(b.date)}</td><td class="mono small">${b.slot}</td><td>${bookingPill(b.status)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">No booking requests.</div>'}</div>
+    <div class="panel"><div class="panel-h"><h2>Trigger history</h2></div><div class="panel-b row" style="gap:6px">${c.triggers.map(t=>`<span class="tag">${t} · ${TRIGGERS[t]}</span>`).join('')||'<span class="muted">None</span>'}</div></div>`);
+}
+
+function Activations(){
+  const rows = [
+    ['A-771','C-1029','Oxxy Everyday','Yearly','₹10,000','paid','active','9 Nov 2026','Renewal per official page'],
+    ['A-774','C-1039','Oxxy Thrive','Yearly','₹30,000','link_sent','pending','—','Trigger Q reminder at 16:00 (once)'],
+    ['A-760','C-1006','Oxxy Infinity','Monthly','₹3,999','dispute','active','12 Oct 2026','Charged twice – escalated (T-551)'],
+    ['A-752','C-1011','Oxxy Vital','Monthly','₹1,999','refunded','cancelled','—','Opted out'],
+  ];
+  const ps = {paid:'<span class="pill ok">Paid</span>',link_sent:'<span class="pill warn">Link sent</span>',refunded:'<span class="pill plain">Refunded</span>',dispute:'<span class="pill crit">Payment issue</span>'};
+  const as = {active:'<span class="pill ok">Active</span>',pending:'<span class="pill warn">Pending</span>',cancelled:'<span class="pill plain">Cancelled</span>'};
+  return shell('Activations','Records', `
+    <div class="grid g4"><div class="panel stat"><span class="eyebrow">Active members</span><span class="v">1,284</span></div><div class="panel stat"><span class="eyebrow">Links not paid</span><span class="v">64</span><span class="d">Trigger Q sends one reminder only</span></div><div class="panel stat"><span class="eyebrow">Cut Medi Bills monthly renewals (7 days)</span><span class="v">41</span><span class="d">Pre-debit notice sent before each charge</span></div><div class="panel stat"><span class="eyebrow">Blocked second product</span><span class="v">6</span><span class="d">Routed to servicing instead</span></div></div>
+    <div class="panel"><div class="tbl-wrap"><table><thead><tr><th>ID</th><th>Customer</th><th>Product</th><th>Billing</th><th>Price (excl. GST)</th><th>Payment</th><th>Activation</th><th>Since</th><th>Note</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td class="mono">${r[0]}</td><td><a href="#customer-${r[1]}">${esc(cname(r[1]))}</a></td><td>${r[2]}</td><td>${r[3]}</td><td class="mono">${r[4]}</td><td>${ps[r[5]]}</td><td>${as[r[6]]}</td><td class="mono small">${r[7]}</td><td class="small muted">${r[8]}</td></tr>`).join('')}
+    </tbody></table></div></div>`);
+}
+
+function Plans(){
+  const cost = p => Math.round(p.yearly*(1+GST));
+  const be = p => Math.ceil(cost(p)/(p.cap/100));
+  return shell('Plans and prices','Control · Playbook sections 7, 8 and 9.2', `
+    <div class="panel"><div class="panel-b small row"><span class="pill warn">Confirm before launch</span><span style="flex:1;min-width:0">Prices are from the Playbook. Before sending any link the bot fetches the current price, GST and renewal terms from the official page (get_official_plan). If that fails, it arranges a callback instead of guessing.</span></div></div>
+    <div class="panel"><div class="panel-h"><h2>Oxxy plans</h2><span class="muted small">Recommend one plan; show all four only when the customer asks to compare</span></div><div class="tbl-wrap"><table><thead><tr><th>Plan</th><th>Monthly</th><th>Yearly</th><th>Age</th><th>Eligible bills</th><th>Savings up to</th><th>Illustration rate</th><th>Yearly + GST</th><th>Break-even spend</th><th></th></tr></thead><tbody>
+    ${PLANS.map(p=>`<tr><td><b>${p.name}</b><div class="small muted">${p.fit}</div></td><td class="mono">${inr(p.monthly)}</td><td class="mono">${inr(p.yearly)}</td><td>${p.age}</td><td class="small">${p.limit}</td><td class="mono">${p.maxSaving||p.cap}%</td><td class="mono">${p.cap}%</td><td class="mono">${inr(cost(p))}</td><td class="mono">${inr(be(p))}/yr</td><td><button class="btn sm" onclick="editPlan('${p.code}')">Edit</button></td></tr>`).join('')}
+    </tbody></table></div></div>
+    <div class="grid g2">
+      <div class="panel"><div class="panel-h"><h2>Cut Medi Bills</h2><span class="muted small">Always written in full</span></div><div class="panel-b"><dl class="kv">
+        <dt>Monthly</dt><dd><span class="mono">₹4,999</span> + GST · renews every month until cancelled · notice before each renewal charge · break-even <span class="mono">₹19,664</span> expense that month</dd>
+        <dt>Annual</dt><dd><span class="mono">₹19,999</span> + GST · one-time, valid one year, no automatic renewal · break-even <span class="mono">₹78,664</span>/yr</dd>
+        <dt>Activation</dt><dd>Normally 5 to 10 working days</dd><dt>Age</dt><dd>No age limit</dd><dt>Pre-existing</dt><dd>All included</dd>
+        <dt>More members</dt><dd>30% off the listed price for each extra member after the first pays full price</dd>
+        <dt>Cancellation</dt><dd>{{Cancellation_Method}} <span class="pill warn plain">Confirm</span></dd></dl></div></div>
+      <div class="panel"><div class="panel-h"><h2>Which plan to recommend</h2><span class="muted small">Playbook 7</span></div><div class="tbl-wrap"><table><tbody>
+        ${[['Routine consultations and tests, lower exposure','Everyday'],['OPD plus possible hospitalisation, age within limit','Vital'],['Known pre-existing condition or larger expected expense','Thrive'],['Age above other limits; cancer, cardiac, kidney, liver, major surgery, pregnancy, IVF, cosmetic, hair, bariatric, recurring high expense','Infinity'],['One specific upcoming expense whose saving beats the price + GST','Cut Medi Bills']].map(r=>`<tr><td class="small">${r[0]}</td><td><b>${r[1]}</b></td></tr>`).join('')}
+      </tbody></table></div></div>
+    </div>
+    <div class="panel"><div class="panel-h"><h2>Pending price changes</h2><span class="muted small">Needs a second approver who is not the proposer</span><span class="spacer"></span><button class="btn pri" onclick="proposePrice()">Propose change</button></div>
+      ${priceChanges.length?`<div class="tbl-wrap"><table><thead><tr><th>ID</th><th>Plan</th><th>Change</th><th>Reason</th><th>Proposed by</th><th>Second approver</th><th></th></tr></thead><tbody>${priceChanges.map(pc=>`<tr><td class="mono">${pc.id}</td><td>${planName(pc.plan)}</td><td class="mono">${pc.field==='monthly'?'Monthly':'Yearly'} ${inr(pc.from)} → ${inr(pc.to)}</td><td class="small">${esc(pc.reason)}</td><td>${esc(pc.by)}<div class="small muted">${pc.at}</div></td><td>${pc.approver?esc(pc.approver):'<span class="muted">Waiting</span>'}</td><td>${pcActions(pc)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">No pending changes.</div>'}
+    </div>`);
+}
+
+/* ---------- Trigger flow (Trigger & Conversion Layer sections 1, 11, 12, 14) ---------- */
+const JOURNEYS = [
+  ['Sceptical lead',[['A'],['L','optional'],['','Answer the direct question'],['C','relevant education'],['E','only after interest']]],
+  ['Has insurance',[['B'],['','Find the need insurance does not fully cover'],['C/D'],['E']]],
+  ['No immediate need',[['C'],['F','if spend is known'],['E','one recommended plan']]],
+  ['Searching for care',[['D'],['G'],['H'],['E','one soft suggestion only']]],
+  ['Specific upcoming expense',[['I','qualification'],['D/G'],['H'],['','Cut Medi Bills activation only if eligible, selected and value check passes']]],
+  ['Ready customer',[['E','recommendation'],['','Official link'],['P','after payment']]],
+  ['Hesitant customer',[['M'],['A/B/C/D/F','as relevant'],['N','only with consent']]],
+  ['Unfinished activation',[['Q','once only'],['','Answer the concern'],['E','or close']]],
+  ['Complaint or uncertain fact',[['O'],['','Suppress promotional triggers until resolved']]],
+];
+const LADDER = [
+  ['Emergency or safety pause','R','crit'],['Opt-out or privacy request','R','crit'],['Complaint, payment problem or human escalation','O','warn'],
+  ['Direct customer question','B · J · K','info'],['Booking or provider action','D · G · H','acc'],['Trust and education','A · L · C','info'],
+  ['Plan recommendation and activation','E · F · I · P','ok'],['Follow-up or conversation recovery','M · N · Q','plain'],
+];
+const INTENTS = [
+  ['R',/chest pain|difficulty breathing|unconscious|severe bleeding|stroke|seizure|poison|emergency|suicid|self.?harm/,'Emergency signal'],
+  ['R',/\bstop\b|unsubscribe|delete (my )?data|do not contact|don'?t contact/,'Opt-out or privacy request'],
+  ['O',/guarantee|complain|refund|charged|charge problem|human|person|callback/,'Complaint, payment, guarantee or human request'],
+  ['P',/\bdone\b|i (have )?paid|payment (done|completed)/,'Customer says payment completed'],
+  ['B',/insurance/,'Insurance question'],
+  ['K',/medicine/,'Medicine requirement'],
+  ['G',/book|appointment|centre \d|prefer /,'Appointment or centre choice'],
+  ['D',/hospital|near me|doctor|clinic|centre|center|provider/,'Provider or location question'],
+  ['I',/surgery|procedure|operation|one test|upcoming/,'One specific upcoming expense'],
+  ['A',/genuine|scam|fake|prove|trust|company details|verify|legit/,'Trust or legitimacy doubt'],
+  ['L',/reviews?|testimonial|news/,'Wants proof from others'],
+  ['C',/why activate|nobody is (ill|sick)|will i (even )?use/,'Why activate / no urgency'],
+  ['F',/bill is|we spend|spend about|lakh|\d{5,}/,'Bill amount or annual spend shared'],
+  ['E',/plan|price|compare|link|ready|activate/,'Plan interest or activation readiness'],
+  ['M',/expensive|costly|think about|ask (my )?family|not sure/,'Objection or hesitation'],
+  ['N',/later|busy|tomorrow|next week/,'Asks for time'],
+];
+const FLOW_EXAMPLES = ['Is this genuine?','I already have insurance','Which hospitals near Adyar?','I prefer centre 2, book it','We spend about 1.5 lakh a year','Send me the plan link','I only need one surgery','It is too expensive','My father has chest pain','STOP','I was charged twice','[event] link sent 6 hours ago, no payment'];
+const FLOW_CTX = [
+  ['optedOut','Customer has opted out'],['emergencyOpen','Safety event still open'],['complaintOpen','Complaint or payment issue open'],
+  ['cmbSelected','Cut Medi Bills already selected'],['alreadySent','This trigger was already sent this journey'],['lateNight','Proactive send at 22:15 (quiet hours)'],
+];
+ui.flowJourney = 0; ui.flowText = 'Which hospitals near Adyar?'; ui.flowCtx = {};
+
+function evalTrigger(text, ctx){
+  const t = text.toLowerCase(); const steps = [];
+  let trig = null, why = '';
+  if(/^\[event\]/.test(t)){ trig='Q'; why='Backend event: official link sent, payment not completed'; steps.push(['y','Backend event, not a customer message']); }
+  else for(const [k,re,label] of INTENTS){ if(re.test(t)){ trig=k; why=label; break; } }
+  if(!trig){ steps.push(['w','No trigger phrase matched: answer the question or ask one discovery question']); return {trig:null, steps}; }
+  const lvl = LADDER.findIndex(l=>l[1].split(' · ').includes(trig));
+  steps.push(['y',`Matched: ${why} → priority ${lvl+1} of 8`]);
+  if(trig==='R'){ steps.push(['y','Safety and opt-out run before everything else and ignore all gates']); return {trig, steps, sent:true}; }
+  const gate = (bad,label,reason)=>{ steps.push([bad?'n':'y',label+(bad?` → suppressed (${reason})`:'')]); return bad?reason:null; };
+  const reason =
+    gate(ctx.optedOut,'Consent and opt-out','opt_out') ||
+    gate(ctx.emergencyOpen,'No open safety event','emergency') ||
+    gate(ctx.complaintOpen && 'CEFQIL'.includes(trig),'No open complaint blocking activation prompts','active_complaint') ||
+    gate(ctx.cmbSelected && ['E','F','C'].includes(trig),'Product lock: Oxxy prompts allowed','active_product') ||
+    gate(ctx.alreadySent && trig!=='P','Not already sent in this decision journey','duplicate') ||
+    gate(ctx.lateNight && ['N','Q','L'].includes(trig),'Inside 09:00–21:00 for proactive sends','quiet hours, moved to 09:00');
+  if(reason) return {trig, steps, sent:false, reason};
+  if(trig==='F') steps.push(['y','Savings figure: plan cap applied (Everyday 20%, Vital 25%) and value check vs price + GST']);
+  if(trig==='E') steps.push(['y','One recommended plan only; four-plan comparison only if the customer asked to compare']);
+  if(trig==='I' && !ctx.cmbSelected) steps.push(['y','Cut Medi Bills only if routing selects it as the better single product']);
+  if(trig==='Q') steps.push(['y','Maximum one reminder; no fake urgency']);
+  steps.push(['y','One message, one primary action, at most 3 buttons of ≤ 20 characters']);
+  steps.push(['y','Record trigger_id, reason, asset version and response; wait for the reply']);
+  return {trig, steps, sent:true};
+}
+
+function TriggerFlow(){
+  const j = JOURNEYS[ui.flowJourney];
+  const chip = ([k,note]) => {
+    if(!k) return `<span class="tchip plain">${esc(note)}</span>`;
+    const name = k.length===1 ? TRIGGERS[k] : k.split('/').map(x=>TRIGGERS[x]).join(' or ');
+    return `<span class="tchip"><b>${k}</b><span>${esc(name)}${note?`<em> · ${esc(note)}</em>`:''}</span></span>`;
+  };
+  const r = evalTrigger(ui.flowText, ui.flowCtx);
+  const steps = [
+    ['Message or backend event arrives','Every customer message, plus approved backend events such as “link sent, no payment”.'],
+    ['Safety, opt-out, privacy, complaint and payment checks','These run first, in code, before Claude is called.','If matched → R or O fires and every commercial trigger stops.','crit'],
+    ['Answer the direct question first','The customer’s actual question is answered before any trigger is chosen.'],
+    ['Find the barrier','Trust, understanding, relevance, provider, plan choice or action readiness.'],
+    ['Pick one trigger','The single highest-priority trigger that is not already sent and resolves that barrier.'],
+    ['Gate checks','Consent, product lock, suppression state, 24-hour window, quiet hours, asset freshness, and for savings the plan cap and value check.','If any check fails → nothing is sent and suppression_reason is logged.','warn'],
+    ['Send one intervention','One message with one primary action. Never chain triggers automatically.'],
+    ['Record and wait','Log trigger_id, reason, asset version and customer response, then wait for the reply.'],
+  ];
+  return shell('Trigger flow','Control · how one trigger is chosen', `
+    <div class="grid g21">
+      <div class="panel"><div class="panel-h"><h2>Decision steps</h2><span class="muted small">Section 14</span></div><div class="panel-b steps">
+        ${steps.map((s,i)=>`<div class="step"><span class="n">${i+1}</span><div style="min-width:0"><b>${s[0]}</b><div class="small muted">${s[1]}</div>${s[2]?`<div class="branch ${s[3]}">${s[2]}</div>`:''}</div></div>`).join('')}
+      </div></div>
+      <div class="panel"><div class="panel-h"><h2>Priority ladder</h2><span class="muted small">Section 1.1 · top wins</span></div><div class="panel-b grid" style="gap:8px">
+        ${LADDER.map((l,i)=>`<div class="row" style="gap:10px;flex-wrap:nowrap"><span class="mono small muted" style="width:14px">${i+1}</span><span style="flex:1;min-width:0" class="small">${l[0]}</span><span class="pill ${l[2]} plain mono">${l[1]}</span></div>`).join('')}
+      </div></div>
+    </div>
+
+    <div class="panel"><div class="panel-h"><h2>Test a message</h2><span class="muted small">Pick an example or type a customer message</span></div>
+      <div class="panel-b grid" style="gap:12px">
+        <div class="row" style="gap:6px">${FLOW_EXAMPLES.map(e=>`<button class="btn sm" onclick="ui.flowText=this.textContent;render()">${esc(e)}</button>`).join('')}</div>
+        <form class="row" onsubmit="event.preventDefault();ui.flowText=document.getElementById('flowtxt').value;render()"><input id="flowtxt" class="input" style="flex:1;min-width:0" value="${esc(ui.flowText)}" aria-label="Customer message"><button class="btn pri">Check</button></form>
+        <div class="row" style="gap:14px">${FLOW_CTX.map(([k,l])=>`<label class="row small" style="gap:6px;cursor:pointer"><input type="checkbox" id="ctx-${k}" ${ui.flowCtx[k]?'checked':''} onchange="ui.flowCtx['${k}']=this.checked;render()">${l}</label>`).join('')}</div>
+        <div class="grid g2" style="align-items:start">
+          <div class="panel" style="background:var(--sunk);border-color:transparent"><div class="panel-b">
+            <div class="eyebrow">Result</div>
+            ${r.trig?`<div class="row" style="margin-top:8px"><span class="tag" style="font-size:15px;padding:3px 9px">${r.trig}</span><b style="font-size:16px">${TRIGGERS[r.trig]}</b></div>
+              <div style="margin-top:8px">${r.sent?'<span class="pill ok">Sent</span>':`<span class="pill crit">Suppressed: ${esc(r.reason)}</span>`}</div>
+              <div class="small muted" style="margin-top:8px">Primary action: ${TRIG_MAP[r.trig][1]}</div>`
+              :'<div style="margin-top:8px"><span class="pill plain">No trigger</span></div><div class="small muted" style="margin-top:8px">The bot answers or asks the next discovery question. No intervention is sent.</div>'}
+          </div></div>
+          <div>${r.steps.map(([k,t])=>`<div class="check"><i class="${k}">${k==='y'?'✓':k==='n'?'✕':'!'}</i><span>${esc(t)}</span></div>`).join('')}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel"><div class="panel-h"><h2>Sequences by customer journey</h2><span class="muted small">Section 11 · use the smallest sequence that removes the barrier</span></div>
+      <div class="panel-b grid" style="gap:14px">
+        <div class="tabs">${JOURNEYS.map((x,i)=>`<button class="${ui.flowJourney===i?'on':''}" onclick="ui.flowJourney=${i};render()">${x[0]}</button>`).join('')}</div>
+        <div class="chain">${j[1].map(chip).join('<span class="arr" aria-hidden="true">→</span>')}</div>
+      </div>
+    </div>
+
+    <div class="panel"><div class="panel-h"><h2>Suppression and frequency rules</h2><span class="muted small">Section 12</span></div><div class="tbl-wrap"><table><tbody>
+      ${[['Deduplication','Do not resend the same asset, comparison or link unless asked or updated','duplicate'],['One active call to action','Only one primary action per message',''],['One product','Once Oxxy or Cut Medi Bills is selected, the other product’s activation triggers stop','active_product'],['Post-booking','Only one soft activation suggestion after a booking request',''],['Recovery','At most two rescue attempts; one incomplete-activation reminder (Q)',''],['Opt-out','Immediate stop for all automated and marketing messages','opt_out'],['Emergency','All commercial triggers stop until the safety event is closed','emergency'],['Complaint','No activation prompts while a complaint, payment or privacy issue is open','active_complaint'],['Quiet hours','No proactive or template message before 09:00 or after 21:00; Meta limits logged','frequency_cap'],['Human handoff','No automated persuasion while a senior callback is pending','']].map(r=>`<tr><td><b>${r[0]}</b></td><td class="small">${r[1]}</td><td>${r[2]?`<span class="mono small">${r[2]}</span>`:''}</td></tr>`).join('')}
+    </tbody></table></div></div>`);
+}
+
+function Triggers(){
+  const max = Math.max(...Object.values(TRIG_STATS));
+  const cls = {Trust:'info',Education:'info',Personalisation:'acc',Action:'ok',Recovery:'warn',Service:'warn',Safety:'crit'};
+  return shell('Triggers A–R','Last 30 days · Trigger & Conversion Layer', `
+    <div class="panel"><div class="panel-b small"><a href="#flow" class="btn sm" style="float:right;margin-left:12px">See the trigger flow</a>Priority order: emergency → opt-out or privacy → complaint, payment or human → direct question → booking → trust and education → plan and activation → follow-up. One trigger per message, then wait for the reply. Triggers never override Playbook rules.</div></div>
+    <div class="panel"><div class="tbl-wrap"><table><thead><tr><th>ID</th><th>Trigger</th><th>Fires when</th><th>Primary action</th><th>Class</th><th style="width:18%">Sent</th><th>Response rate</th><th></th></tr></thead><tbody>
+    ${Object.entries(TRIGGERS).map(([k,v])=>`<tr><td><span class="tag">${k}</span></td><td><b>${esc(v)}</b>${TRIG_OFF[k]?' <span class="pill plain">Off</span>':''}</td><td class="small">${TRIG_MAP[k][0]}</td><td class="small">${TRIG_MAP[k][1]}</td><td><span class="pill ${cls[TRIG_MAP[k][2]]} plain">${TRIG_MAP[k][2]}</span></td><td><div class="row" style="gap:8px;flex-wrap:nowrap"><div class="bar" style="flex:1;min-width:50px"><span style="width:${TRIG_STATS[k]/max*100}%;${k==='R'?'background:var(--crit)':''}"></span></div><span class="mono small">${TRIG_STATS[k]}</span></div></td><td class="mono">${TRIG_RESP[k]}%</td><td><button class="btn sm" onclick="trigForm('${k}')">Edit</button></td></tr>`).join('')}
+    </tbody></table></div></div>
+    <div class="grid g2">
+      <div class="panel"><div class="panel-h"><h2>Key measures</h2><span class="muted small">Section 13.1</span></div><div class="panel-b"><dl class="kv">
+        <dt>Trust pack → continued chat</dt><dd class="mono">71%</dd><dt>Centre list → booking request</dt><dd class="mono">46%</dd><dt>Plan comparison → recommended plan accepted</dt><dd class="mono">38%</dd>
+        <dt>Activation link → payment</dt><dd class="mono">71%</dd><dt>Booking without activation → later activation</dt><dd class="mono">19%</dd><dt>Duplicate or frequency-cap violations</dt><dd class="mono">0 <span class="pill ok">Target 0</span></dd></dl></div></div>
+      <div class="panel"><div class="panel-h"><h2>Suppressed sends</h2><span class="muted small">suppression_reason</span></div><div class="panel-b grid" style="gap:10px">
+        ${[['opt_out',52],['duplicate',31],['active_product',18],['frequency_cap',11],['emergency',4],['active_complaint',3]].map(([l,v])=>`<div class="grid" style="grid-template-columns:130px 1fr 40px;gap:10px;align-items:center"><span class="mono small">${l}</span><div class="bar"><span style="width:${v/52*100}%"></span></div><span class="mono small" style="text-align:right">${v}</span></div>`).join('')}
+      </div></div>
+    </div>`);
+}
+
+function Audit(){
+  return shell('Audit log','Control · append-only', `
+    <div class="panel"><div class="tbl-wrap"><table><thead><tr><th>Time (IST)</th><th>Actor</th><th>Action</th><th>Detail</th><th>Customer</th></tr></thead><tbody>
+    ${audit.map(a=>`<tr><td class="mono small">${a[0]}</td><td>${['bot','system','guardrail','validator'].includes(a[1])?`<span class="pill plain">${a[1]}</span>`:esc(a[1])}</td><td class="mono small">${a[2]}</td><td class="small">${esc(a[3])}</td><td class="mono small">${a[4]}</td></tr>`).join('')}
+    </tbody></table></div></div>`);
+}
+
+/* ---------- Admin ---------- */
+let staff = [
+  {name:'Manoj K.',email:'manoj@oxxy.test',role:'Admin',status:'active',mfa:true,last:'Now'},
+  {name:'Kavya S.',email:'kavya@oxxy.test',role:'Sales agent',status:'active',mfa:true,last:'10:22'},
+  {name:'Naveen R.',email:'naveen@oxxy.test',role:'Pricing',status:'active',mfa:true,last:'Yesterday'},
+  {name:'Divya M.',email:'divya@oxxy.test',role:'Support agent',status:'active',mfa:false,last:'Today 09:05'},
+  {name:'Harish P.',email:'harish@oxxy.test',role:'Viewer',status:'invited',mfa:false,last:'—'},
+  {name:'Rekha J.',email:'rekha@oxxy.test',role:'Sales agent',status:'disabled',mfa:true,last:'12 Oct'},
+];
+const ROLES = ['Admin','Sales lead','Sales agent','Support agent','Pricing','Viewer'];
+const PERMS = [
+  ['Read conversations',[1,1,1,1,0,1]],['Reply to customers',[1,1,1,1,0,0]],['Take over from bot',[1,1,1,1,0,0]],
+  ['Confirm bookings (in the CRM)',[1,1,1,0,0,0]],['See full phone numbers',[1,1,1,0,0,0]],['Propose price change',[1,0,0,0,1,0]],
+  ['Approve price change (second person)',[1,1,0,0,1,0]],['Edit centres',[1,1,0,0,0,0]],['Edit message templates',[1,1,0,0,0,0]],
+  ['Handle data requests (DPDP)',[1,1,0,0,0,0]],['Manage users and roles',[1,0,0,0,0,0]],['Change integrations',[1,0,0,0,0,0]],['Read audit log',[1,1,0,0,0,1]],
+];
+let templates = [
+  {name:'outbound_intro_v1',cat:'Marketing',lang:'en, hi',status:'Approved',edited:'2 Nov',body:'Hello {{1}} ji, I am {{2}}, Oxxy Health’s automated assistant. You recently showed interest in saving on healthcare expenses. May I ask one quick question to understand what you need?\n[Yes, please] [Just send details] [Not now]\nReply STOP to opt out'},
+  {name:'short_summary_v1',cat:'Utility',lang:'en, hi',status:'Approved',edited:'2 Nov',body:'Hello {{1}} ji. Based on your need for {{2}}, I recommend {{3}} because {{4}}. Current price: {{5}} + GST. Official details: {{6}}. Reply BOOKING, ACTIVATE or QUESTION.'},
+  {name:'booking_recorded_v1',cat:'Utility',lang:'en, hi',status:'Approved',edited:'2 Nov',body:'Your booking request is recorded for {{1}} at {{2}} at {{3}}, {{4}}, for {{5}}. It is pending confirmation. The Oxxy team will contact you soon.'},
+  {name:'agreed_followup_v1',cat:'Utility',lang:'en, hi',status:'Approved',edited:'2 Nov',body:'Hello {{1}} ji. As agreed, I am following up about {{2}} and {{3}}. Would you like to continue with the booking request, activation or a question?'},
+  {name:'incomplete_activation_v1',cat:'Utility',lang:'en, hi',status:'Approved',edited:'2 Nov',body:'Would you like help understanding the plan, completing the official activation, or pausing for now?'},
+  {name:'senior_callback_v1',cat:'Utility',lang:'en, hi',status:'Approved',edited:'2 Nov',body:'Your question about {{1}} needs authorised confirmation. I have requested a callback for {{2}}. Reference: {{3}}.'},
+  {name:'pre_debit_notice_v1',cat:'Utility',lang:'en, hi',status:'In review',edited:'9 Nov',body:'Hello {{1}} ji. ₹{{2}} + GST for your Cut Medi Bills monthly renewal will be charged on {{3}}. To stop future charges, cancel before then via {{4}}.'},
+  {name:'winback_offer_v1',cat:'Marketing',lang:'en',status:'Rejected',edited:'28 Oct',body:'Last chance! Activate today or lose your savings forever.'},
+];
+let dataReqs = [
+  {id:'DR-118',cust:'C-1011',type:'Erasure',received:'3 Nov 2026',due:'3 Dec 2026',status:'In progress',owner:'Manoj K.'},
+  {id:'DR-117',cust:'C-1024',type:'Access (copy of my data)',received:'1 Nov 2026',due:'1 Dec 2026',status:'Open',owner:null},
+  {id:'DR-115',cust:'C-1029',type:'Correction (name spelling)',received:'28 Oct 2026',due:'27 Nov 2026',status:'Completed',owner:'Kavya S.'},
+];
+const roleCount = r => staff.filter(u=>u.role===r && u.status!=='disabled').length;
+
+function AdminHome(){
+  const pendingApprovals = priceChanges.filter(p=>!p.approver).length + templates.filter(t=>t.status==='In review').length + dataReqs.filter(d=>d.status!=='Completed').length;
+  return shell('Admin overview','Admin', `
+    <div class="grid g4">
+      <div class="panel stat"><span class="eyebrow">Staff accounts</span><span class="v">${staff.filter(u=>u.status!=='disabled').length}</span><span class="d">${staff.filter(u=>u.status==='invited').length} invite pending · ${staff.filter(u=>!u.mfa&&u.status==='active').length} without two-step sign-in</span></div>
+      <div class="panel stat"><span class="eyebrow">Waiting for approval</span><span class="v">${pendingApprovals}</span><span class="d">Prices, templates, data requests</span></div>
+      <div class="panel stat"><span class="eyebrow">Integrations</span><span class="v">6 / 7</span><span class="d">Payment webhook delayed</span></div>
+      <div class="panel stat"><span class="eyebrow">Failed sign-ins (24h)</span><span class="v">3</span><span class="d">No lockouts</span></div>
+    </div>
+    <div class="grid g2">
+      <div class="panel"><div class="panel-h"><h2>Needs your approval</h2></div>
+        ${priceChanges.filter(p=>!p.approver).map(p=>`<div class="panel-b row" style="border-bottom:1px solid var(--line)"><span class="pill warn">Price</span><span style="flex:1;min-width:0">${planName(p.plan)} ${inr(p.from)} → ${inr(p.to)} · by ${esc(p.by)}</span><a class="btn sm" href="#plans">Review</a></div>`).join('')}
+        ${templates.filter(t=>t.status==='In review').map(t=>`<div class="panel-b row" style="border-bottom:1px solid var(--line)"><span class="pill info">Template</span><span class="mono small" style="flex:1;min-width:0">${t.name}</span><a class="btn sm" href="#templates">Open</a></div>`).join('')}
+        ${dataReqs.filter(d=>d.status!=='Completed').map(d=>`<div class="panel-b row" style="border-bottom:1px solid var(--line)"><span class="pill crit">DPDP</span><span style="flex:1;min-width:0">${d.type} · due ${d.due}</span><a class="btn sm" href="#privacy">Open</a></div>`).join('')}
+      </div>
+      <div class="panel"><div class="panel-h"><h2>System status</h2><span class="spacer"></span><a href="#health" class="small">Details</a></div><div class="panel-b grid" style="gap:10px">
+        ${[['In-house CRM','warn','1 call retrying, 1 dead'],['WhatsApp Cloud API','ok','Webhook p95 420 ms'],['Claude API','ok','p95 2.1 s · 0.2% errors'],['PostgreSQL','ok','CPU 23%'],['Redis / queues','ok','12 jobs waiting'],['Payment webhook','warn','Last event 14 min ago'],['Maps / geocoding','ok','Quota 31% used']].map(([n,s,d])=>`<div class="row"><span class="dot ${s==='ok'?'':s}"></span><span style="flex:1">${n}</span><span class="small muted">${d}</span></div>`).join('')}
+      </div></div>
+    </div>
+    <div class="panel"><div class="panel-h"><h2>Recent admin actions</h2><span class="spacer"></span><a href="#audit" class="small">Audit log</a></div><div class="tbl-wrap"><table><tbody>
+      ${[['5 Nov 16:20','Naveen R.','Proposed Vital price ₹1,999 → ₹2,199'],['5 Nov 11:40','Manoj K.','Submitted pre_debit_notice_v1 to Meta'],['4 Nov 18:02','Manoj K.','Invited Harish P. as Viewer'],['2 Nov 09:15','Manoj K.','Disabled Rekha J.']].map(a=>`<tr><td class="mono small" style="white-space:nowrap">${a[0]}</td><td>${a[1]}</td><td>${a[2]}</td></tr>`).join('')}
+    </tbody></table></div></div>`);
+}
+
+/* ---------- CRM sync (Build Plan 3.2–3.4, 6.2) ---------- */
+let outbox = [
+  {id:'ob-7f40',action:'create_activation',cust:'C-1039',status:'pending',attempts:0,at:'Today 10:30',crm:'',err:''},
+  {id:'ob-7f3a',action:'create_booking_request',cust:'C-1042',status:'sent',attempts:1,at:'Today 10:26',crm:'BK-88318',err:''},
+  {id:'ob-7f19',action:'log_event',cust:'C-1039',status:'failed',attempts:3,at:'Today 10:02',crm:'',err:'503 Service Unavailable · next try 10:47'},
+  {id:'ob-7f2c',action:'create_task',cust:'C-1031',status:'sent',attempts:1,at:'Today 09:40',crm:'TK-55552',err:''},
+  {id:'ob-7e88',action:'upsert_customer',cust:'C-1024',status:'dead',attempts:12,at:'Yesterday 14:10',crm:'',err:'422 Unknown field "value_check_passed"'},
+];
+let webhooks = [
+  {id:'ev_91b0',type:'customer.owner_changed',ref:'CRM-21042 → Kavya S.',at:'Today 10:27',result:'Owner shown in console'},
+  {id:'ev_91c1',type:'task.completed',ref:'TK-55538 · C-1024',at:'Today 09:15',result:'Trigger O suppression lifted'},
+  {id:'ev_91b5',type:'booking.confirmed',ref:'BK-88309 · C-1029',at:'9 Nov 11:05',result:'Duplicate event_id: ignored'},
+  {id:'ev_91a2',type:'booking.confirmed',ref:'BK-88309 · C-1029',at:'9 Nov 11:05',result:'Booking-confirmed template sent · mirror updated'},
+  {id:'ev_91a0',type:'activation.paid',ref:'AC-771 · C-1029',at:'9 Nov 09:12',result:'Trigger P sent · product lock active'},
+];
+const FIELD_MAP = [
+  ['Identity','customer_id, name, WhatsApp number, language, timezone','Mapped'],
+  ['Consent','whatsapp_consent, marketing_consent, health_data_consent, notice_version, opt_out_at','Mapped'],
+  ['Need','beneficiary, age, healthcare_need, urgency, service_date, expected_bill','Mapped'],
+  ['Location','city, locality, travel_radius_km','Mapped'],
+  ['Eligibility','appointment, registration, treatment, bill and insurance status','Mapped'],
+  ['Routing','selected_product, recommended_plan, recommendation_reason, value_check_passed','Missing in CRM'],
+  ['Booking','booking_id, centre, branch, specialisation, date, time, status','Mapped'],
+  ['Activation','plan, price, GST, renewal_terms_shown, link_sent_at, payment and activation status','Mapped'],
+  ['Engagement','last_state, rescue_attempts, objection, follow_up_at, escalation_reason','Bot only'],
+  ['Trigger events','trigger_id, reason, source, asset_ids, response, suppression_reason','Bot only (summary to CRM)'],
+];
+function retryOutbox(id){ const o=outbox.find(x=>x.id===id); o.status='pending'; o.attempts=0; o.err=''; logA('crm_outbox.retry',o.action+' · '+o.id,o.cust); render(); toast('Queued again: '+o.action); }
+function CrmSync(){
+  const pill = {pending:'<span class="pill info">Pending</span>',sent:'<span class="pill ok">Sent</span>',failed:'<span class="pill warn">Retrying</span>',dead:'<span class="pill crit">Dead letter</span>'};
+  const mp = {Mapped:'ok','Missing in CRM':'crit','Bot only':'plain','Bot only (summary to CRM)':'plain'};
+  const n = st => outbox.filter(o=>o.status===st).length;
+  return shell('CRM sync','Admin · in-house CRM', `
+    <div class="grid g4">
+      <div class="panel stat"><span class="eyebrow">CRM API</span><span class="v" style="color:var(--ok)">Up</span><span class="d">p95 340 ms · token valid</span></div>
+      <div class="panel stat"><span class="eyebrow">Outbox</span><span class="v">${n('pending')+n('failed')}</span><span class="d">${n('pending')} pending · ${n('failed')} retrying</span></div>
+      <div class="panel stat"><span class="eyebrow">Dead letters</span><span class="v" style="${n('dead')?'color:var(--crit)':''}">${n('dead')}</span><span class="d">Gave up after 24 hours; alert sent</span></div>
+      <div class="panel stat"><span class="eyebrow">Last reconciliation</span><span class="v">02:00</span><span class="d">1 mismatch found and fixed</span></div>
+    </div>
+    <div class="panel"><div class="panel-h"><h2>Bot to CRM (outbox)</h2><span class="muted small">Each row is saved with the bot change, then sent; its id is the Idempotency-Key</span><span class="spacer"></span><button class="btn sm pri" onclick="crmCallForm()">Queue a CRM call</button></div><div class="tbl-wrap"><table><thead><tr><th>Outbox id</th><th>Action</th><th>Customer</th><th>Status</th><th>Attempts</th><th>Created</th><th>CRM record</th><th>Last error</th><th></th></tr></thead><tbody>
+      ${outbox.map(o=>`<tr><td class="mono small">${o.id}</td><td class="mono small">${o.action}</td><td><a href="#customer-${o.cust}">${esc(cname(o.cust))}</a></td><td>${pill[o.status]}</td><td class="mono">${o.attempts}</td><td class="small">${o.at}</td><td class="mono small">${o.crm||'—'}</td><td class="small" style="color:var(--crit)">${esc(o.err)}</td><td>${acts('', o.status==='sent'?'':`discardOutbox('${o.id}')`, (o.status==='failed'||o.status==='dead'?`<button class="btn sm" onclick="retryOutbox('${o.id}')">Retry now</button>`:'')+(o.status==='pending'?`<button class="btn sm" onclick="sendOutbox('${o.id}')">Demo: send</button>`:''))}</td></tr>`).join('')}
+    </tbody></table></div></div>
+    <div class="panel"><div class="panel-h"><h2>CRM to bot (webhooks)</h2><span class="muted small">Signed with HMAC-SHA256; stored by event id before processing</span></div><div class="tbl-wrap"><table><thead><tr><th>Event id</th><th>Event</th><th>Record</th><th>Received</th><th>What the bot did</th></tr></thead><tbody>
+      ${webhooks.map(w=>`<tr><td class="mono small">${w.id}</td><td class="mono small">${w.type}</td><td class="mono small">${esc(w.ref)}</td><td class="small">${w.at}</td><td class="small">${esc(w.result)}</td></tr>`).join('')}
+    </tbody></table></div></div>
+    <div class="panel"><div class="panel-h"><h2>Field mapping</h2><span class="muted small">Playbook section 17 groups to CRM fields</span></div><div class="tbl-wrap"><table><thead><tr><th>Group</th><th>Fields</th><th>Status</th><th></th></tr></thead><tbody>
+      ${FIELD_MAP.map((r,i)=>`<tr><td><b>${r[0]}</b></td><td class="mono small">${esc(r[1])}</td><td><span class="pill ${mp[r[2]]}">${r[2]}</span></td><td><button class="btn sm" onclick="editFieldMap(${i})">Edit</button></td></tr>`).join('')}
+    </tbody></table></div><div class="panel-b small muted">The dead letter above fails because the CRM has no <span class="mono">value_check_passed</span> field yet. Ask the CRM team to add the Routing fields (Build Plan 3.5).</div></div>`);
+}
+
+/* ---------- WhatsApp simulator (scripted from Playbook sections 3–16) ---------- */
+let sim = null;
+const OPEN_TEXT = 'Hello! Welcome to Oxxy Health. I can help with medical-bill savings, healthcare-centre options, booking requests and plan activation. What would you like help with today?';
+const OPEN_ROWS = ['Reduce a medical bill','Find or book a centre','Understand Oxxy','Existing customer help'];
+const EMERG = /chest pain|difficulty breathing|can'?t breathe|unconscious|severe bleeding|stroke|face droop|slurred speech|seizure|severe allergic|poison|serious injury|emergency/;
+const SELFHARM = /suicid|kill myself|self.?harm|end my life/;
+function simSay(t,extra={}){ sim.msgs.push({me:false,t,...extra}); }
+function simTrace(t){ sim.trace.push(t); }
+function go(step,state){ sim.step=step; if(state){ if(sim.state!==state) simTrace(`<b>state</b> ${sim.state} → ${state}`); sim.state=state; } }
+function simReset(){
+  sim={msgs:[],trace:[],step:'menu',state:'NEW',health:false,product:null,plan:null,booked:false,after:null,fired:{}};
+  simSay(OPEN_TEXT,{list:OPEN_ROWS});
+  simTrace('<b>inbound</b> customer started the chat → WhatsApp consent recorded');
+  simTrace('<b>list message</b> “Choose an option” · 4 rows, each ≤ 24 characters');
+}
+function fire(k,extra=''){ sim.fired[k]=(sim.fired[k]||0)+1; simTrace(`<b>trigger ${k}</b> ${TRIGGERS[k]}${extra?' · '+extra:''}`); }
+function parseAmt(t){ const m=t.replace(/,/g,'').match(/(\d+(?:\.\d+)?)\s*(lakh|lac|l\b|k\b)?/i); if(!m) return null; let n=parseFloat(m[1]); const u=(m[2]||'').toLowerCase(); if(u.startsWith('la')||u==='l') n*=100000; else if(u==='k') n*=1000; return Math.round(n); }
+function parseDate(t){
+  t=t.toLowerCase().trim();
+  if(t==='today') return isoDay(TODAY); if(t==='tomorrow') return isoDay(addDays(TODAY,1));
+  let m=t.match(/^(\d{4})-(\d{2})-(\d{2})$/); if(m) return t;
+  const months={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+  m=t.match(/(\d{1,2})\s*([a-z]{3})[a-z]*\s*(\d{4})?/); if(m&&months[m[2]]!==undefined){ const mo=months[m[2]]; const y=m[3]?+m[3]:(mo>=10?2026:2027); return `${y}-${String(mo+1).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`; }
+  return null;
+}
+function needHealth(next){
+  if(sim.health) return false;
+  sim.after=next; go('health');
+  simSay(HEALTH_NOTICE,{btns:['Yes, that is okay','No, thanks']});
+  simTrace('<b>privacy</b> health-data notice before the first health detail (DPDP Act)');
+  return true;
+}
+const ASK = {
+  beneficiary(){ go('beneficiary','DISCOVERY'); simSay('Is the healthcare need for you or someone in your family?',{btns:['For me','For my family']}); },
+  need(){ go('need','DISCOVERY'); simSay('What consultation, test, medicine, treatment or surgery is needed?'); },
+  route(){ go('route','ROUTING'); simSay('Is your main priority broader ongoing healthcare support, or help with one specific upcoming medical expense?',{btns:['Ongoing support','One upcoming expense']}); },
+  age(){ go('age','PLAN_FIT'); simSay('What is the patient’s age? It helps me choose the right Oxxy plan.'); },
+  spend(){ go('spend','PLAN_FIT'); simSay('About how much does your family spend on healthcare in a year? An estimate is fine.'); },
+  locality(){ go('locality','CENTRE_SEARCH'); simSay('Which city and locality does the patient live in?'); },
+  spec(){ go('spec','CENTRE_SEARCH'); simSay('Which specialisation or service is needed? For example eye, dental, skin, orthopaedics or a health check.'); },
+  date(){ go('date','BOOKING_CAPTURE'); simSay(`What date would you prefer? It can be from ${fmtDate(WIN_MIN)} up to ${fmtDate(WIN_MAX)}.`); simTrace(`<b>window</b> ${WIN_MIN} … ${WIN_MAX} (Asia/Kolkata)`); },
+  time(){ go('time','BOOKING_CAPTURE'); simSay('What time or time window would suit you?',{btns:['Morning','Afternoon','Evening']}); },
+};
+function startNeed(){ if(!needHealth(()=>ASK.beneficiary())) ASK.beneficiary(); }
+function startCentre(){ if(!needHealth(()=>ASK.locality())) ASK.locality(); }
+function simRecommend(){
+  const age=sim.age, sp=sim.spend;
+  // Pick by need first (Workflow Spec 4): routine OPD = Everyday, OPD + hospitalisation = Vital,
+  // pre-existing or larger expense = Thrive; then move up if the age limit rules the plan out.
+  const n = (sim.need||'').toLowerCase();
+  let base = /surgery|operation|pre-?existing|diabet|cancer|cardiac|heart|kidney|dialysis|chronic/.test(n) ? 2
+           : /check-?up|fever|consult|opd|dental|eye|skin|routine|test|cold|cough/.test(n) ? 0 : 1;
+  while(base<3 && age>PLANS[base].maxAge) base++;
+  simTrace(`<b>plan by need</b> “${esc(sim.need||'not given')}” → ${PLANS[base].name} (age ${age})`);
+  const cost=p=>Math.round(p.yearly*(1+GST)), save=p=>Math.floor(sp*p.cap/100/500)*500;
+  let chosen=null;
+  const tryPlan=p=>{ const ok=age<=p.maxAge && save(p)>cost(p); simTrace(`<b>value check</b> ${p.name}: ${p.cap}% of ${inr(sp)} = ${inr(save(p))} vs ${inr(cost(p))} → ${ok?'pass':'fail'}`); return ok; };
+  if(tryPlan(PLANS[base])) chosen=PLANS[base];
+  else for(let i=0;i<base;i++){ if(age<=PLANS[i].maxAge && tryPlan(PLANS[i])){ chosen=PLANS[i]; break; } }
+  sim.product='oxxy'; go('recommended','PLAN_FIT');
+  const need = sim.need ? `your need for ${sim.need}` : 'what you shared';
+  if(chosen){
+    sim.plan=chosen.code; fire('E','one recommended plan, no full catalogue');
+    simSay(`Based on ${need}, I recommend the ${chosen.name} plan because ${PLAN_REASON[chosen.code]}. The current price is ${inr(chosen.monthly)} monthly or ${inr(chosen.yearly)} yearly plus applicable GST.`);
+    fire('F',`rate ${chosen.cap}%`);
+    simSay(`You mentioned that your family spends approximately ${inr(sp)} on healthcare each year. As an easy illustration, the ${chosen.name} plan could help you save about ${inr(save(chosen))} a year, against a plan price of ${inr(chosen.yearly)} plus GST. Actual saving depends on the services and providers used. Would you like the plan details?`,{btns:['Official details','Activation link','Book a centre']});
+  } else {
+    const p=PLANS[base]; sim.plan=p.code; fire('E','value check failed: no savings close');
+    simSay(`Based on ${need}, the ${p.name} plan fits best, at ${inr(p.monthly)} monthly or ${inr(p.yearly)} yearly plus applicable GST. At about ${inr(sp)} a year, it may not pay for itself in savings alone. I can still help you find a centre or take a booking request at no cost.`,{btns:['Official details','Book a centre','Not now']});
+  }
+}
+function sendOxxyLink(){
+  const p=PLANS.find(x=>x.code===(sim.plan||'vital')); sim.plan=p.code;
+  go('link','AWAITING_PAYMENT'); fire('E','official link for the selected plan only');
+  simSay(`Selected plan: ${p.name}. Price: ${inr(p.yearly)} yearly (or ${inr(p.monthly)} monthly) plus applicable GST. Renewal: as shown on the official plan page. Please review the official page before payment: https://www.oxxy.in/… Reply DONE after completing it.`);
+  simTrace('<b>get_official_plan</b> price, GST, renewal and link fetched before sending');
+  simTrace('<b>activations.insert</b> pending · one product per customer ✓');
+  simTrace('<b>crm_outbox</b> create_activation → CRM');
+  simTrace('<b>follow_ups</b> Trigger Q reminder allowed once, 09:00–21:00 only');
+}
+function cmbDisclose(kind){
+  sim.cmbKind=kind; go('cmbConfirm','ACTIVATION');
+  simSay(kind==='monthly'
+    ? 'The monthly Cut Medi Bills option is ₹4,999 plus GST and renews automatically every month until you cancel. You may cancel anytime to stop future charges. You will receive a notice before each renewal charge. Activation normally takes 5 to 10 working days. Shall I send the official secure activation link?'
+    : 'The annual Cut Medi Bills membership is a one-time payment of ₹19,999 plus GST, valid for one year, and does not renew automatically. Activation normally takes 5 to 10 working days. Shall I send the official secure activation link?',{btns:['Send the link','Not now']});
+  simTrace('<b>disclosure</b> price, GST, renewal and activation time stated before any link (Playbook 8.3)');
+}
+function booked(){
+  sim.booked=true; go('booked','BOOKING_RECORDED');
+  fire('H');
+  simSay(`Your booking request has been made for ${fmtDate(sim.date)} at ${sim.time} at ${sim.centre}, for ${sim.spec}. It is pending confirmation. The Oxxy team will get in touch with you soon regarding confirmation.`);
+  simTrace('<b>booking_requests.insert</b> status pending_confirmation · activation not required');
+  simTrace('<b>crm_outbox</b> create_booking_request → CRM creates the confirm task for the sales team');
+  const cmb = sim.product==='cmb';
+  let soft = cmb
+    ? 'If you would like help reducing the cost of this requirement, you may activate Cut Medi Bills now. Any saving at this centre is confirmed separately. There is no pressure; your booking request is already recorded.'
+    : `If you would like Oxxy support for this and future healthcare needs, you may activate ${sim.plan?'the recommended '+planName(sim.plan)+' plan':'an Oxxy plan'} now. Any saving at this centre is confirmed separately. There is no pressure; your booking request is already recorded.`;
+  const early = isoDay(addDays(TODAY,14));
+  if(cmb && sim.date<early){ soft += ' Please note that activation normally takes 5 to 10 working days, which may be after your requested date, so a saving may not be available for this visit.'; simTrace('<b>timing caution</b> requested date is before activation can complete'); }
+  simSay(soft,{btns:['Activate now','No, thanks']});
+  simTrace('<b>soft suggestion</b> one only, selected product only, neutral savings line');
+}
+function simInput(text){
+  if(!text || !text.trim()) return;
+  sim.msgs.push({me:true,t:text});
+  const t=text.toLowerCase().trim();
+  simTrace(`<b>in</b> “${esc(text)}”`);
+  handle(t,text);
+  render();
+  setTimeout(()=>{ const m=document.querySelector('.phone .msgs'); if(m) m.scrollTop=m.scrollHeight; const tr=document.querySelector('.trace'); if(tr) tr.scrollTop=tr.scrollHeight; },0);
+}
+function handle(t,raw){
+  // 1. Safety, opt-out and privacy run before anything else (guardrails, before Claude)
+  if(SELFHARM.test(t)){ go('paused','PAUSED'); fire('R','self-harm'); simSay('This may need immediate support. Please call Tele-MANAS on 14416 (free, 24x7), or 112 if you are in danger now. I will pause the plan and activation discussion.'); simTrace('<b>create_task</b> safety event (urgent) → CRM via outbox · commercial flow suppressed'); return; }
+  if(EMERG.test(t)){ go('paused','PAUSED'); fire('R','emergency'); simSay(EMERGENCY_MSG); simTrace('<b>guardrail</b> emergency signal matched before Claude was called'); simTrace('<b>create_task</b> safety event (urgent) → CRM via outbox · all commercial triggers suppressed'); return; }
+  if(/^(stop|unsubscribe)$|do not contact|don'?t contact|stop messag/.test(t)){
+    go('optedout','OPTED_OUT'); fire('R','opt-out');
+    simSay(sim.booked ? 'Certainly. I have recorded that you do not want further WhatsApp communication. Your existing booking request stays recorded, and the Oxxy team will contact you only about it. I will end the chat now.' : 'Certainly. I have recorded that you do not want further WhatsApp communication. I will end the chat now.');
+    simTrace('<b>set_opt_out</b> marketing and follow-ups off · sent to CRM via outbox · no further question'); return; }
+  if(sim.step==='optedout'){ simTrace('<b>suppressed</b> customer opted out: no automated reply'); return; }
+  if(sim.step==='paused'){ simSay('A member of the Oxxy team will contact you. If this is an emergency, please call 112 (or 108 for an ambulance) now.'); simTrace('<b>paused</b> no commercial reply until the safety event is closed'); return; }
+  if(/delete (my )?data|privacy/.test(t)){ go('closed','CLOSED'); fire('R','privacy request'); simSay('I understand. I will record your privacy request for handling under the applicable process and stop the activation discussion. You can also contact {{Privacy_Contact}}.'); simTrace('<b>data_requests.insert</b> DPDP request · <b>create_task</b> → CRM · marketing suppressed'); return; }
+  if(/payment failed|money (got )?debited|charged twice|double charge/.test(t)){ go('escalated','ESCALATED'); fire('O','payment issue'); simSay(/twice|double/.test(t)?'I am sorry about that. Please share the transaction dates or references, and I will escalate this urgently to payment support. Please do not share any OTP, PIN or password.':'Was any money debited from your account? Please do not share any OTP, PIN or password; I will escalate this to payment support.'); simTrace('<b>create_task</b> payment support → CRM via outbox · activation prompts suppressed'); return; }
+
+  // 2. Direct questions are answered first, then the bot returns to the last unfinished question
+  if(/insurance/.test(t)){ fire('B'); simSay('No. Oxxy is not insurance and does not pay or reimburse claims. It is a healthcare-savings and support service that can work alongside your insurance, so you should not cancel it. Are you asking for a specific planned service?'); return; }
+  if(/genuine|scam|fake|trust|verify|legit/.test(t)){ if(sim.fired.A){ fire('L','proof after A'); simSay('For your convenience, I am sending selected approved news coverage and customer references so you can review Oxxy independently. Which point would you like to verify after reviewing them?'); } else { fire('A'); simSay('It is sensible to verify any healthcare service before paying. For your convenience, I am sending Oxxy’s official website, policy page, support contacts and a few approved independent references:\n• https://www.oxxy.in\n• https://www.oxxy.in/policies\n• 8800855340 · info@oxxy.in\nPlease activate only through an official secure link. What would you like to verify first?'); simTrace('<b>send_approved_asset</b> website, policy, support contacts (2–4 assets max)'); } return; }
+  if(/\bboth\b/.test(t)){ simSay('Oxxy and Cut Medi Bills are designed for different needs, but one customer can activate only one. Is your priority broader ongoing support or one specific upcoming medical expense?',{btns:['Ongoing support','One upcoming expense']}); go('route','ROUTING'); simTrace('<b>rule</b> one product per customer'); return; }
+  if(/guarantee/.test(t)){ const p=PLANS.find(x=>x.code===sim.plan); simSay(`No. About ${p?p.cap:30}% is used only for an easy illustration. The actual saving depends on the service, provider and location and must be confirmed.`); simTrace('<b>validator</b> no guaranteed rate'); return; }
+  if(/diagnos|prescri|what treatment|which medicine should/.test(t)){ simSay('I can help with plan information, healthcare-centre options and booking coordination, but diagnosis and treatment decisions must come from a qualified medical professional. Would you like help finding the relevant specialisation?'); simTrace('<b>boundary</b> shown only because the customer asked for medical advice'); return; }
+  if(/discount (at|in)|saving (at|in)|cheaper at/.test(t)){ simSay(NEUTRAL+' I can still take your booking request there.'); simTrace('<b>neutral savings line</b> no tie-up status disclosed'); return; }
+  if(/medicine/.test(t)){ fire('K'); simSay(`${sim.product==='cmb'?'Cut Medi Bills':'Oxxy'} may provide savings on almost all medicines, with home delivery at no additional charge, subject to service availability. Please share your city and medicine requirement.`); return; }
+  if(/who are you|are you (a )?(bot|human|real)/.test(t)){ simSay('I am Oxxy Health’s automated WhatsApp assistant. I can understand your requirement, answer approved questions, take a booking request and help with activation. I can also arrange a human callback.'); return; }
+  if(/person|human|callback|talk to (someone|a)/.test(t)){ go('escalated','ESCALATED'); fire('O'); simSay('I want to give you a precise answer rather than guess. I will arrange an authorised callback. What time would be convenient?',{btns:['Today evening','Tomorrow morning']}); simTrace('<b>create_task</b> callback → CRM via outbox, sales team · team hours [CONFIRM]'); return; }
+  if(/^(not now|later|busy)$|i('| a)m busy|need to think/.test(t)){ go('futime','FOLLOW_UP_TIME'); fire('N'); simSay('No pressure. Would tomorrow at 11:00 or tomorrow at 18:00 be better for a quick follow-up?',{btns:['Tomorrow 11:00','Tomorrow 18:00','Close the chat']}); return; }
+
+  // 3. Step handling
+  const s=sim.step;
+  if(s==='menu' || s==='closed'){
+    if(/^(hi+|hello|hey|vanakkam|namaste|good (morning|afternoon|evening))\b/.test(t)){ simSay(OPEN_TEXT,{list:OPEN_ROWS}); simTrace('<b>greeting</b> opening list sent again'); return; }
+    if(/^[1-4]$/.test(t)){ return handle(OPEN_ROWS[+t-1].toLowerCase(),OPEN_ROWS[+t-1]); }
+    if(/reduce|bill/.test(t)){ go('x','NEED_DISCOVERY'); startNeed(); return; }
+    if(/find|book|centre|hospital|clinic|near/.test(t)){ startCentre(); return; }
+    if(/understand|what is oxxy|explain/.test(t)){ go('x','OXXY_EXPLAIN'); simSay('Oxxy is your lifelong healthcare savings and support partner. It helps you avoid overpaying eligible private-healthcare bills when you contact Oxxy before taking the service.\n\nHow it works: activate your selected Oxxy plan, contact Oxxy before the healthcare service, and follow the confirmed process so the applicable saving can be coordinated.'); startNeed(); return; }
+    if(/existing|my plan|customer help/.test(t)){ go('existing','SERVICE_OR_ESCALATION'); simTrace('<b>lookup_customer</b> no active product found for this number (demo)'); simSay('I could not find an active plan for this WhatsApp number. Did you activate with a different number?',{btns:['Yes, another number','Talk to a person']}); return; }
+    simSay('Sorry, I did not get that. Please choose an option.',{list:OPEN_ROWS}); return;
+  }
+  if(s==='health'){ if(/^(no|nope|not okay|don'?t|do not)\b/.test(t)){ go('closed','CLOSED'); simSay('No problem. I will not ask for health details. You can message Oxxy whenever you need help.'); simTrace('<b>consents</b> health_data_consent refused · no health questions'); return; } if(/yes|okay|\bok\b|sure|fine|agree/.test(t)){ sim.health=true; simTrace('<b>consents.insert</b> health_data_consent · notice v1'); const f=sim.after; sim.after=null; f(); } else { simSay('Before I ask about health details I need your okay. Is that okay?',{btns:['Yes, that is okay','No']}); simTrace('<b>consent</b> unclear reply → notice asked again, nothing stored'); } return; }
+  if(s==='beneficiary'){ sim.beneficiary=/family/.test(t)?'family':'self'; ASK.need(); return; }
+  if(s==='need'){ sim.need=raw.trim(); ASK.route(); return; }
+  if(s==='route'){
+    if(/one|upcoming|specific/.test(t)){ sim.product='cmb'; go('cmbStatus','CUT_MEDI_BILLS_FIT'); fire('I'); simSay('Cut Medi Bills is Oxxy’s quick medical-savings service for an upcoming requirement. Before activation, has any appointment or registration been done, treatment started, or payment made at the preferred centre?',{btns:['Nothing done yet','Yes, already done']}); return; }
+    sim.product='oxxy'; ASK.age(); return;
+  }
+  if(s==='age'){ const a=parseInt(t,10); if(!a||a>120){ simSay('Please share the age as a number, for example 45.'); return; } sim.age=a; ASK.spend(); return; }
+  if(s==='spend'){ const a=parseAmt(t); if(!a){ simSay('An estimate is fine, for example 50000 or 1.5 lakh.'); return; } sim.spend=a; simRecommend(); return; }
+  if(s==='recommended' || s==='booked' || s==='declined'){
+    if(/official|details/.test(t)){ simSay(`Here are the official details for the ${planName(sim.plan)} plan: https://www.oxxy.in and the policies at https://www.oxxy.in/policies. Would you like help activating it?`,{btns:['Activation link','Ask a question']}); return; }
+    if(/activation link|activate|send the link|yes/.test(t)){ if(sim.product==='cmb'){ simSay('Which option would you prefer?',{btns:['Monthly option','Annual option']}); go('cmbOption','ACTIVATION'); return; } if(!sim.plan){ ASK.age(); return; } sendOxxyLink(); return; }
+    if(/book|centre/.test(t)){ if(sim.locality) ASK.spec(); else startCentre(); return; }
+    if(/no,? thanks|no thank|^no$/.test(t) && s==='booked'){ go('declined','FOLLOW_UP'); simSay('Absolutely, no problem. Your booking request is recorded, and the Oxxy team will contact you regarding confirmation. Is there anything else I can help with?'); simTrace('<b>task</b> booking confirmation only · no activation pitch, no second product'); return; }
+    if(/ask a question|question/.test(t)){ simSay('Of course. What would you like to know?'); return; }
+    if(/^(no|nothing|done for now|thanks|thank you)/.test(t)){ go('closed','CLOSED'); simSay('No problem. I will close the enquiry here so you do not feel pressured. You may message Oxxy whenever healthcare support is needed.'); return; }
+  }
+  if(s==='link'){
+    if(/^done/.test(t)){ go('closed','CLOSED'); fire('P'); simSay(`Thank you. Your payment update for ${sim.product==='cmb'?'Cut Medi Bills':'Oxxy '+planName(sim.plan)} has been recorded for verification. Please keep the confirmation. The Oxxy team will guide you regarding activation status and the next service step.`); simTrace('<b>crm_outbox</b> log_event DONE → sales team verifies; CRM sends activation.paid'); return; }
+    simSay('Would you like help understanding the plan, completing the official activation, or pausing for now?'); return;
+  }
+  if(s==='cmbStatus'){
+    if(/nothing|no/.test(t)){ go('cmbAmount','CUT_MEDI_BILLS_FIT'); simTrace('<b>eligibility</b> no appointment, registration, treatment or payment → potentially eligible'); simSay('Good, so it can be checked. What is the estimated bill amount? A rough figure is fine.'); return; }
+    go('cmbBlocked','CUT_MEDI_BILLS_FIT'); simTrace('<b>eligibility</b> action already taken at that centre → not valid there');
+    simSay('Because the appointment, registration, treatment or payment has already occurred at that centre, Cut Medi Bills cannot be applied there. We can check a different healthcare centre for your requirement. Would you like another option?',{btns:['Another centre','Not now']}); return;
+  }
+  if(s==='cmbBlocked'){ if(/another|yes/.test(t)) startCentre(); else { go('closed','CLOSED'); simSay('No problem. You may message Oxxy whenever healthcare support is needed.'); } return; }
+  if(s==='cmbAmount'){
+    const a=parseAmt(t); if(!a){ simSay('A rough figure is fine, for example 80000 or 1.8 lakh.'); return; }
+    const sv=Math.round(a*0.3); const ok=sv>Math.round(CMB.monthly*(1+GST));
+    simTrace(`<b>value check</b> 30% of ${inr(a)} = ${inr(sv)} vs Cut Medi Bills monthly ${inr(Math.round(CMB.monthly*(1+GST)))} incl. GST → ${ok?'pass':'fail'}`);
+    if(ok){ fire('F','30%'); go('cmbOption','CUT_MEDI_BILLS_FIT'); simSay(`For an easy illustration, approximately 30% of ${inr(a)} is ${inr(sv)}. The actual discount depends on the medical service, provider and location and will be confirmed before you proceed.\n\nActivate Cut Medi Bills, tell us what you need before you book it, and use the provider confirmed by Oxxy to receive the applicable discount. Which option would you prefer?`,{btns:['Monthly option','Annual option','Ask a question']}); }
+    else { sim.product='oxxy'; go('menu','ROUTING'); simSay(`At about ${inr(a)}, the illustrated saving may not exceed the Cut Medi Bills price of ₹4,999 plus GST, so I would not suggest it for this expense alone. I can help you find a centre or take a booking request at no cost.`,{btns:['Find or book a centre','Not now']}); }
+    return;
+  }
+  if(s==='cmbOption'){ if(/annual/.test(t)) cmbDisclose('annual'); else if(/monthly/.test(t)) cmbDisclose('monthly'); else simSay('Of course. What would you like to know?'); return; }
+  if(s==='cmbConfirm'){
+    if(/send|yes/.test(t)){ go('link','AWAITING_PAYMENT'); fire('E','Cut Medi Bills link only'); simSay(`Here is the official secure activation link for Cut Medi Bills: https://www.oxxy.in/cut_medi_bills/only_healthplan.php?plan_name=oxxy_cutbills\nPlease review the plan, price, GST and renewal details before payment. Once completed, reply DONE so the Oxxy team can guide you further.`); simTrace('<b>suppressed</b> Oxxy plan links (one product per customer)'); return; }
+    go('futime','FOLLOW_UP_TIME'); fire('N'); simSay('No pressure. Would tomorrow at 11:00 or tomorrow at 18:00 be better for a quick follow-up?',{btns:['Tomorrow 11:00','Tomorrow 18:00','Close the chat']}); return;
+  }
+  if(s==='locality'){ sim.locality=raw.trim(); ASK.spec(); return; }
+  if(s==='spec'){
+    sim.spec=raw.trim(); go('pick','CENTRE_SEARCH'); fire('D');
+    simTrace(`<b>search_centres</b>(“${esc(sim.locality)}”, radius 10 km, “${esc(sim.spec)}”) → approved directory only, private centres only`);
+    sim.options=['Adyar Ortho Care – Adyar','Kauvery Hospital – Alwarpet','Sri Ramana Multispeciality – Kotturpuram'];
+    simSay(`Based on ${sim.locality} and your need for ${sim.spec}, here are suitable private healthcare-centre options:\n1. Adyar Ortho Care – Adyar | Specialist\n2. Kauvery Hospital – Alwarpet | Multispeciality\n3. Sri Ramana Multispeciality – Kotturpuram | Multispeciality\n\nI found 3 reliable options. Reply with 1-5, or send the name of another centre you prefer.`);
+    return;
+  }
+  if(s==='pick'){
+    const n=parseInt(t,10); sim.centre = (n>=1&&n<=sim.options.length) ? sim.options[n-1].replace(' – ',', ') : raw.trim();
+    if(!(n>=1&&n<=sim.options.length)) simTrace('<b>verify</b> customer named another centre → check it exists and the branch is correct');
+    go('offer','BOOKING_CAPTURE'); fire('G');
+    simSay('May I do your booking at the healthcare centre of your choice?',{btns:['Yes, please','Not now']}); return;
+  }
+  if(s==='offer'){ if(/yes/.test(t)) ASK.date(); else { go('futime','FOLLOW_UP_TIME'); simSay('No problem. Would tomorrow at 11:00 or tomorrow at 18:00 be better for a quick follow-up?',{btns:['Tomorrow 11:00','Tomorrow 18:00','Close the chat']}); } return; }
+  if(s==='date'){
+    const d=parseDate(t); if(!d){ simSay(`Please send a date like 14 Nov. It can be from ${fmtDate(WIN_MIN)} up to ${fmtDate(WIN_MAX)}.`); return; }
+    if(d<WIN_MIN){ simSay(`The booking request needs at least a 3-day gap. Please choose a date on or after ${fmtDate(WIN_MIN)}.`); simTrace(`<b>create_booking_request</b> would reject ${d}: before ${WIN_MIN}`); return; }
+    if(d>WIN_MAX){ simSay(`I can record requests only up to 6 months ahead. Please choose a date on or before ${fmtDate(WIN_MAX)}.`); simTrace(`<b>create_booking_request</b> would reject ${d}: after ${WIN_MAX}`); return; }
+    sim.date=d; ASK.time(); return;
+  }
+  if(s==='time'){ sim.time=raw.trim(); if(!sim.spec) sim.spec='the requested service'; booked(); return; }
+  if(s==='futime'){ if(/close/.test(t)){ go('closed','CLOSED'); simSay('No problem. I will close the enquiry here so you do not feel pressured. You may message Oxxy whenever healthcare support is needed.'); } else { go('closed','FOLLOW_UP'); simSay(`Noted. I will follow up ${raw.toLowerCase()}. You can also message me any time before then.`); simTrace('<b>create_follow_up</b> exact time stored · template message · within 09:00–21:00'); } return; }
+  if(s==='existing'){ go('escalated','ESCALATED'); fire('O'); simSay('I want to give you a precise answer rather than guess. I will arrange an authorised callback. What time would be convenient?',{btns:['Today evening','Tomorrow morning']}); return; }
+  if(s==='escalated'){ simSay('Thank you. I have requested a callback for that time. The Oxxy team will contact you then.'); simTrace('<b>create_task</b> callback window updated in the CRM'); go('closed','ESCALATED'); return; }
+  simSay('Sorry, I did not get that. Please choose an option.',{list:OPEN_ROWS}); go('menu');
+  simTrace('<b>claude</b> low confidence → opening menu');
+}
+function Simulator(){
+  if(!sim) simReset();
+  return shell('WhatsApp simulator','Demo · customer view', `
+    <div class="simwrap">
+      <div class="phone">
+        <div class="hd"><div class="avatar">O</div><div><b>Oxxy Health</b><div class="small" style="opacity:.85">Automated assistant</div></div></div>
+        <div class="msgs">${sim.msgs.map((m,i)=>{const last=!m.me&&i===sim.msgs.length-1;return `<div class="bub ${m.me?'me':''}">${esc(m.t)}</div>${last&&m.btns?`<div class="qr">${m.btns.map(b=>`<button onclick="simInput(this.textContent)">${esc(b)}</button>`).join('')}</div>`:''}${last&&m.list?`<div class="listmsg"><div class="small muted" style="padding:7px 11px">Choose an option</div>${m.list.map(b=>`<button onclick="simInput(this.textContent)">${esc(b)}</button>`).join('')}</div>`:''}`}).join('')}</div>
+        <form class="typer" onsubmit="event.preventDefault();const i=document.getElementById('simtxt');const v=i.value;i.value='';simInput(v);"><input id="simtxt" placeholder="Type a message" autocomplete="off"><button aria-label="Send">➤</button></form>
+      </div>
+      <div class="grid" style="gap:14px">
+        <div class="panel"><div class="panel-h"><h2>What the backend did</h2>${statePill(sim.state)}<span class="spacer"></span><button class="btn sm" onclick="simReset();render()">Restart chat</button></div><div class="panel-b trace">${sim.trace.map(t=>`<div>${t}</div>`).join('')}</div></div>
+        <div class="panel"><div class="panel-h"><h2>Try these</h2></div>
+          <div class="panel-b grid" style="gap:10px">
+            <div><div class="eyebrow" style="margin-bottom:6px">Oxxy plan path</div><div class="row" style="gap:6px">${['Reduce a medical bill','Yes, that is okay','For my family','Knee check-up','Ongoing support','68','60000','1.5 lakh','Activation link','DONE'].map(s=>`<button class="btn sm" onclick="simInput(this.textContent)">${s}</button>`).join('')}</div></div>
+            <div><div class="eyebrow" style="margin-bottom:6px">Booking path</div><div class="row" style="gap:6px">${['Find or book a centre','Adyar, Chennai','Orthopaedics','1','Yes, please','11 Nov','20 Jun','14 Nov','Morning','No, thanks'].map(s=>`<button class="btn sm" onclick="simInput(this.textContent)">${s}</button>`).join('')}</div></div>
+            <div><div class="eyebrow" style="margin-bottom:6px">Cut Medi Bills path</div><div class="row" style="gap:6px">${['One upcoming expense','Nothing done yet','1.8 lakh','Monthly option','Send the link'].map(s=>`<button class="btn sm" onclick="simInput(this.textContent)">${s}</button>`).join('')}</div></div>
+            <div><div class="eyebrow" style="margin-bottom:6px">Questions and safety</div><div class="row" style="gap:6px">${['Is Oxxy insurance?','Is this genuine?','Can I get both?','Is 30% guaranteed?','Discount at this hospital?','I am busy','chest pain','STOP'].map(s=>`<button class="btn sm" onclick="simInput(this.textContent)">${s}</button>`).join('')}</div></div>
+          </div>
+          <div class="panel-b small muted" style="padding-top:0">Replies use the approved Playbook wording and are scripted for this demo. In the real system Claude drafts each reply and the rule validator checks it before sending.</div></div>
+      </div>
+    </div>`);
+}
+
+/* ---------- drawer: booking review ---------- */
+function openBooking(id){ ui.drawer = {type:'booking', id}; render(); }
+function closeDrawer(){ ui.drawer = null; render(); }
+function drawerHTML(){
+  if(ui.drawer.type==='form') return formHTML();
+  if(ui.drawer.type==='confirm') return confirmHTML();
+  if(ui.drawer.type==='invite') return `<div class="scrim" onclick="if(event.target===this)closeDrawer()"><div class="drawer" role="dialog" aria-label="Invite user">
+    <div class="row"><h2>Invite user</h2><span class="spacer"></span><button class="btn sm" onclick="closeDrawer()">Close</button></div>
+    <form class="grid" style="gap:12px" onsubmit="event.preventDefault();inviteUser()">
+      <div class="field"><label for="iname">Name</label><input id="iname" class="input" required value="Sangeetha V."></div>
+      <div class="field"><label for="iemail">Work email</label><input id="iemail" class="input" type="email" required value="sangeetha@oxxy.test"></div>
+      <div class="field"><label for="irole">Role</label><select id="irole" class="input">${ROLES.map(r=>`<option ${r==='Sales agent'?'selected':''}>${r}</option>`).join('')}</select></div>
+      <p class="small muted" style="margin:0">They get an email link valid for 48 hours and must set up two-step sign-in if the role is Admin or Pricing.</p>
+      <button class="btn pri" style="justify-content:center">Send invite</button>
+    </form></div></div>`;
+  const b = bookings.find(x=>x.id===ui.drawer.id); const c = cust(b.cust);
+  const inWin = b.date>=WIN_MIN && b.date<=WIN_MAX;
+  return `<div class="scrim" onclick="if(event.target===this)closeDrawer()"><div class="drawer" role="dialog" aria-label="Booking ${b.id}">
+    <div class="row"><div><div class="eyebrow">Booking request</div><h2 class="mono">${b.id}</h2></div><span class="spacer"></span><button class="btn sm" onclick="closeDrawer()">Close</button></div>
+    <div>${bookingPill(b.status)}</div>
+    <dl class="kv"><dt>Customer</dt><dd>${esc(c.name)} <span class="mono small muted">${c.phone}</span></dd><dt>For</dt><dd>${esc(b.for)}</dd><dt>Centre</dt><dd>${esc(b.centre)}</dd><dt>Service</dt><dd>${esc(b.service)}</dd><dt>Created</dt><dd>${b.created}</dd>${b.confirmedBy?`<dt>Confirmed by</dt><dd>${esc(b.confirmedBy)}</dd>`:''}</dl>
+    <dl class="kv"><dt>CRM booking</dt><dd class="mono">${crmBk(b)}</dd><dt>Sales owner</dt><dd>${ownerOf(c)}</dd><dt>Date window</dt><dd>${dateCheck(b.date)}</dd></dl>
+    <div class="row">${b.status!=='cancelled'?`<button class="btn sm" onclick="bookingForm('${b.id}')">Edit</button><button class="btn sm danger" onclick="cancelBooking('${b.id}')">Cancel booking</button>`:`<button class="btn sm danger" onclick="delBooking('${b.id}')">Delete</button>`}</div>
+    ${b.status==='pending_confirmation'?`
+    <div class="panel"><div class="panel-b grid" style="gap:12px">
+      <p style="margin:0">${ownerOf(c)} confirms this booking with the centre and marks it in the CRM. Nothing is confirmed from this console.</p>
+      <div class="row"><button class="btn pri" onclick="toast('Opens ${crmBk(b)} in the CRM')">Open in CRM</button><button class="btn" onclick="simulateConfirm('${b.id}')">Demo: CRM sends booking.confirmed</button></div>
+      <p class="small muted" style="margin:0">The demo button plays the webhook so you can see what the bot does next.</p>
+    </div></div>
+    <div><div class="eyebrow">Message the customer gets after the webhook</div><div class="bub out" style="max-width:100%;margin-top:8px">Your visit to ${esc(b.centre)} is confirmed for ${fmtDate(b.date)}, ${esc(b.slot)}. Reply here if you need to change it.</div></div>`:''}
+  </div></div>`;
+}
+function dateCheck(d){
+  const ok = d>=WIN_MIN && d<=WIN_MAX;
+  return `<div class="check"><i class="${ok?'y':'n'}">${ok?'✓':'✕'}</i><span>${ok?'Inside booking window':'Outside booking window'} (${fmtDate(WIN_MIN)} – ${fmtDate(WIN_MAX)})</span></div>`;
+}
+function checkDate(v){ document.getElementById('datecheck').innerHTML = dateCheck(v); document.getElementById('confirmBtn').disabled = !(v>=WIN_MIN && v<=WIN_MAX); }
+function simulateConfirm(id){
+  const b = bookings.find(x=>x.id===id); const c = cust(b.cust);
+  b.status='confirmed'; b.confirmedBy=ownerOf(c)+' (via CRM)';
+  tasks.forEach(t=>{ if(t.title.includes(id)) t.status='done'; });
+  webhooks.unshift({id:'ev_'+Math.random().toString(16).slice(2,6),type:'booking.confirmed',ref:crmBk(b)+' · '+c.id,at:'Now',result:'Signature OK · booking-confirmed template sent · mirror updated'});
+  audit.unshift(['2026-11-10 10:34','crm webhook','booking_requests.confirm',id+' confirmed by '+ownerOf(c),b.cust]);
+  ui.drawer=null; render(); toast(id+' confirmed in the CRM. Customer messaged on WhatsApp.');
+}
+
+/* ---------- actions ---------- */
+function inviteUser(){ staff.push({name:document.getElementById('iname').value,email:document.getElementById('iemail').value,role:document.getElementById('irole').value,status:'invited',mfa:false,last:'—'}); ui.drawer=null; render(); toast('Invite sent'); }
+function login(){ ui.loggedIn=true; location.hash='dashboard'; render(); }
+function logout(){ ui.loggedIn=false; render(); }
+function takeOver(id){ const c=cust(id); c.state = c.state==='ESCALATED'?'DISCOVERY':'ESCALATED'; render(); toast(c.state==='ESCALATED'?'You are replying now. Bot paused for this chat.':'Bot resumed.'); }
+function sendReply(id){ const v=document.getElementById('reply').value.trim(); if(!v) return; (THREADS[id] ||= defaultThread(cust(id))).push({s:'agent',t:v,at:'10:35'}); render(); toast('Sent'); }
+function withdraw(id){ const c=cust(id); c.consent=false; c.state='OPTED_OUT'; queueCrm('set_opt_out',id); logA('consents.withdraw','Opt-out recorded by staff',id); followups.forEach(f=>{if(f.cust===id&&f.status==='scheduled')f.status='suppressed'}); render(); toast('Consent withdrawn. Follow-ups suppressed.'); }
+function claim(id){ tasks.find(t=>t.id===id).owner='You'; render(); }
+function globalSearch(q){ q=q.toLowerCase(); const c=customers.find(x=>x.name.toLowerCase().includes(q)||x.id.toLowerCase()===q); const b=bookings.find(x=>x.id.toLowerCase()===q); if(b) openBooking(b.id); else if(c) location.hash='customer-'+c.id; else toast('No match for "'+q+'"'); }
+
+/* ---------- Add, edit and delete (prototype: changes live in this browser tab; every change is written to the audit log) ---------- */
+let FORM = null, CONFIRM = null;
+const TRIG_OFF = {};
+const CONFIG = {qStart:'09:00', qEnd:'21:00', website:'https://www.oxxy.in', policies:'https://www.oxxy.in/policies', cmb:'https://www.oxxy.in/cut_medi_bills/', phone:'8800855340', email:'info@oxxy.in'};
+let decisions = ['Whether family members on separate numbers may each hold a different product','Age rule at renewal','Oxxy family or multi-member pricing','Pre-existing condition terms for Everyday and Vital','Oxxy plan activation timeline and renewal terms','GST rate and current yearly prices','Cut Medi Bills cancellation method','Whether a booking-only message may be sent on WhatsApp after opt-out (legal)','Data retention period, deletion timeline and privacy contact','Quiet hours, human-team hours and callback target time','Length of the decision-journey window (now 7 days)','One grammatical voice for the agent name in Hindi'].map(q=>({q,answer:'',status:'Open'}));
+let reportsSched = [{name:'Weekly activations and revenue',to:'Founders',every:'Monday 09:00'},{name:'Trigger performance A–R',to:'Sales team',every:'Monday 09:00'},{name:'Booking confirmation time',to:'Sales lead',every:'Daily 18:00'},{name:'DPDP requests and consent',to:'Admin',every:'1st of month'}];
+let incidents = [{at:'Today 10:16',level:'warn',title:'Payment webhook delayed',detail:'Watching. Payments still go through; status updates late.'},{at:'2 Nov 21:40',level:'ok',title:'Claude API slow (p95 9 s)',detail:'Resolved after 12 min. 3 fallback messages sent.'}];
+let INTEGRATIONS = [
+  {name:'In-house CRM',level:'ok',core:true,kv:[['API','crm.oxxy.internal/api/v1 (sample)'],['Outbox','1 pending, 1 retrying, 1 dead'],['Webhooks (24h)','38 received, 0 bad signatures'],['Reconciliation','Today 02:00, 1 mismatch fixed']]},
+  {name:'WhatsApp Cloud API',level:'ok',core:true,kv:[['Business number','+91 44 •••• 2200'],['Quality rating','Green'],['Messaging limit','10,000 customers / day'],['Webhook','Verified · p95 420 ms']]},
+  {name:'Claude API',level:'ok',core:true,kv:[['Model','claude-opus-5-5'],['Mode','Structured output · effort low'],['Spend today','$18.40 of $60 cap'],['Errors (24h)','0.2%']]},
+  {name:'Payment gateway',level:'warn',core:false,kv:[['Mode','Live'],['Last webhook','14 min ago'],['Auto-debit','Pre-debit notice 24h before'],['Refunds (month)','3']]},
+  {name:'PostgreSQL 16 + PostGIS',level:'ok',core:true,kv:[['Region','ap-south-1'],['Backups','Daily · 30-day retention'],['Last backup','Today 03:00'],['Connections','24 / 200']]},
+  {name:'Redis 7 + BullMQ',level:'ok',core:true,kv:[['Queues','inbound, outbound, follow-ups, triggers'],['Waiting','12'],['Failed (24h)','2'],['Memory','18%']]},
+  {name:'Maps and geocoding',level:'ok',core:false,kv:[['Use','Nearest centre search'],['Quota used','31%'],['Cache hit','74%'],['Key rotated','1 Oct 2026']]},
+];
+const LEVEL_LABEL = {ok:'Connected',warn:'Delayed',crit:'Down'};
+const SLOTS = ['08:00–10:00','10:00–12:00','12:00–14:00','14:00–16:00','17:00–19:00'];
+const TASK_TYPES = {emergency:'Safety event',booking_confirm:'Booking confirmation',senior_callback:'Senior callback',eligibility_review:'Cut Medi Bills eligibility',payment_issue:'Payment issue',activation_verification:'Activation verification',privacy:'Privacy request',complaint:'Complaint'};
+const CENTRE_TYPES = ['Specialist centre','Multispeciality hospital','Clinic','Diagnostic centre','Government hospital'];
+const CRM_CALLS = ['lookup_customer','upsert_customer','create_booking_request','create_task','create_activation','log_event','set_opt_out'];
+const DR_TYPES = ['Access (copy of my data)','Correction','Erasure','Withdraw consent'];
+const OWNERS = [['','Unassigned'],...SALES.map(s=>[s,s]),['Manoj K.','Manoj K.']];
+
+const rnd = () => Math.random().toString(16).slice(2,6);
+const cname = id => (cust(id) || {name:'Erased customer'}).name;
+const custOpts = (f=()=>true) => customers.filter(f).map(c=>[c.id, c.name+' · '+c.id]);
+const reachable = c => c.consent && c.state!=='OPTED_OUT';
+function nowStamp(){ const d=new Date(); return '2026-11-10 '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+function logA(action, detail, c='—'){ audit.unshift([nowStamp(),'Manoj K.',action,detail,c]); }
+function nextId(prefix, arr){ const n = arr.map(x=>parseInt(String(x.id).replace(/\D/g,''),10)||0); return prefix + (Math.max(0,...n)+1); }
+function queueCrm(action, c){ outbox.unshift({id:'ob-'+rnd(),action,cust:c,status:'pending',attempts:0,at:'Now',crm:'',err:''}); }
+function crmEvent(type, ref, result){ webhooks.unshift({id:'ev_'+rnd(),type,ref,at:'Now',result}); }
+const acts = (edit, del, extra='') => `<div class="row" style="gap:6px;flex-wrap:nowrap;justify-content:flex-end">${extra}${edit?`<button class="btn sm" onclick="event.stopPropagation();${edit}">Edit</button>`:''}${del?`<button class="btn sm danger" onclick="event.stopPropagation();${del}">Delete</button>`:''}</div>`;
+
+/* shared form drawer */
+function openForm(title, fields, values, onSave, note=''){
+  FORM = {title, fields, values:{...(values||{})}, onSave, note};
+  ui.drawer = {type:'form'}; render();
+  setTimeout(()=>{ const f=document.querySelector('.drawer [name]'); if(f) f.focus(); },0);
+}
+function fieldHTML(f, v){
+  const id = 'f_'+f.k, star = f.req ? ' <span style="color:var(--crit)">*</span>' : '';
+  const hint = f.hint ? `<span class="small muted">${esc(f.hint)}</span>` : '';
+  const lab = `<label for="${id}">${esc(f.label)}${star}</label>`;
+  if(f.type==='checkbox') return `<label class="row small" style="gap:8px;cursor:pointer"><input type="checkbox" id="${id}" name="${f.k}" ${v?'checked':''}>${esc(f.label)}</label>${hint}`;
+  if(f.type==='select') return `<div class="field">${lab}<select id="${id}" name="${f.k}" class="input">${f.options.map(o=>{ const [ov,ol] = Array.isArray(o)?o:[o,o]; return `<option value="${esc(ov)}" ${String(ov)===String(v??'')?'selected':''}>${esc(ol)}</option>`; }).join('')}</select>${hint}</div>`;
+  if(f.type==='textarea') return `<div class="field">${lab}<textarea id="${id}" name="${f.k}" class="input" rows="${f.rows||4}">${esc(v??'')}</textarea>${hint}</div>`;
+  const mono = ['number','date','time'].includes(f.type) ? ' mono' : '';
+  return `<div class="field">${lab}<input id="${id}" name="${f.k}" class="input${mono}" type="${f.type||'text'}" value="${esc(v??'')}"${f.min!==undefined?` min="${f.min}"`:''}${f.max!==undefined?` max="${f.max}"`:''}${f.step?` step="${f.step}"`:''}>${hint}</div>`;
+}
+function formHTML(){
+  return `<div class="scrim" onclick="if(event.target===this)closeDrawer()"><div class="drawer" role="dialog" aria-label="${esc(FORM.title)}">
+    <div class="row"><h2>${esc(FORM.title)}</h2><span class="spacer"></span><button class="btn sm" onclick="closeDrawer()">Close</button></div>
+    ${FORM.note?`<div class="small muted">${FORM.note}</div>`:''}
+    <form class="grid" style="gap:12px" onsubmit="event.preventDefault();submitForm()" novalidate>
+      ${FORM.fields.map(f=>fieldHTML(f, FORM.values[f.k])).join('')}
+      <div id="formErr" class="small" style="color:var(--crit);font-weight:600" role="alert"></div>
+      <div class="row"><button class="btn pri" type="submit">Save</button><button class="btn" type="button" onclick="closeDrawer()">Cancel</button></div>
+    </form></div></div>`;
+}
+function formErr(m){ const e=document.getElementById('formErr'); if(e) e.textContent=m; }
+function submitForm(){
+  const v = {};
+  for(const f of FORM.fields){
+    const el = document.querySelector(`.drawer [name="${f.k}"]`); if(!el) continue;
+    if(f.type==='checkbox'){ v[f.k]=el.checked; continue; }
+    const x = el.value.trim();
+    if(f.req && x==='') return formErr(f.label+' is required.');
+    if(f.type==='number' && x!==''){ const n=Number(x); if(!isFinite(n)) return formErr(f.label+' must be a number.'); if(f.min!==undefined&&n<f.min) return formErr(`${f.label} must be at least ${f.min}.`); if(f.max!==undefined&&n>f.max) return formErr(`${f.label} must be at most ${f.max}.`); v[f.k]=n; }
+    else v[f.k]=x;
+  }
+  const err = FORM.onSave(v);
+  if(err) return formErr(err);
+  FORM=null; ui.drawer=null; render();
+}
+function askDelete(what, fn, note='', verb='Delete'){ CONFIRM={what, fn, note, verb}; ui.drawer={type:'confirm'}; render(); }
+function confirmHTML(){
+  return `<div class="scrim" onclick="if(event.target===this)closeDrawer()"><div class="drawer" role="alertdialog" aria-label="Confirm">
+    <div class="row"><h2>${CONFIRM.verb}?</h2><span class="spacer"></span><button class="btn sm" onclick="closeDrawer()">Close</button></div>
+    <p style="margin:0">${CONFIRM.verb} ${esc(CONFIRM.what)}?</p>
+    ${CONFIRM.note?`<p class="small muted" style="margin:0">${esc(CONFIRM.note)}</p>`:''}
+    <div class="row"><button class="btn danger" onclick="doConfirm()">Yes, ${CONFIRM.verb.toLowerCase()}</button><button class="btn" onclick="closeDrawer()">No, keep it</button></div></div></div>`;
+}
+function doConfirm(){ const f=CONFIRM.fn; CONFIRM=null; ui.drawer=null; f(); render(); }
+
+/* centres */
+function centreForm(i){
+  const c = i==null ? {type:'Clinic',verified:isoDay(TODAY),active:true,source:''} : centres[i];
+  openForm(i==null?'Add centre':'Edit centre', [
+    {k:'name',label:'Centre name',req:true},
+    {k:'city',label:'City',req:true},
+    {k:'area',label:'Area or locality',req:true},
+    {k:'type',label:'Type',type:'select',options:CENTRE_TYPES},
+    {k:'services',label:'Services',hint:'Comma separated, for example Orthopaedics, X-ray'},
+    {k:'verified',label:'Last verified on',type:'date',req:true,max:isoDay(TODAY)},
+    {k:'source',label:'Verified from',hint:'Website, NABH list or a phone call'},
+    {k:'active',label:'Show this centre to the bot (active)',type:'checkbox'},
+  ], c, v=>{
+    if(v.verified>isoDay(TODAY)) return 'Last verified date cannot be in the future.';
+    if(v.type==='Government hospital' && v.active) return 'Government hospitals are excluded from suggestions (private centres only). Untick “Show this centre to the bot”.';
+    if(centres.some((x,j)=>j!==i && x.name.toLowerCase()===v.name.toLowerCase() && x.area.toLowerCase()===v.area.toLowerCase())) return 'This centre is already in the directory for that area.';
+    if(!v.services) v.services='—';
+    if(i==null){ centres.unshift(v); logA('centres.insert',v.name+', '+v.area); toast('Centre added'); }
+    else { Object.assign(centres[i],v); logA('centres.update',v.name+', '+v.area); toast('Centre updated'); }
+  }, 'The bot suggests only active, verified, private centres. Tie-up status is never shown to customers.');
+}
+function delCentre(i){ const c=centres[i]; askDelete('the centre “'+c.name+', '+c.area+'”', ()=>{ centres.splice(i,1); logA('centres.delete',c.name+', '+c.area); toast('Centre deleted'); }, 'Booking requests already made keep the centre name.'); }
+function verifyCentre(i){ centres[i].verified=isoDay(TODAY); logA('centres.verify',centres[i].name+', '+centres[i].area); render(); toast('Marked as verified today'); }
+function Centres(){
+  return shell('Centres','Approved provider directory', `
+    <div class="row"><span class="small muted">The bot suggests only active, verified centres. Tie-up status is never shown to customers.</span><span class="spacer"></span><button class="btn pri" onclick="centreForm()">Add centre</button></div>
+    <div class="panel"><div class="tbl-wrap"><table><thead><tr><th>Centre</th><th>City</th><th>Type</th><th>Services</th><th>Last verified</th><th>Status</th><th></th></tr></thead><tbody>
+    ${centres.map((c,i)=>{const old=(TODAY-new Date(c.verified))/864e5>120;return `<tr><td><b>${esc(c.name)}</b><div class="small muted">${esc(c.area)}</div></td><td>${esc(c.city)}</td><td class="small">${esc(c.type)}</td><td class="small">${esc(c.services)}</td><td class="mono small">${fmtDate(c.verified)} ${old?'<span class="pill warn">Re-verify</span>':''}</td><td>${c.active?'<span class="pill ok">Active</span>':'<span class="pill plain">Hidden from bot</span>'}</td><td>${acts(`centreForm(${i})`,`delCentre(${i})`, old?`<button class="btn sm" onclick="verifyCentre(${i})">Verified today</button>`:'')}</td></tr>`}).join('') || '<tr><td colspan="7" class="empty">No centres yet. Add the first one.</td></tr>'}
+    </tbody></table></div></div>`);
+}
+
+/* customers */
+const maskPhone = d => '+91 '+d.slice(0,2)+'•••• '+d.slice(-4);
+function customerForm(id){
+  const c = id ? cust(id) : {lang:'English',consent:true,beneficiary:'Self'};
+  openForm(id?'Edit customer':'Add customer', [
+    {k:'name',label:'Name',req:true},
+    {k:'phone',label:'WhatsApp number',req:true,hint:id?'Leave as it is to keep the current number':'10-digit Indian mobile, for example 98765 43210'},
+    {k:'city',label:'City and area',req:true},
+    {k:'lang',label:'Language',type:'select',options:['English','Hindi','Hinglish']},
+    {k:'beneficiary',label:'Care is for',hint:'Self, Mother (81), Family'},
+    {k:'need',label:'Healthcare need'},
+    {k:'consent',label:'Customer agreed to WhatsApp messages',type:'checkbox'},
+  ], c, v=>{
+    if(!id || v.phone!==c.phone){
+      const d = v.phone.replace(/\D/g,'').replace(/^91(?=\d{10}$)/,'');
+      if(!/^[6-9]\d{9}$/.test(d)) return 'Enter a valid 10-digit Indian mobile number.';
+      v.phone = maskPhone(d);
+    }
+    if(customers.some(x=>x.id!==id && x.phone===v.phone)) return 'Another customer already has this WhatsApp number.';
+    if(!id){
+      const nid = nextId('C-',customers);
+      customers.unshift({id:nid,...v,product:null,plan:null,state:v.consent?'NEW':'OPTED_OUT',health:false,unread:0,last:'Added by Manoj K.',time:'Now',triggers:[]});
+      queueCrm('upsert_customer',nid); logA('customers.insert',v.name,nid); toast('Customer added and sent to the CRM');
+    } else {
+      if(c.consent && !v.consent){ c.state='OPTED_OUT'; followups.forEach(f=>{ if(f.cust===id&&f.status==='scheduled') f.status='suppressed'; }); queueCrm('set_opt_out',id); }
+      Object.assign(c,v); queueCrm('upsert_customer',id); logA('customers.update',v.name,id); toast('Customer updated and sent to the CRM');
+    }
+  }, 'Customers normally start the chat on WhatsApp. Changes go to the CRM through the outbox.');
+}
+function delCustomer(id){
+  const c = cust(id);
+  askDelete('“'+c.name+'” and all of their bot data', ()=>{
+    customers = customers.filter(x=>x.id!==id);
+    bookings = bookings.filter(x=>x.cust!==id); tasks = tasks.filter(x=>x.cust!==id);
+    followups = followups.filter(x=>x.cust!==id); dataReqs = dataReqs.filter(x=>x.cust!==id);
+    delete THREADS[id]; if(ui.selConv===id) ui.selConv = customers[0] && customers[0].id;
+    queueCrm('set_opt_out',id); logA('customers.erase','Erased on request (DPDP)',id);
+    if(route().startsWith('customer-')) location.hash='customers';
+    toast('Customer erased. The CRM was asked to erase its record too.');
+  }, 'DPDP erasure: removes the chat, bookings, follow-ups and tasks here and asks the CRM to erase its record. The audit log keeps only that an erasure happened.');
+}
+function Customers(){
+  return shell('Customers','Directory · records also live in the CRM', `
+    <div class="row"><span class="small muted">One product per customer: an Oxxy plan or Cut Medi Bills.</span><span class="spacer"></span><button class="btn pri" onclick="customerForm()">Add customer</button></div>
+    <div class="panel"><div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Phone</th><th>City</th><th>Product</th><th>State</th><th>Consent</th><th>Last message</th><th></th></tr></thead><tbody>
+    ${customers.map(c=>`<tr class="click" onclick="location.hash='customer-${c.id}'"><td><b>${esc(c.name)}</b><div class="small muted mono">${c.id}</div></td><td class="mono small">${esc(c.phone)}</td><td>${esc(c.city)}</td><td>${productLabel(c)}</td><td>${statePill(c.state)}</td><td>${c.consent?'<span class="pill ok">Given</span>':'<span class="pill plain">None</span>'}</td><td class="small muted">${c.time}</td><td>${acts(`customerForm('${c.id}')`,`delCustomer('${c.id}')`)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No customers.</td></tr>'}
+    </tbody></table></div></div>`);
+}
+
+/* bookings */
+function bookingForm(id){
+  const b = id ? bookings.find(x=>x.id===id) : {date:WIN_MIN,slot:SLOTS[1],for:'Self'};
+  const active = centres.filter(c=>c.active).map(c=>c.name+', '+c.area);
+  const opts = b.centre && !active.includes(b.centre) ? [b.centre,...active] : active;
+  if(!opts.length){ toast('Add an active centre first'); return; }
+  openForm(id?'Edit booking '+id:'New booking request', [
+    ...(id?[]:[{k:'cust',label:'Customer',type:'select',options:custOpts(reachable)}]),
+    {k:'for',label:'Booking for',req:true,hint:'Self, Mother (81), Father'},
+    {k:'centre',label:'Centre',type:'select',options:opts},
+    {k:'service',label:'Specialisation or service',req:true},
+    {k:'date',label:'Preferred date',type:'date',req:true,min:WIN_MIN,max:WIN_MAX,hint:`Allowed: ${fmtDate(WIN_MIN)} to ${fmtDate(WIN_MAX)} (today + 3 days to + 6 months, IST)`},
+    {k:'slot',label:'Time window',type:'select',options:SLOTS},
+  ], b, v=>{
+    if(v.date<WIN_MIN) return `The date must be on or after ${fmtDate(WIN_MIN)} (at least a 3-day gap).`;
+    if(v.date>WIN_MAX) return `The date must be on or before ${fmtDate(WIN_MAX)} (up to 6 months ahead).`;
+    if(!id){
+      if(!v.cust) return 'Choose a customer who has not opted out.';
+      const nid = nextId('BR-',bookings);
+      bookings.unshift({id:nid,...v,status:'pending_confirmation',created:'Now'});
+      queueCrm('create_booking_request',v.cust); logA('booking_requests.insert',nid+' · pending_confirmation',v.cust);
+      ui.tabBook='pending_confirmation'; toast(nid+' saved as pending and sent to the CRM');
+    } else {
+      const moved = b.date!==v.date || b.slot!==v.slot;
+      Object.assign(b,v);
+      if(moved && b.status==='confirmed'){ b.status='pending_confirmation'; b.confirmedBy=null; }
+      crmEvent('booking.rescheduled',crmBk(b)+' · '+b.cust,'Mirror updated'+(moved?' · reschedule template sent':''));
+      logA('booking_requests.update',id+(moved?' · new date '+v.date+' '+v.slot:''),b.cust);
+      toast(id+' updated'+(moved?' · needs confirmation again':''));
+    }
+  }, id?'Demo: in the live system this change is made in the CRM, which sends <span class="mono">booking.rescheduled</span>. A new date needs confirmation again.':'The request stays pending until the sales team confirms it with the centre in the CRM.');
+}
+function cancelBooking(id){
+  const b = bookings.find(x=>x.id===id);
+  askDelete('booking '+id+' at '+b.centre, ()=>{
+    b.status='cancelled'; crmEvent('booking.cancelled',crmBk(b)+' · '+b.cust,'Mirror set to cancelled · cancellation template sent');
+    logA('booking_requests.cancel',id,b.cust); toast(id+' cancelled. Customer told on WhatsApp.');
+  }, 'Demo: in the live system the sales team cancels in the CRM, which sends booking.cancelled. The customer gets the cancellation message.', 'Cancel');
+}
+function delBooking(id){ askDelete('cancelled booking '+id+' from this list', ()=>{ const b=bookings.find(x=>x.id===id); bookings=bookings.filter(x=>x.id!==id); logA('booking_requests.delete',id,b.cust); toast(id+' removed'); }); }
+function Bookings(){
+  const list = bookings.filter(b=>ui.tabBook==='all'||b.status===ui.tabBook);
+  return shell('Booking requests','Confirmed only by the sales team in the CRM', `
+    <div class="panel"><div class="panel-b small">New requests go to the CRM through the outbox and stay <b>pending</b> until the sales team confirms them with the centre in the CRM. Edits and cancellations here stand in for the CRM's <span class="mono">booking.rescheduled</span> and <span class="mono">booking.cancelled</span> webhooks.</div></div>
+    <div class="row"><div class="tabs">${[['pending_confirmation','Pending'],['confirmed','Confirmed'],['cancelled','Cancelled'],['all','All']].map(([k,l])=>`<button class="${ui.tabBook===k?'on':''}" onclick="ui.tabBook='${k}';render()">${l}</button>`).join('')}</div><span class="spacer"></span><span class="small muted">Allowed dates today: <span class="mono">${fmtDate(WIN_MIN)} – ${fmtDate(WIN_MAX)}</span> (IST)</span><button class="btn pri" onclick="bookingForm()">New booking request</button></div>
+    <div class="panel"><div class="tbl-wrap"><table><thead><tr><th>ID</th><th>Customer</th><th>For</th><th>Centre</th><th>Service</th><th>Date</th><th>Time</th><th>Status</th><th></th></tr></thead><tbody>
+    ${list.map(b=>`<tr class="click" onclick="openBooking('${b.id}')"><td class="mono">${b.id}</td><td>${esc(cname(b.cust))}</td><td class="small">${esc(b.for)}</td><td>${esc(b.centre)}</td><td class="small">${esc(b.service)}</td><td class="mono">${fmtDate(b.date)}</td><td>${b.slot}</td><td>${bookingPill(b.status)}</td><td>${b.status==='cancelled'?acts('',`delBooking('${b.id}')`):acts(`bookingForm('${b.id}')`,'',`<button class="btn sm" onclick="event.stopPropagation();cancelBooking('${b.id}')">Cancel</button>`)}</td></tr>`).join('')||'<tr><td colspan="9" class="empty">Nothing here.</td></tr>'}
+    </tbody></table></div></div>`);
+}
+
+/* escalations (CRM tasks) */
+function taskForm(id){
+  const t = id ? tasks.find(x=>x.id===id) : {type:'senior_callback',prio:'normal',due:'Today 18:00',owner:'',status:'open'};
+  openForm(id?'Edit escalation '+id:'New escalation', [
+    ...(id?[]:[{k:'cust',label:'Customer',type:'select',options:custOpts()}]),
+    {k:'type',label:'Type',type:'select',options:Object.entries(TASK_TYPES)},
+    {k:'title',label:'What needs doing',req:true},
+    {k:'prio',label:'Priority',type:'select',options:[['urgent','Urgent'],['high','High'],['normal','Normal']]},
+    {k:'due',label:'Due',req:true,hint:'For example Today 18:00 or Tomorrow'},
+    {k:'owner',label:'Owner',type:'select',options:OWNERS},
+    ...(id?[{k:'status',label:'Status',type:'select',options:[['open','Open'],['in_progress','In progress'],['done','Done']]}]:[]),
+  ], {...t, owner:t.owner||''}, v=>{
+    v.owner = v.owner || null;
+    if(!id){
+      if(!v.cust) return 'Choose a customer.';
+      const nid = nextId('T-',tasks); tasks.unshift({id:nid,...v,status:'open'});
+      queueCrm('create_task',v.cust); logA('tasks.create',nid+' · '+v.title,v.cust); toast(nid+' created in the CRM');
+    } else {
+      const wasDone = t.status==='done'; Object.assign(t,v);
+      if(!wasDone && t.status==='done') crmEvent('task.completed','TK-'+(55000+parseInt(id.slice(2),10))+' · '+t.cust,'Suppression lifted · bot back to stored state');
+      logA('tasks.update',id+' · '+t.status,t.cust); toast(id+' updated');
+    }
+  }, 'The sales team works escalations in the CRM. The bot creates them through the outbox.');
+}
+function doneTask(id){ const t=tasks.find(x=>x.id===id); t.status='done'; crmEvent('task.completed','TK-'+(55000+parseInt(id.slice(2),10))+' · '+t.cust,'Suppression lifted · bot back to stored state'); logA('tasks.complete',id,t.cust); render(); toast(id+' marked done'); }
+function delTask(id){ askDelete('escalation '+id, ()=>{ const t=tasks.find(x=>x.id===id); tasks=tasks.filter(x=>x.id!==id); logA('tasks.delete',id,t.cust); toast(id+' deleted'); }); }
+function Tasks(){
+  const list = tasks.filter(t=>ui.tabTask==='all'||(ui.tabTask==='open'?t.status!=='done':t.status==='done'));
+  return shell('Escalations','Worked by the sales team in the CRM', `
+    <div class="panel"><div class="panel-b small">The bot creates these tasks through the outbox; the CRM's <span class="mono">task.completed</span> webhook closes them here.</div></div>
+    <div class="row"><div class="tabs">${[['open','Open'],['done','Done'],['all','All']].map(([k,l])=>`<button class="${ui.tabTask===k?'on':''}" onclick="ui.tabTask='${k}';render()">${l}</button>`).join('')}</div><span class="spacer"></span><button class="btn pri" onclick="taskForm()">New escalation</button></div>
+    <div class="panel"><div class="tbl-wrap"><table><thead><tr><th>Priority</th><th>Task</th><th>Type</th><th>Customer</th><th>Due</th><th>Owner</th><th>Status</th><th></th></tr></thead><tbody>
+    ${list.map(t=>`<tr><td>${prioPill(t.prio)}</td><td><b>${esc(t.title)}</b><div class="small muted mono">${t.id}</div></td><td class="small">${TASK_TYPES[t.type]||esc(t.type)}</td><td><a href="#customer-${t.cust}">${esc(cname(t.cust))}</a></td><td class="mono small">${esc(t.due)}</td><td>${t.owner?esc(t.owner):'<span class="muted">Unassigned</span>'}</td><td>${t.status==='done'?'<span class="pill ok">Done</span>':t.status==='in_progress'?'<span class="pill info">In progress</span>':'<span class="pill warn">Open</span>'}</td>
+      <td>${acts(`taskForm('${t.id}')`,`delTask('${t.id}')`, t.status!=='done'?`<button class="btn sm pri" onclick="doneTask('${t.id}')">Done</button>`:'')}</td></tr>`).join('')||'<tr><td colspan="8" class="empty">Nothing here.</td></tr>'}
+    </tbody></table></div></div>`);
+}
+
+/* follow-ups */
+function fuForm(id){
+  const f = id ? followups.find(x=>x.id===id) : {trig:'N',template:'agreed_followup_v1',when:isoDay(addDays(TODAY,1))+' 11:00',note:''};
+  const [date,time] = f.when.split(' ');
+  const approved = templates.filter(t=>t.status==='Approved').map(t=>t.name);
+  openForm(id?'Edit follow-up '+id:'Schedule follow-up', [
+    ...(id?[]:[{k:'cust',label:'Customer',type:'select',options:custOpts(reachable),hint:'Opted-out customers are not listed'}]),
+    {k:'trig',label:'Trigger',type:'select',options:['—',...Object.keys(TRIGGERS)].map(k=>[k,k==='—'?'— (rescue nudge)':k+' · '+TRIGGERS[k]])},
+    {k:'template',label:'Approved template',type:'select',options:approved},
+    {k:'date',label:'Send date',type:'date',req:true,min:isoDay(TODAY)},
+    {k:'time',label:'Send time (IST)',type:'time',req:true,hint:`Only between ${CONFIG.qStart} and ${CONFIG.qEnd} (quiet hours)`},
+    {k:'note',label:'Note'},
+  ], {...f,date,time}, v=>{
+    if(!id && !v.cust) return 'Choose a customer who has not opted out.';
+    if(!approved.includes(v.template)) return 'Pick an approved template.';
+    if(v.time<CONFIG.qStart || v.time>CONFIG.qEnd) return `Quiet hours: proactive messages only between ${CONFIG.qStart} and ${CONFIG.qEnd}.`;
+    if(v.date+' '+v.time <= '2026-11-10 10:30') return 'The send time must be in the future.';
+    const rec = {trig:v.trig,template:v.template,when:v.date+' '+v.time,note:v.note,status:'scheduled'};
+    if(!id){ const nid=nextId('F-',followups); followups.unshift({id:nid,cust:v.cust,...rec}); logA('follow_ups.insert',nid+' · '+rec.when,v.cust); toast(nid+' scheduled'); }
+    else { Object.assign(f,rec); logA('follow_ups.update',id+' · '+rec.when,f.cust); toast(id+' updated'); }
+  }, 'Approved templates only, within quiet hours, never after opt-out.');
+}
+function cancelFu(id){ const f=followups.find(x=>x.id===id); f.status='suppressed'; f.note='Cancelled by Manoj K.'; logA('follow_ups.cancel',id,f.cust); render(); toast(id+' cancelled'); }
+function delFu(id){ askDelete('follow-up '+id, ()=>{ const f=followups.find(x=>x.id===id); followups=followups.filter(x=>x.id!==id); logA('follow_ups.delete',id,f.cust); toast(id+' deleted'); }); }
+function Followups(){
+  const pill = {scheduled:'<span class="pill info">Scheduled</span>',frequency_cap:'<span class="pill warn">Meta limit (frequency_cap)</span>',blocked:'<span class="pill warn">Moved (quiet hours)</span>',suppressed:'<span class="pill plain">Suppressed</span>',sent:'<span class="pill ok">Sent</span>'};
+  return shell('Follow-ups','Scheduled messages', `
+    <div class="panel"><div class="panel-b row small"><span class="pill acc plain">Rules</span><span>Proactive messages only ${CONFIG.qStart}–${CONFIG.qEnd} customer time · approved templates only · Meta per-user marketing limits · nothing after opt-out</span><span class="spacer"></span><button class="btn pri" onclick="fuForm()">Schedule follow-up</button></div></div>
+    <div class="panel"><div class="tbl-wrap"><table><thead><tr><th>ID</th><th>Customer</th><th>Trigger</th><th>Template</th><th>Send at (IST)</th><th>Status</th><th>Note</th><th></th></tr></thead><tbody>
+    ${followups.map(f=>`<tr><td class="mono">${f.id}</td><td>${esc(cname(f.cust))}</td><td><span class="tag">${f.trig}</span></td><td class="mono small">${esc(f.template)}</td><td class="mono small">${f.when}</td><td>${pill[f.status]}</td><td class="small muted">${esc(f.note)}</td><td>${acts(f.status==='scheduled'?`fuForm('${f.id}')`:'',`delFu('${f.id}')`, f.status==='scheduled'?`<button class="btn sm" onclick="cancelFu('${f.id}')">Cancel</button>`:'')}</td></tr>`).join('')||'<tr><td colspan="8" class="empty">No follow-ups.</td></tr>'}
+    </tbody></table></div></div>`);
+}
+
+/* plans and prices */
+function editPlan(code){
+  const p = PLANS.find(x=>x.code===code);
+  openForm('Edit plan: '+p.name, [
+    {k:'fit',label:'Best for',req:true},
+    {k:'maxAge',label:'Age limit (999 = no limit)',type:'number',req:true,min:1,max:999},
+    {k:'cap',label:'Illustration rate %',type:'number',req:true,min:1,max:40,hint:'Used for the easy savings illustration'},
+    {k:'maxSaving',label:'Savings up to % (leave empty to use the rate)',type:'number',min:1,max:60},
+    {k:'limit',label:'Eligible bills',req:true},
+  ], p, v=>{
+    if(v.maxSaving!=='' && v.maxSaving!==undefined && v.maxSaving<v.cap) return '“Savings up to” cannot be lower than the illustration rate.';
+    Object.assign(p,{fit:v.fit,maxAge:v.maxAge,cap:v.cap,limit:v.limit,age:v.maxAge>=999?'No age limit':'Up to '+v.maxAge});
+    if(v.maxSaving===''||v.maxSaving===undefined) delete p.maxSaving; else p.maxSaving=v.maxSaving;
+    logA('plan_catalog.update',p.name+' · rate '+p.cap+'% · age '+p.age); toast(p.name+' updated');
+  }, 'Prices change only through “Propose change”, which needs a second approver.');
+}
+function proposePrice(){
+  openForm('Propose price change', [
+    {k:'plan',label:'Plan',type:'select',options:PLANS.map(p=>[p.code,p.name])},
+    {k:'field',label:'Price',type:'select',options:[['yearly','Yearly price'],['monthly','Monthly price']]},
+    {k:'to',label:'New price (₹, excl. GST)',type:'number',req:true,min:1},
+    {k:'reason',label:'Reason',req:true},
+  ], {plan:'everyday',field:'yearly'}, v=>{
+    const p = PLANS.find(x=>x.code===v.plan);
+    if(v.to===p[v.field]) return 'The new price is the same as the current one.';
+    if(priceChanges.some(c=>!c.approver && c.plan===v.plan && (c.field||'yearly')===v.field)) return 'This price already has a change waiting for approval.';
+    const id = nextId('PC-',priceChanges);
+    priceChanges.push({id,plan:v.plan,field:v.field,from:p[v.field],to:v.to,by:'Manoj K.',at:'Now',approver:null,reason:v.reason});
+    logA('plan_catalog.propose',p.name+' '+v.field+' '+inr(p[v.field])+' → '+inr(v.to)); toast('Proposed. A second person must approve it.');
+  }, 'The person who proposes a price cannot approve it.');
+}
+function approvePrice(id, who='Manoj K.'){
+  const pc = priceChanges.find(p=>p.id===id); const p = PLANS.find(x=>x.code===pc.plan);
+  if(who===pc.by){ toast('The proposer cannot approve their own change'); return; }
+  pc.approver = who; p[pc.field||'yearly'] = pc.to;
+  logA('plan_catalog.approve',p.name+' '+(pc.field||'yearly')+' → '+inr(pc.to)+' · approved by '+who); render(); toast(p.name+' price updated after second approval');
+}
+function delPrice(id){ const pc=priceChanges.find(p=>p.id===id); askDelete((pc.by==='Manoj K.'?'your proposal ':'proposal ')+id, ()=>{ priceChanges=priceChanges.filter(p=>p.id!==id); logA('plan_catalog.reject',id+' · '+planName(pc.plan)); toast(id+(pc.by==='Manoj K.'?' withdrawn':' rejected')); }); }
+function pcActions(pc){
+  if(pc.approver) return '<span class="pill ok">Approved</span>';
+  if(pc.by==='Manoj K.') return acts('',`delPrice('${pc.id}')`,`<button class="btn sm" onclick="approvePrice('${pc.id}','Naveen R.')">Demo: Naveen approves</button>`);
+  return acts('',`delPrice('${pc.id}')`,`<button class="btn sm pri" onclick="approvePrice('${pc.id}')">Approve</button>`);
+}
+
+/* triggers */
+function trigForm(k){
+  openForm('Edit trigger '+k, [
+    {k:'name',label:'Name',req:true},
+    {k:'when',label:'Fires when',req:true},
+    {k:'action',label:'Primary action',req:true},
+    {k:'cls',label:'Class',type:'select',options:['Trust','Education','Personalisation','Action','Recovery','Service','Safety']},
+    {k:'on',label:'Switched on',type:'checkbox'},
+  ], {name:TRIGGERS[k],when:TRIG_MAP[k][0],action:TRIG_MAP[k][1],cls:TRIG_MAP[k][2],on:!TRIG_OFF[k]}, v=>{
+    if(k==='R' && !v.on) return 'Trigger R stops commercial messages for safety, opt-out and privacy. It cannot be switched off.';
+    TRIGGERS[k]=v.name; TRIG_MAP[k]=[v.when,v.action,v.cls]; TRIG_OFF[k]=!v.on;
+    logA('triggers.update',k+' · '+v.name+(v.on?'':' · switched off')); toast('Trigger '+k+' saved');
+  }, 'A–R are set by the Trigger & Conversion Layer, so they can be edited or switched off but not added or deleted.');
+}
+
+/* users */
+function userForm(i){
+  const u = i==null ? {role:'Sales agent'} : staff[i];
+  const self = u.name==='Manoj K.';
+  openForm(i==null?'Invite user':'Edit user', [
+    {k:'name',label:'Name',req:true},
+    {k:'email',label:'Work email',type:'email',req:true},
+    {k:'role',label:'Role',type:'select',options:self?[u.role]:ROLES},
+  ], u, v=>{
+    if(!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(v.email)) return 'Enter a valid email address.';
+    if(staff.some((x,j)=>j!==i && x.email.toLowerCase()===v.email.toLowerCase())) return 'A user with this email already exists.';
+    if(i==null){ staff.push({...v,status:'invited',mfa:false,last:'—'}); logA('users.invite',v.name+' as '+v.role); toast('Invite sent to '+v.email); }
+    else { Object.assign(staff[i],v); logA('users.update',v.name+' · '+v.role); toast('User updated'); }
+  }, i==null?'They get an email link valid for 48 hours and must set up two-step sign-in if the role is Admin or Pricing.':'');
+}
+function delUser(i){ const u=staff[i]; askDelete('user '+u.name, ()=>{ staff.splice(i,1); logA('users.delete',u.name); toast(u.name+' removed'); }, 'Their past actions stay in the audit log. Disable is the safer option if they may come back.'); }
+function setUser(i,patch,msg){ Object.assign(staff[i],patch); logA('users.update',staff[i].name+' · '+msg); render(); toast(msg); }
+function Users(){
+  const st = {active:'<span class="pill ok">Active</span>',invited:'<span class="pill info">Invited</span>',disabled:'<span class="pill plain">Disabled</span>'};
+  return shell('Users','Admin', `
+    <div class="row"><span class="small muted">${staff.length} staff accounts. Customers never get a console login.</span><span class="spacer"></span><button class="btn pri" onclick="userForm()">Invite user</button></div>
+    <div class="panel"><div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Two-step</th><th>Last active</th><th></th></tr></thead><tbody>
+    ${staff.map((u,i)=>`<tr><td><b>${esc(u.name)}</b><div class="small muted">${esc(u.email)}</div></td><td>${esc(u.role)}</td>
+      <td>${st[u.status]}</td><td>${u.mfa?'<span class="pill ok">On</span>':'<span class="pill warn">Off</span>'}</td><td class="small mono">${u.last}</td>
+      <td>${u.name==='Manoj K.'?acts(`userForm(${i})`,'','<span class="small muted">You</span>'):acts(`userForm(${i})`,`delUser(${i})`, u.status==='disabled'?`<button class="btn sm" onclick="setUser(${i},{status:'active'},'Enabled')">Enable</button>`:u.status==='invited'?`<button class="btn sm" onclick="toast('Invite sent again')">Resend</button>`:`<button class="btn sm" onclick="toast('Password reset link sent')">Reset password</button><button class="btn sm" onclick="setUser(${i},{status:'disabled'},'Disabled')">Disable</button>`)}</td></tr>`).join('')}
+    </tbody></table></div></div>`);
+}
+
+/* roles */
+const BUILTIN_ROLES = ['Admin','Sales lead','Sales agent','Support agent','Pricing','Viewer'];
+function togglePerm(pi, ri){
+  if(ROLES[ri]==='Admin' && PERMS[pi][0]==='Manage users and roles'){ toast('Admin keeps this permission so someone can always manage users'); return; }
+  PERMS[pi][1][ri] = PERMS[pi][1][ri] ? 0 : 1;
+  logA('roles.update',ROLES[ri]+' · '+PERMS[pi][0]+' → '+(PERMS[pi][1][ri]?'allowed':'not allowed')); render();
+}
+function roleForm(){
+  openForm('Add role', [
+    {k:'name',label:'Role name',req:true},
+    {k:'copy',label:'Start with the permissions of',type:'select',options:[['','No permissions'],...ROLES.map(r=>[r,r])]},
+  ], {}, v=>{
+    if(ROLES.some(r=>r.toLowerCase()===v.name.toLowerCase())) return 'This role already exists.';
+    const src = ROLES.indexOf(v.copy); ROLES.push(v.name); PERMS.forEach(p=>p[1].push(src>=0?p[1][src]:0));
+    logA('roles.insert',v.name); toast('Role added. Click a cell to change a permission.');
+  });
+}
+function delRole(ri){
+  const r = ROLES[ri];
+  if(r==='Admin'){ toast('The Admin role cannot be deleted'); return; }
+  const n = staff.filter(u=>u.role===r).length;
+  if(n){ toast(`${n} user${n>1?'s have':' has'} this role. Move them to another role first.`); return; }
+  askDelete('the role “'+r+'”', ()=>{ ROLES.splice(ri,1); PERMS.forEach(p=>p[1].splice(ri,1)); logA('roles.delete',r); toast('Role deleted'); });
+}
+function Roles(){
+  return shell('Roles and permissions','Admin', `
+    <div class="row"><span class="small muted">Click a cell to allow or block. Fixed rules: the person who proposes a price cannot approve it, and only staff (never the bot) confirm bookings in the CRM.</span><span class="spacer"></span><button class="btn pri" onclick="roleForm()">Add role</button></div>
+    <div class="panel"><div class="tbl-wrap"><table class="matrix"><thead><tr><th>Permission</th>${ROLES.map((r,ri)=>`<th>${esc(r)}<div class="small muted" style="text-transform:none;letter-spacing:0;font-weight:400">${roleCount(r)} user${roleCount(r)===1?'':'s'}${r!=='Admin'?` · <a href="javascript:void 0" onclick="delRole(${ri})" style="color:var(--crit)">delete</a>`:''}</div></th>`).join('')}</tr></thead><tbody>
+    ${PERMS.map(([p,v],pi)=>`<tr><td>${p}</td>${v.map((x,ri)=>`<td><button class="btn sm" style="min-width:34px;justify-content:center" aria-label="${esc(ROLES[ri])}: ${esc(p)} ${x?'allowed':'not allowed'}" onclick="togglePerm(${pi},${ri})">${x?'<span class="tick">✓</span>':'<span class="cross">–</span>'}</button></td>`).join('')}</tr>`).join('')}
+    </tbody></table></div></div>`);
+}
+
+/* templates */
+function tplForm(name){
+  const t = name ? templates.find(x=>x.name===name) : {cat:'Utility',lang:'en, hi',body:''};
+  openForm(name?'Edit template':'New template', [
+    {k:'name',label:'Template name',req:true,hint:'Lowercase letters, numbers and underscores, ending in a version, for example booking_moved_v1'},
+    {k:'cat',label:'Category',type:'select',options:['Utility','Marketing','Authentication']},
+    {k:'lang',label:'Languages',req:true,hint:'en, hi'},
+    {k:'body',label:'Message',type:'textarea',rows:6,req:true,hint:'Use {{1}}, {{2}} for values. Max 1,024 characters.'},
+  ], t, v=>{
+    if(!/^[a-z0-9_]+_v\d+$/.test(v.name)) return 'Name must be lowercase with underscores and end in a version like _v1.';
+    if(templates.some(x=>x!==t && x.name===v.name)) return 'A template with this name already exists.';
+    if(v.body.length>1024) return 'WhatsApp templates can be at most 1,024 characters.';
+    if(/last chance|forever|hurry|act now|only today|today only/i.test(v.body)) return 'False urgency is not allowed (no dark patterns, Playbook 2.1).';
+    if(/insurance/i.test(v.body) && !/not insurance/i.test(v.body)) return 'Never describe Oxxy as insurance.';
+    if(v.cat==='Marketing' && !/stop/i.test(v.body)) return 'Marketing templates must tell the customer how to opt out (for example “Reply STOP to opt out”).';
+    const wasLive = name && t.status!=='Draft';
+    if(!name){ templates.unshift({...v,status:'Draft',edited:'Now'}); logA('templates.insert',v.name); toast('Draft saved. Submit it to Meta when ready.'); }
+    else { if(name!==v.name) followups.forEach(f=>{ if(f.template===name) f.template=v.name; }); Object.assign(t,v,{status:'Draft',edited:'Now'}); logA('templates.update',v.name); toast(wasLive?'Saved as draft: Meta must review the change again':'Template saved'); }
+  }, name&&t.status!=='Draft'?'Editing an approved or submitted template turns it back into a draft that Meta must review again.':'');
+}
+function delTpl(name){
+  const used = followups.filter(f=>f.template===name && f.status==='scheduled').map(f=>f.id);
+  if(used.length){ toast('Used by scheduled follow-up '+used.join(', ')+'. Cancel it first.'); return; }
+  askDelete('template '+name, ()=>{ templates=templates.filter(t=>t.name!==name); logA('templates.delete',name); toast('Template deleted'); });
+}
+function setTpl(n,s){ templates.find(t=>t.name===n).status=s; logA('templates.submit',n); render(); toast('Submitted to Meta for review'); }
+function Templates(){
+  const pill = s => ({Approved:'<span class="pill ok">Approved</span>','In review':'<span class="pill warn">In review</span>',Rejected:'<span class="pill crit">Rejected</span>',Draft:'<span class="pill plain">Draft</span>'}[s]);
+  return shell('Message templates','Admin · WhatsApp', `
+    <div class="row"><span class="small muted">Templates are needed for any message sent outside the 24-hour reply window. Meta reviews each one.</span><span class="spacer"></span><button class="btn pri" onclick="tplForm()">New template</button></div>
+    <div class="grid g2">${templates.map(t=>`<div class="panel"><div class="panel-h"><b class="mono" style="font-size:13px">${esc(t.name)}</b><span class="spacer"></span>${pill(t.status)}</div>
+      <div class="panel-b grid" style="gap:10px"><div class="row small muted"><span>${t.cat}</span><span>·</span><span>${esc(t.lang)}</span><span>·</span><span>Edited ${t.edited}</span></div>
+      <div class="bub out" style="max-width:100%">${esc(t.body)}</div>
+      ${t.status==='Rejected'?'<div class="small" style="color:var(--crit)">Rejected internally: false urgency breaks the no-dark-patterns rule (Trigger Q, Playbook 2.1). Rewrite without “last chance”, “today” or “forever”.</div>':''}
+      <div class="row">${t.status==='Draft'||t.status==='Rejected'?`<button class="btn sm pri" onclick="setTpl('${t.name}','In review')">Submit to Meta</button>`:''}${t.status==='In review'?`<button class="btn sm" onclick="templates.find(x=>x.name==='${t.name}').status='Approved';logA('templates.approved','${t.name}');render();toast('Demo: Meta approved it')">Demo: Meta approves</button>`:''}<span class="spacer"></span>${acts(`tplForm('${t.name}')`,`delTpl('${t.name}')`)}</div></div></div>`).join('')}</div>`);
+}
+
+/* data requests */
+function drForm(id){
+  const d = id ? dataReqs.find(x=>x.id===id) : {type:DR_TYPES[0],received:isoDay(TODAY),owner:''};
+  openForm(id?'Edit data request '+id:'New data request', [
+    ...(id?[]:[{k:'cust',label:'Customer',type:'select',options:custOpts()},{k:'received',label:'Received on',type:'date',req:true,max:isoDay(TODAY)}]),
+    {k:'type',label:'Request',type:'select',options:DR_TYPES},
+    {k:'owner',label:'Owner',type:'select',options:OWNERS},
+    ...(id?[{k:'status',label:'Status',type:'select',options:['Open','In progress','Completed']}]:[]),
+  ], {...d, owner:d.owner||''}, v=>{
+    v.owner = v.owner || null;
+    if(!id){
+      if(!v.cust) return 'Choose a customer.';
+      if(v.received>isoDay(TODAY)) return 'Received date cannot be in the future.';
+      const nid = nextId('DR-',dataReqs);
+      dataReqs.unshift({id:nid,cust:v.cust,type:v.type,received:fmtDate(v.received),due:fmtDate(isoDay(addDays(new Date(v.received+'T12:00:00+05:30'),30))),status:v.owner?'In progress':'Open',owner:v.owner});
+      logA('data_requests.insert',nid+' · '+v.type,v.cust); toast(nid+' logged · reply due in 30 days');
+    } else {
+      Object.assign(d,v); if(d.status==='Completed') applyDr(d);
+      logA('data_requests.update',id+' · '+d.status,d.cust); toast(id+' updated');
+    }
+  }, 'DPDP Act: reply within the due date. Records needed by law (payments, audit log) are kept and the reason is logged.');
+}
+function applyDr(d){ if(d.type==='Withdraw consent' && cust(d.cust)) withdraw(d.cust); }
+function completeDr(i){ const d=dataReqs[i]; d.status='Completed'; applyDr(d); logA('data_requests.complete',d.id,d.cust); render(); toast(d.id+' completed and customer told'); }
+function delDr(id){ askDelete('data request '+id, ()=>{ const d=dataReqs.find(x=>x.id===id); dataReqs=dataReqs.filter(x=>x.id!==id); logA('data_requests.delete',id,d.cust); toast(id+' deleted'); }, 'Only delete a request logged by mistake. Real requests must be completed, not deleted.'); }
+function Privacy(){
+  const pill = s => ({Open:'<span class="pill warn">Open</span>','In progress':'<span class="pill info">In progress</span>',Completed:'<span class="pill ok">Completed</span>'}[s]);
+  return shell('Data requests','Admin · DPDP Act', `
+    <div class="row"><span class="small muted">Customers can ask for a copy of their data, a correction or erasure, and can withdraw consent at any time.</span><span class="spacer"></span><button class="btn pri" onclick="drForm()">New data request</button></div>
+    <div class="panel"><div class="tbl-wrap"><table><thead><tr><th>ID</th><th>Customer</th><th>Request</th><th>Received</th><th>Respond by</th><th>Owner</th><th>Status</th><th></th></tr></thead><tbody>
+    ${dataReqs.map((d,i)=>`<tr><td class="mono">${d.id}</td><td><a href="#customer-${d.cust}">${esc(cname(d.cust))}</a></td><td>${d.type}</td><td class="mono small">${d.received}</td><td class="mono small">${d.due}</td><td>${d.owner?esc(d.owner):'<span class="muted">Unassigned</span>'}</td><td>${pill(d.status)}</td>
+      <td>${acts(`drForm('${d.id}')`,`delDr('${d.id}')`, d.status==='Completed'?'':`${!d.owner?`<button class="btn sm" onclick="dataReqs[${i}].owner='Manoj K.';dataReqs[${i}].status='In progress';logA('data_requests.claim','${d.id}','${d.cust}');render()">Claim</button>`:''}<button class="btn sm pri" onclick="completeDr(${i})">Complete</button>`)}</td></tr>`).join('')||'<tr><td colspan="8" class="empty">No data requests.</td></tr>'}
+    </tbody></table></div></div>`);
+}
+
+/* integrations */
+function intForm(i){
+  const it = i==null ? {name:'',level:'ok',kv:[['Use',''],['Endpoint',''],['Owner','']]} : INTEGRATIONS[i];
+  const vals = {name:it.name, level:it.level}; it.kv.forEach(([k,v],j)=>{ vals['kv'+j]=v; });
+  openForm(i==null?'Add integration':'Edit '+it.name, [
+    {k:'name',label:'Name',req:true},
+    {k:'level',label:'Status',type:'select',options:[['ok','Connected'],['warn','Delayed'],['crit','Down']]},
+    ...it.kv.map(([k],j)=>({k:'kv'+j,label:k})),
+  ], vals, v=>{
+    if(INTEGRATIONS.some((x,j)=>j!==i && x.name.toLowerCase()===v.name.toLowerCase())) return 'An integration with this name already exists.';
+    const kv = it.kv.map(([k],j)=>[k, v['kv'+j]||'—']);
+    if(i==null){ INTEGRATIONS.push({name:v.name,level:v.level,core:false,kv}); logA('integrations.insert',v.name); toast('Integration added'); }
+    else { Object.assign(it,{name:v.name,level:v.level,kv}); logA('integrations.update',v.name); toast('Saved'); }
+  }, 'Keys and secrets are never typed here; they live in the cloud secret manager.');
+}
+function delInt(i){ const it=INTEGRATIONS[i]; if(it.core){ toast(it.name+' is required for the bot to run and cannot be removed'); return; } askDelete('the '+it.name+' integration', ()=>{ INTEGRATIONS.splice(i,1); logA('integrations.delete',it.name); toast('Integration removed'); }); }
+function Integrations(){
+  return shell('Integrations','Admin', `
+    <div class="row"><span class="small muted">Core integrations (CRM, WhatsApp, Claude, database, queues) cannot be removed.</span><span class="spacer"></span><button class="btn pri" onclick="intForm()">Add integration</button></div>
+    <div class="grid g3">${INTEGRATIONS.map((it,i)=>`<div class="panel"><div class="panel-h"><h2>${esc(it.name)}</h2><span class="spacer"></span><span class="pill ${it.level}">${LEVEL_LABEL[it.level]}</span></div><div class="panel-b grid" style="gap:12px"><dl class="kv">${it.kv.map(([a,b])=>`<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('')}</dl><div class="row"><button class="btn sm" onclick="toast('Test call OK (prototype)')">Test connection</button><span class="spacer"></span>${acts(`intForm(${i})`, it.core?'':`delInt(${i})`)}</div></div></div>`).join('')}</div>`);
+}
+
+/* CRM sync */
+function crmCallForm(){
+  openForm('Queue a CRM call', [
+    {k:'cust',label:'Customer',type:'select',options:custOpts()},
+    {k:'action',label:'Call',type:'select',options:CRM_CALLS},
+  ], {action:'upsert_customer'}, v=>{ if(!v.cust) return 'Choose a customer.'; queueCrm(v.action,v.cust); logA('crm_outbox.insert',v.action,v.cust); toast('Queued: '+v.action); }, 'Use this to resend a record after fixing data. The outbox id is the Idempotency-Key, so the CRM never gets a duplicate.');
+}
+function sendOutbox(id){ const o=outbox.find(x=>x.id===id); o.status='sent'; o.attempts++; o.crm=o.crm||('REC-'+rnd().toUpperCase()); logA('crm_outbox.sent',o.action+' · '+o.id,o.cust); render(); toast('Demo: CRM accepted '+o.action); }
+function discardOutbox(id){ askDelete('outbox row '+id, ()=>{ const o=outbox.find(x=>x.id===id); outbox=outbox.filter(x=>x.id!==id); logA('crm_outbox.discard',o.action+' · '+id,o.cust); toast('Discarded'); }, 'The CRM will not get this change. Nightly reconciliation may flag it.'); }
+function editFieldMap(i){
+  const r = FIELD_MAP[i];
+  openForm('Field mapping: '+r[0], [
+    {k:'fields',label:'Fields',type:'textarea',rows:3,req:true},
+    {k:'status',label:'Status',type:'select',options:['Mapped','Missing in CRM','Bot only','Bot only (summary to CRM)']},
+  ], {fields:r[1],status:r[2]}, v=>{ r[1]=v.fields; r[2]=v.status; logA('crm_field_map.update',r[0]+' · '+v.status); toast('Mapping saved'); });
+}
+
+/* configuration */
+function saveConfig(){
+  const a = document.getElementById('qh1').value.trim(), b = document.getElementById('qh2').value.trim();
+  const ok = s => /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
+  if(!ok(a)||!ok(b)){ toast('Use 24-hour time like 09:00'); return; }
+  if(a>=b){ toast('The earliest send time must be before the latest'); return; }
+  CONFIG.qStart=a; CONFIG.qEnd=b; logA('config.update','Quiet hours '+a+'–'+b); render(); toast('Configuration saved');
+}
+function linksForm(){
+  openForm('Official links and contacts', [
+    {k:'website',label:'Website',req:true},{k:'policies',label:'Policies page',req:true},{k:'cmb',label:'Cut Medi Bills page',req:true},
+    {k:'phone',label:'Support phone',req:true},{k:'email',label:'Support email',type:'email',req:true},
+  ], CONFIG, v=>{
+    for(const k of ['website','policies','cmb']) if(!/^https:\/\/(www\.)?oxxy\.in(\/|$)/.test(v[k])) return 'Only official https://www.oxxy.in links may be sent to customers.';
+    if(!/^\d{10}$/.test(v.phone.replace(/\D/g,''))) return 'Support phone must be 10 digits.';
+    if(!/^[^@\s]+@oxxy\.in$/i.test(v.email)) return 'Support email must be an @oxxy.in address.';
+    Object.assign(CONFIG,v); logA('config.update','Official links and contacts'); toast('Saved');
+  }, 'The bot may send only these links and contacts.');
+}
+function decisionForm(i){
+  const d = i==null ? {q:'',answer:'',status:'Open'} : decisions[i];
+  openForm(i==null?'Add decision':'Decision '+(i+1), [
+    {k:'q',label:'Question',type:'textarea',rows:2,req:true},
+    {k:'answer',label:'Answer',type:'textarea',rows:3},
+    {k:'status',label:'Status',type:'select',options:['Open','Decided']},
+  ], d, v=>{
+    if(v.status==='Decided' && !v.answer) return 'Write the answer before marking it decided.';
+    if(i==null){ decisions.push(v); logA('decisions.insert',v.q); toast('Decision added'); }
+    else { Object.assign(decisions[i],v); logA('decisions.update',v.q.slice(0,60)+' · '+v.status); toast('Saved'); }
+  });
+}
+function delDecision(i){ const d=decisions[i]; askDelete('this decision', ()=>{ decisions.splice(i,1); logA('decisions.delete',d.q.slice(0,60)); toast('Decision deleted'); }); }
+function Config(){
+  const open = decisions.filter(d=>d.status==='Open').length;
+  return shell('Configuration','Admin', `
+    <div class="grid g2">
+      <div class="panel"><div class="panel-h"><h2>Messaging rules</h2></div><div class="panel-b grid" style="gap:12px">
+        <div class="grid g2"><div class="field"><label for="qh1">Earliest proactive send</label><input id="qh1" class="input mono" value="${CONFIG.qStart}"></div><div class="field"><label for="qh2">Latest proactive send</label><input id="qh2" class="input mono" value="${CONFIG.qEnd}"></div></div>
+        <div class="row"><button class="btn pri sm" onclick="saveConfig()">Save quiet hours</button></div>
+        <dl class="kv"><dt>Time zone</dt><dd>Asia/Kolkata</dd><dt>Buttons</dt><dd>Max 3, titles ≤ 20 characters</dd><dt>Lists</dt><dd>Max 10 rows, titles ≤ 24 characters</dd><dt>Message length</dt><dd>Mostly under 350 characters, max 3 bubbles</dd><dt>Rescue attempts</dt><dd>Max 2 in a row</dd><dt>Languages</dt><dd>English, Hindi, Hinglish</dd><dt>Journey window</dt><dd>7 days without a reply</dd></dl></div></div>
+      <div class="panel"><div class="panel-h"><h2>Booking window</h2></div><div class="panel-b"><dl class="kv"><dt>Earliest</dt><dd>Today + 3 calendar days (today: <span class="mono">${fmtDate(WIN_MIN)}</span>)</dd><dt>Latest</dt><dd>Same date 6 months later (today: <span class="mono">${fmtDate(WIN_MAX)}</span>); if that date does not exist, the month's last day</dd><dt>Status</dt><dd>Always pending_confirmation; only the sales team confirms, in the CRM</dd><dt>Enforced by</dt><dd class="mono small">check_booking_window() trigger</dd></dl></div></div>
+      <div class="panel"><div class="panel-h"><h2>Emergency handling</h2><span class="muted small">Fixed, not editable</span></div><div class="panel-b"><dl class="kv"><dt>Emergency</dt><dd class="mono">112</dd><dt>Ambulance</dt><dd class="mono">108</dd><dt>Self-harm</dt><dd>Tele-MANAS <span class="mono">14416</span> (free, 24x7)</dd><dt>Signals</dt><dd class="small">Chest pain, difficulty breathing, unconsciousness, severe bleeding, stroke signs, seizure, severe allergic reaction, serious injury, poisoning, or the customer saying it is an emergency</dd><dt>Action</dt><dd>Pause all commercial flow, create a safety task</dd></dl></div></div>
+      <div class="panel"><div class="panel-h"><h2>Official links and contacts</h2><span class="muted small">Only these may be sent</span><span class="spacer"></span><button class="btn sm" onclick="linksForm()">Edit</button></div><div class="panel-b"><dl class="kv"><dt>Website</dt><dd class="mono small">${esc(CONFIG.website)}</dd><dt>Policies</dt><dd class="mono small">${esc(CONFIG.policies)}</dd><dt>Cut Medi Bills</dt><dd class="mono small">${esc(CONFIG.cmb)}</dd><dt>Support phone</dt><dd class="mono">${esc(CONFIG.phone)}</dd><dt>Support email</dt><dd class="mono small">${esc(CONFIG.email)}</dd></dl></div></div>
+      <div class="panel"><div class="panel-h"><h2>AI model</h2></div><div class="panel-b"><dl class="kv"><dt>Model</dt><dd class="mono small">claude-opus-5-5</dd><dt>Order</dt><dd>Guardrails → Claude draft → rule validator → send</dd><dt>Output</dt><dd>Structured JSON</dd><dt>Effort</dt><dd>low</dd><dt>On failure</dt><dd>Safe fallback message and a task</dd></dl></div></div>
+      <div class="panel"><div class="panel-h"><h2>Security</h2></div><div class="panel-b"><dl class="kv"><dt>Two-step sign-in</dt><dd>Required for Admin and Pricing</dd><dt>Session timeout</dt><dd>30 minutes idle</dd><dt>Phone numbers</dt><dd>Masked for Support agents</dd><dt>Data region</dt><dd>AWS ap-south-1 (Mumbai)</dd><dt>Never ask for</dt><dd>OTP, PIN, password, CVV</dd></dl></div></div>
+    </div>
+    <div class="panel"><div class="panel-h"><h2>Decisions needed before launch</h2><span class="pill ${open?'warn':'ok'}">${open} open</span><span class="muted small">Playbook 22.2</span><span class="spacer"></span><button class="btn sm pri" onclick="decisionForm()">Add decision</button></div><div class="tbl-wrap"><table><tbody>
+      ${decisions.map((d,i)=>`<tr><td class="mono small muted" style="width:40px">${i+1}</td><td>${esc(d.q)}${d.answer?`<div class="small muted">Answer: ${esc(d.answer)}</div>`:''}</td><td>${d.status==='Decided'?'<span class="pill ok">Decided</span>':'<span class="pill warn plain">Confirm</span>'}</td><td>${acts(`decisionForm(${i})`,`delDecision(${i})`)}</td></tr>`).join('')||'<tr><td class="empty">No decisions listed.</td></tr>'}
+    </tbody></table></div></div>`);
+}
+
+/* reports */
+function reportForm(i){
+  const r = i==null ? {name:'',to:'Sales team',every:'Monday 09:00'} : reportsSched[i];
+  openForm(i==null?'Schedule a report':'Edit report', [
+    {k:'name',label:'Report',req:true},{k:'to',label:'Send to',req:true},{k:'every',label:'Every',req:true,hint:'Monday 09:00, Daily 18:00, 1st of month'},
+  ], r, v=>{ if(i==null){ reportsSched.push(v); logA('reports.insert',v.name); toast('Report scheduled'); } else { Object.assign(reportsSched[i],v); logA('reports.update',v.name); toast('Saved'); } });
+}
+function delReport(i){ const r=reportsSched[i]; askDelete('the scheduled report “'+r.name+'”', ()=>{ reportsSched.splice(i,1); logA('reports.delete',r.name); toast('Report removed'); }); }
+function Reports(){
+  const weeks = [['5 Oct',22],['12 Oct',28],['19 Oct',31],['26 Oct',26],['2 Nov',37]];
+  const max = Math.max(...weeks.map(w=>w[1]));
+  return shell('Reports','Control', `
+    <div class="grid g2">
+      <div class="panel"><div class="panel-h"><h2>Activations per week</h2></div><div class="panel-b"><div class="chart">${weeks.map(([l,v])=>`<div><small>${v}</small><i style="height:${v/max*120}px"></i><small>${l}</small></div>`).join('')}</div></div></div>
+      <div class="panel"><div class="panel-h"><h2>Product mix (active)</h2></div><div class="panel-b grid" style="gap:10px">
+        ${[['Everyday',412],['Vital',386],['Thrive',301],['Infinity',95],['Cut Medi Bills',90]].map(([l,v])=>`<div class="grid" style="grid-template-columns:110px 1fr 50px;gap:10px;align-items:center"><span class="small">${l}</span><div class="bar"><span style="width:${v/412*100}%"></span></div><span class="mono small" style="text-align:right">${v}</span></div>`).join('')}
+      </div></div>
+    </div>
+    <div class="panel"><div class="panel-h"><h2>Scheduled reports</h2><span class="spacer"></span><button class="btn sm pri" onclick="reportForm()">Schedule a report</button></div><div class="tbl-wrap"><table><thead><tr><th>Report</th><th>Sent to</th><th>Every</th><th></th></tr></thead><tbody>
+      ${reportsSched.map((r,i)=>`<tr><td>${esc(r.name)}</td><td>${esc(r.to)}</td><td class="small mono">${esc(r.every)}</td><td>${acts(`reportForm(${i})`,`delReport(${i})`,`<button class="btn sm" onclick="toast('Report run (prototype)')">Run now</button>`)}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">No scheduled reports.</td></tr>'}
+    </tbody></table></div></div>`);
+}
+
+/* system health incidents */
+function incidentForm(i){
+  const r = i==null ? {at:'Today '+nowStamp().slice(11),level:'warn',title:'',detail:''} : incidents[i];
+  openForm(i==null?'Log incident':'Edit incident', [
+    {k:'at',label:'When',req:true},{k:'level',label:'Status',type:'select',options:[['crit','Down'],['warn','Watching'],['ok','Resolved']]},
+    {k:'title',label:'What happened',req:true},{k:'detail',label:'Detail and next step',type:'textarea',rows:3},
+  ], r, v=>{ if(i==null){ incidents.unshift(v); logA('incidents.insert',v.title); toast('Incident logged'); } else { Object.assign(incidents[i],v); logA('incidents.update',v.title); toast('Saved'); } });
+}
+function delIncident(i){ const r=incidents[i]; askDelete('the incident “'+r.title+'”', ()=>{ incidents.splice(i,1); logA('incidents.delete',r.title); toast('Incident deleted'); }); }
+function Health(){
+  const q = [['inbound-messages',3,1,0],['outbound-messages',7,2,1],['follow-ups',2,0,1],['trigger-eval',0,0,0]];
+  return shell('System health','Admin · last 24 hours', `
+    <div class="grid g4">
+      <div class="panel stat"><span class="eyebrow">Uptime (30 days)</span><span class="v">99.96%</span></div>
+      <div class="panel stat"><span class="eyebrow">Reply time p95</span><span class="v">3.4 s</span><span class="d">Webhook in to message out</span></div>
+      <div class="panel stat"><span class="eyebrow">Validator rejections</span><span class="v">4.1%</span><span class="d">Redrafted automatically</span></div>
+      <div class="panel stat"><span class="eyebrow">Fallback messages</span><span class="v">7</span><span class="d">Sent when Claude failed twice</span></div>
+    </div>
+    <div class="grid g2">
+      <div class="panel"><div class="panel-h"><h2>Queues</h2></div><div class="tbl-wrap"><table><thead><tr><th>Queue</th><th>Waiting</th><th>Active</th><th>Failed</th><th></th></tr></thead><tbody>
+        ${q.map(r=>`<tr><td class="mono small">${r[0]}</td><td class="mono">${r[1]}</td><td class="mono">${r[2]}</td><td class="mono" style="${r[3]?'color:var(--crit)':''}">${r[3]}</td><td>${r[3]?`<button class="btn sm" onclick="toast('Retrying failed jobs')">Retry</button>`:''}</td></tr>`).join('')}
+      </tbody></table></div></div>
+      <div class="panel"><div class="panel-h"><h2>Validator rejections by rule</h2></div><div class="panel-b grid" style="gap:10px">
+        ${[['Savings above plan cap',41],['Button title over 20 chars',27],['More than one call to action',14],['Mentions a centre tie-up',9],['Booking shown as confirmed',6],['Other',3]].map(([l,v])=>`<div class="grid" style="grid-template-columns:minmax(0,1fr) 120px 30px;gap:10px;align-items:center"><span class="small">${l}</span><div class="bar"><span style="width:${v/41*100}%"></span></div><span class="mono small" style="text-align:right">${v}</span></div>`).join('')}
+      </div></div>
+    </div>
+    <div class="panel"><div class="panel-h"><h2>Incidents</h2><span class="spacer"></span><button class="btn sm pri" onclick="incidentForm()">Log incident</button></div><div class="tbl-wrap"><table><tbody>
+      ${incidents.map((r,i)=>`<tr><td class="mono small" style="white-space:nowrap">${esc(r.at)}</td><td><span class="dot ${r.level==='ok'?'':r.level}"></span></td><td><b>${esc(r.title)}</b><div class="small muted">${esc(r.detail)}</div></td><td>${acts(`incidentForm(${i})`,`delIncident(${i})`, r.level!=='ok'?`<button class="btn sm" onclick="incidents[${i}].level='ok';logA('incidents.resolve',incidents[${i}].title);render();toast('Marked resolved')">Resolve</button>`:'')}</td></tr>`).join('')||'<tr><td class="empty">No incidents.</td></tr>'}
+    </tbody></table></div></div>`);
+}
+
+/* ---------- router ---------- */
+function render(){
+  const root = document.getElementById('root');
+  if(!ui.loggedIn){ root.innerHTML = Login(); return; }
+  const r = route();
+  const scrollEl = document.querySelector('.main'); const st = scrollEl?scrollEl.scrollTop:0;
+  let html;
+  if(r.startsWith('customer-')) html = CustomerProfile(r.slice(9));
+  else html = ({dashboard:Dashboard,inbox:Inbox,customers:Customers,bookings:Bookings,tasks:Tasks,followups:Followups,activations:Activations,centres:Centres,plans:Plans,triggers:Triggers,flow:TriggerFlow,audit:Audit,config:Config,simulator:Simulator,login:Login,admin:AdminHome,users:Users,roles:Roles,integrations:Integrations,crm:CrmSync,templates:Templates,privacy:Privacy,health:Health,reports:Reports}[r] || Dashboard)();
+  root.innerHTML = html;
+  const ne = document.querySelector('.main'); if(ne) ne.scrollTop = st;
+  const m = document.querySelector('.thread .msgs'); if(m) m.scrollTop = m.scrollHeight;
+}
+window.addEventListener('hashchange', ()=>{ ui.navOpen=false; const m=document.querySelector('.main'); if(m) m.scrollTop=0; if(route()==='login'){ui.loggedIn=false} render(); });
+render();
+</script>

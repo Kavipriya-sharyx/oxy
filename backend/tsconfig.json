@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "paths": {
+      "@Model/*": ["src/Model/*"],
+      "@Root/*": ["src/*"],
+      "@Service/*": ["src/Service/*"],
+      "@Helper/*": ["src/Helper/*"],
+      "@Controller/*": ["src/Controller/*"],
+      "@Database/*": ["src/Database/*"]
+    },
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "es2017",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strictNullChecks": false,
+    "noImplicitAny": false,
+    "strictBindCallApply": false,
+    "forceConsistentCasingInFileNames": false,
+    "noFallthroughCasesInSwitch": false,
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "types": ["node", "jest"]
+  }
+}
