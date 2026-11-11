@@ -50,7 +50,7 @@ function setup(saveImpl?: Fn) {
     return row;
   }));
   stub(customer, "findOne", async () => ({ id: "c1", wa_number: "919876543210", first_name: "Asha" }));
-  stub(conversation, "findOne", async () => ({ id: "v1", save: async () => undefined }));
+  stub(conversation, "update", async () => undefined);
 
   const dataSource = { transaction: jest.fn() };
   const outbox = { enqueue: jest.fn(), dispatch: jest.fn() };
@@ -65,6 +65,7 @@ function setup(saveImpl?: Fn) {
     null as never,
     dataSource as never,
     outbox as never,
+    { findOpenByCustomer: async () => ({ id: "v1" }), openNew: async () => ({ id: "v1" }) } as never,
   );
   const queue = {
     enqueue: jest.fn(async (data: InboundJob, wamid: string) => void jobs.push({ data, wamid })),

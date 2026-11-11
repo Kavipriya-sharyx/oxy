@@ -5,7 +5,9 @@ import { customer } from "@Database/Table/Oxxy/customer";
 import { consent } from "@Database/Table/Oxxy/consent";
 import { message } from "@Database/Table/Oxxy/message";
 import { ChatPipelineService } from "./ChatPipeline.service";
+import { CustomerLockService } from "./CustomerLock.service";
 import { InboundJob } from "./WhatsappTypes";
+import { queuePrefix, redisConnection } from "@Root/Config/Redis";
 
 export const INBOUND_QUEUE = "inbound";
 export const RECOVER_JOB = "recover-lost";
@@ -25,18 +27,20 @@ export class InboundQueueService implements OnModuleInit, OnModuleDestroy {
   private queue: Queue<JobData> | null = null;
   private worker: Worker<JobData> | null = null;
 
-  constructor(private readonly _Pipeline: ChatPipelineService) {}
+  constructor(
+    private readonly _Pipeline: ChatPipelineService,
+    private readonly _Lock: CustomerLockService,
+  ) {}
 
   private connection() {
-    return {
-      host: process.env.REDIS_HOST,
-      port: Number(process.env.REDIS_PORT),
-      maxRetriesPerRequest: null,
-    };
+    return redisConnection();
   }
 
   onModuleInit() {
-    this.queue = new Queue<JobData>(INBOUND_QUEUE, { connection: this.connection() });
+    this.queue = new Queue<JobData>(INBOUND_QUEUE, {
+      connection: this.connection(),
+      prefix: queuePrefix(),
+    });
     this.queue.on("error", (e) => this.logger.error(`queue error: ${e.message}`));
     // concurrency 1: one message at a time. A thrown error = job retried by BullMQ.
     this.worker = new Worker<JobData>(
@@ -44,6 +48,7 @@ export class InboundQueueService implements OnModuleInit, OnModuleDestroy {
       (job) => (job.name === RECOVER_JOB ? this.recover() : this.process(job.data as InboundJob)),
       {
         connection: this.connection(),
+        prefix: queuePrefix(),
         concurrency: 1,
       },
     );
@@ -129,7 +134,12 @@ export class InboundQueueService implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
+  // one customer's messages are handled one at a time, in order
   async process(data: InboundJob): Promise<void> {
+    await this._Lock.withCustomerLock(data.customerId, () => this.processLocked(data));
+  }
+
+  private async processLocked(data: InboundJob): Promise<void> {
     const msg = await message.findOne({ where: { id: data.messageId } });
     const conv = await conversation.findOne({ where: { id: data.conversationId } });
     const cust = await customer.findOne({ where: { id: data.customerId } });

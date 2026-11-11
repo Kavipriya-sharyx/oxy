@@ -3,8 +3,8 @@ import { ApiTags } from "@nestjs/swagger";
 import { Response } from "express";
 import { JWTAuthController } from "@Controller/JWTAuth.controller";
 import { WhatsappClient } from "@Service/Oxxy/WhatsappClient.service";
+import { ConversationRepository } from "@Service/Oxxy/ConversationRepository.service";
 import { customer } from "@Database/Table/Oxxy/customer";
-import { conversation } from "@Database/Table/Oxxy/conversation";
 import { OutboundMessage, SendPurpose } from "@Helper/WhatsappMessage";
 import {
   InvalidMessageError,
@@ -48,7 +48,10 @@ export const DEV_SAMPLES: Record<DevType, OutboundMessage> = {
 @Controller({ path: "Whatsapp/DevSend", version: "1" })
 @ApiTags("Whatsapp Dev")
 export class WhatsappDevSendController extends JWTAuthController {
-  constructor(private readonly _Wa: WhatsappClient) {
+  constructor(
+    private readonly _Wa: WhatsappClient,
+    private readonly _ConvRepo: ConversationRepository,
+  ) {
     super();
   }
 
@@ -71,8 +74,7 @@ export class WhatsappDevSendController extends JWTAuthController {
       // the number needs a customer + conversation row. Created here if this is the first time.
       let cust = await customer.findOne({ where: { wa_number: body.to } });
       if (!cust) cust = await customer.save(customer.create({ wa_number: body.to }));
-      let conv = await conversation.findOne({ where: { customer_id: cust.id } });
-      if (!conv) conv = await conversation.save(conversation.create({ customer_id: cust.id }));
+      await this._ConvRepo.openNew(cust.id);
 
       const wamid = await this._Wa.send(cust.id, sample, body.purpose ?? "reply");
       return { Type: "S", wamid };

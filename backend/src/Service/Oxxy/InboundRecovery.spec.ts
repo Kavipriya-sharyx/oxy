@@ -20,7 +20,7 @@ function setup(lostRows: LostMessage[], jobs: Record<string, string> = {}, opted
     getJob: jest.fn(async (id: string) => (jobs[id] ? { getState: async () => jobs[id], remove } : undefined)),
     add,
   };
-  const svc = new InboundQueueService({} as never);
+  const svc = new InboundQueueService({} as never, {} as never);
   (svc as unknown as { queue: typeof queue }).queue = queue;
   jest.spyOn(svc, "findLostMessages").mockResolvedValue(lostRows);
   stub(consent, "findOne", async (...a) => {
@@ -79,7 +79,7 @@ describe("lost-job recovery", () => {
       qb[k] = (...a: unknown[]) => (parts.push(a.map(String).join(" ")), qb);
     qb.getRawMany = async () => [];
     stub(message, "createQueryBuilder", () => qb);
-    const svc = new InboundQueueService({} as never);
+    const svc = new InboundQueueService({} as never, {} as never);
     await svc.findLostMessages();
     const sql = parts.join("\n");
     expect(sql).toContain("m.direction = 'in'");

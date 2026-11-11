@@ -12,6 +12,7 @@ import { CrmSyncStatus } from "@Helper/Enum/CrmSyncStatus";
 import { TaskType } from "@Helper/Enum/TaskType";
 import { TaskPriority } from "@Helper/Enum/TaskPriority";
 import { CrmClient } from "./CrmClient.service";
+import { queuePrefix, redisConnection } from "@Root/Config/Redis";
 import { backoffMs, failureState } from "./CrmRetry";
 
 const QUEUE = "crm-outbox";
@@ -39,14 +40,20 @@ export class CrmOutboxService implements OnModuleInit, OnModuleDestroy {
     payload: Record<string, unknown>,
   ): Promise<crm_outbox | null> {
     if (!this.enabled) return null; // CRM off: nothing is written, bot behaves as before
-    return await manager.save(manager.create(crm_outbox, { action, customer_id: customerId, payload }));
+    return await manager.save(
+      manager.create(crm_outbox, { action, customer_id: customerId, payload }),
+    );
   }
 
   // ---- 2. after commit: hand the row to the queue. Never throws (the sweeper is the safety net) ----
   async dispatch(row: crm_outbox | null): Promise<void> {
     if (!row || !this.queue) return;
     try {
-      await this.queue.add("send", { id: row.id }, { jobId: row.id, removeOnComplete: true, removeOnFail: true });
+      await this.queue.add(
+        "send",
+        { id: row.id },
+        { jobId: row.id, removeOnComplete: true, removeOnFail: true },
+      );
     } catch (e) {
       this.logger.warn(`dispatch failed, sweeper will pick it up: ${(e as Error).message}`);
     }
@@ -55,19 +62,16 @@ export class CrmOutboxService implements OnModuleInit, OnModuleDestroy {
   // ---- 3. worker + sweeper ----
   async onModuleInit() {
     if (!this.enabled) return;
-    const connection = {
-      host: process.env.REDIS_HOST,
-      port: Number(process.env.REDIS_PORT),
-      maxRetriesPerRequest: null,
-    };
-    this.queue = new Queue(QUEUE, { connection });
+    const connection = redisConnection();
+    const prefix = queuePrefix();
+    this.queue = new Queue(QUEUE, { connection, prefix });
     this.worker = new Worker(
       QUEUE,
       async (job) => {
         if (job.name === "sweep") return await this.sweep();
         return await this.send(String(job.data.id));
       },
-      { connection, concurrency: 5 },
+      { connection, prefix, concurrency: 5 },
     );
     this.worker.on("error", (e) => this.logger.error(`worker error: ${e.message}`));
     // Re-enqueue anything due (covers Redis loss / crashes / backoff time reached)
@@ -82,7 +86,10 @@ export class CrmOutboxService implements OnModuleInit, OnModuleDestroy {
 
   async sweep(): Promise<number> {
     const due = await crm_outbox.find({
-      where: { sync_status: In([CrmSyncStatus.Pending, CrmSyncStatus.Failed]), next_attempt_at: LessThanOrEqual(new Date()) },
+      where: {
+        sync_status: In([CrmSyncStatus.Pending, CrmSyncStatus.Failed]),
+        next_attempt_at: LessThanOrEqual(new Date()),
+      },
       order: { next_attempt_at: "ASC" },
       take: 50,
     });
@@ -92,7 +99,8 @@ export class CrmOutboxService implements OnModuleInit, OnModuleDestroy {
 
   async send(id: string): Promise<void> {
     const row = await crm_outbox.findOne({ where: { id } });
-    if (!row || row.sync_status === CrmSyncStatus.Sent || row.sync_status === CrmSyncStatus.Dead) return;
+    if (!row || row.sync_status === CrmSyncStatus.Sent || row.sync_status === CrmSyncStatus.Dead)
+      return;
     try {
       const crmId = await this._Client.send(row);
       row.sync_status = CrmSyncStatus.Sent;
@@ -142,7 +150,11 @@ export class CrmOutboxService implements OnModuleInit, OnModuleDestroy {
 
   // ---- 4. ops helpers ----
   async listDead() {
-    return await crm_outbox.find({ where: { sync_status: CrmSyncStatus.Dead }, order: { created_on: "DESC" }, take: 100 });
+    return await crm_outbox.find({
+      where: { sync_status: CrmSyncStatus.Dead },
+      order: { created_on: "DESC" },
+      take: 100,
+    });
   }
 
   async retry(id: string) {
