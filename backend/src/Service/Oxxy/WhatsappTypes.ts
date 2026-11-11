@@ -7,8 +7,8 @@ export interface WaMessage {
   text?: { body?: string };
   button?: { text?: string };
   interactive?: {
-    button_reply?: { title?: string };
-    list_reply?: { title?: string };
+    button_reply?: { id?: string; title?: string };
+    list_reply?: { id?: string; title?: string };
   };
   location?: { latitude: number; longitude: number };
 }

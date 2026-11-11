@@ -22,8 +22,8 @@ export default function Layout() {
   };
 
   return (
-    <AntLayout style={{ minHeight: "100%" }}>
-      <Sider breakpoint="lg" collapsedWidth={0}>
+    <AntLayout style={{ minHeight: "100vh" }}>
+      <Sider breakpoint="lg" collapsedWidth={0} style={{ minHeight: "100vh" }}>
         <Typography.Title
           level={4}
           style={{ color: "#fff", textAlign: "center", margin: "16px 0" }}
@@ -51,7 +51,7 @@ export default function Layout() {
           {email && <Typography.Text>{email}</Typography.Text>}
           <Button onClick={onLogout}>Logout</Button>
         </Header>
-        <Content style={{ margin: 24 }}>
+        <Content style={{ margin: 24, flex: 1 }}>
           <Outlet />
         </Content>
       </AntLayout>

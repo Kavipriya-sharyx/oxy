@@ -128,29 +128,12 @@ export class ChatPipelineService {
     return !!(await message.findOne({ where: { direction: "out", reply_to_wa_message_id: inboundWamid } }));
   }
 
-  // Send, then save the outbound row (tagged with the inbound wamid) right away.
+  // WhatsappClient.send() checks the rules, sends and saves the outbound row (tagged with the inbound wamid).
   // If a reply to this inbound message already exists, nothing is sent.
-  private async sendAndSave(
-    conv: conversation,
-    to: string,
-    text: string,
-    replyTo: string,
-    sender = "bot",
-  ) {
+  private async sendAndSave(customerId: string, text: string, replyTo: string) {
     if (await this.alreadyReplied(replyTo)) return;
-    const waId = await this._Wa.sendText(to, text);
     try {
-      await message.save(
-        message.create({
-          conversation_id: conv.id,
-          direction: "out",
-          sender,
-          wa_message_id: waId,
-          reply_to_wa_message_id: replyTo,
-          body: text,
-          message_status: "sent",
-        }),
-      );
+      await this._Wa.send(customerId, { kind: "text", body: text }, "reply", replyTo);
     } catch (e) {
       if (!isUniqueViolation(e)) throw e; // someone else already saved a reply: fine
     }
@@ -212,7 +195,7 @@ export class ChatPipelineService {
         s,
         `${hit.kind}: ${m.text}`.slice(0, 500),
       );
-      await this.sendAndSave(s.conversation, m.waNumber, hit.reply, m.waMessageId);
+      await this.sendAndSave(s.customer.id, hit.reply, m.waMessageId);
       return;
     }
 
@@ -256,7 +239,7 @@ export class ChatPipelineService {
         s,
         `Draft rejected: ${feedback ?? "n/a"}`,
       );
-      await this.sendAndSave(s.conversation, m.waNumber, HOLDING_MESSAGE, m.waMessageId);
+      await this.sendAndSave(s.customer.id, HOLDING_MESSAGE, m.waMessageId);
       return;
     }
 
@@ -274,7 +257,7 @@ export class ChatPipelineService {
       s.conversation.state = ConversationState.Human;
       await s.conversation.save();
     }
-    await this.sendAndSave(s.conversation, m.waNumber, finalText, m.waMessageId);
+    await this.sendAndSave(s.customer.id, finalText, m.waMessageId);
   }
 
   private describe(c: customer, cons: consent | null): string {

@@ -130,6 +130,27 @@ describe("WhatsApp webhook POST", () => {
     expect(t.jobs).toHaveLength(1);
   });
 
+  it("interactive reply (button or list) is saved with type interactive and the tapped id", async () => {
+    const t = setup();
+    const btn = payload("wamid.BTN");
+    const m1 = btn.entry![0].changes![0].value!.messages![0];
+    m1.type = "interactive";
+    delete m1.text;
+    m1.interactive = { button_reply: { id: "dev_yes", title: "Yes" } };
+    await post(t.controller, t.res, btn);
+
+    const lst = payload("wamid.LST");
+    const m2 = lst.entry![0].changes![0].value!.messages![0];
+    m2.type = "interactive";
+    delete m2.text;
+    m2.interactive = { list_reply: { id: "dev_vital", title: "Vital" } };
+    await post(t.controller, t.res, lst);
+
+    expect(t.rows[0]).toMatchObject({ type: "interactive", body: "dev_yes" });
+    expect(t.rows[1]).toMatchObject({ type: "interactive", body: "dev_vital" });
+    expect(t.jobs).toHaveLength(2);
+  });
+
   it("status event only updates the outbound message and never queues", async () => {
     const t = setup();
     t.rows.push({ wa_message_id: "wamid.OUT", direction: "out", message_status: "sent", save: async () => undefined });

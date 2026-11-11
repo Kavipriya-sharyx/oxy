@@ -33,6 +33,7 @@ import { OxxySeederService } from "./Database/Seeds/OxxySeeder.service";
 import { WhatsappWebhookController } from "./Controller/Oxxy/WhatsappWebhook.controller";
 import { BookingController } from "./Controller/Oxxy/Booking.controller";
 import { WhatsappClient } from "./Service/Oxxy/WhatsappClient.service";
+import { WhatsappDevSendController } from "./Controller/Oxxy/WhatsappDevSend.controller";
 import { GuardrailService } from "./Service/Oxxy/Guardrail.service";
 import { ClaudeService } from "./Service/Oxxy/Claude.service";
 import { ReplyValidatorService } from "./Service/Oxxy/ReplyValidator.service";
@@ -103,6 +104,7 @@ import { CrmAdminController } from "./Controller/Crm/CrmAdmin.controller";
     AutoNumberController,
     WhatsappWebhookController,
     BookingController,
+    WhatsappDevSendController,
     CrmWebhookController,
     CrmAdminController,
   ],

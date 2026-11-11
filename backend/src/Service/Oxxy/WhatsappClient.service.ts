@@ -1,84 +1,142 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import axios from "axios";
+import { conversation } from "@Database/Table/Oxxy/conversation";
+import { customer } from "@Database/Table/Oxxy/customer";
+import { message } from "@Database/Table/Oxxy/message";
+import { OutboundMessage, SendPurpose } from "@Helper/WhatsappMessage";
+import { InvalidMessageError, WhatsappApiError, WindowClosedError } from "@Helper/WhatsappErrors";
+import { checkAllowed } from "./WhatsappRules";
+import { buildPayload, validateMessage } from "./WhatsappPayload";
 
-export interface ReplyButton {
-  id: string;
-  title: string; // max 20
-}
-export interface ListRow {
-  id: string;
-  title: string; // max 24
-  description?: string;
+const TIMEOUT_MS = 10_000;
+
+interface MetaErrorShape {
+  isAxiosError?: boolean;
+  code?: string;
+  message?: string;
+  response?: { status?: number; data?: { error?: { code?: number; message?: string } } };
 }
 
-const cut = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
+// Turns whatever axios threw into one of our typed errors
+export function mapMetaError(e: unknown): Error {
+  const err = e as MetaErrorShape;
+  const status = err?.response?.status;
+  const code = err?.response?.data?.error?.code;
+  const text = err?.response?.data?.error?.message ?? err?.message ?? "unknown error";
+
+  // no response at all = network problem or our 10 s timeout: worth retrying
+  if (!err?.response) {
+    return new WhatsappApiError(`WhatsApp did not answer (${err?.code ?? text})`, {
+      retryable: true,
+    });
+  }
+  if (code === 131047) return new WindowClosedError();
+  if (code === 190) {
+    return new WhatsappApiError("WHATSAPP_ACCESS_TOKEN expired or invalid", {
+      retryable: false,
+      metaCode: code,
+      httpStatus: status,
+    });
+  }
+  if (code === 131026) {
+    return new WhatsappApiError(
+      "This phone number is not on WhatsApp (or cannot receive messages)",
+      {
+        retryable: false,
+        metaCode: code,
+        httpStatus: status,
+      },
+    );
+  }
+  if (code !== undefined && code >= 132000 && code < 133000) {
+    return new WhatsappApiError(`Template problem (${code}): ${text}`, {
+      retryable: false,
+      metaCode: code,
+      httpStatus: status,
+    });
+  }
+  return new WhatsappApiError(`WhatsApp API error${code ? ` ${code}` : ""}: ${text}`, {
+    retryable: status !== undefined && status >= 500, // 5xx retry, 4xx do not
+    metaCode: code,
+    httpStatus: status,
+  });
+}
 
 @Injectable()
-export class WhatsappClient {
+export class WhatsappClient implements OnModuleInit {
   private readonly logger = new Logger(WhatsappClient.name);
+
   constructor(private readonly _Config: ConfigService) {}
 
-  private async post(payload: any): Promise<string | null> {
-    const phoneId = this._Config.get("Whatsapp.PhoneNumberId");
-    const token = this._Config.get("Whatsapp.AccessToken");
+  onModuleInit() {
+    if (!this._Config.get("Whatsapp.AccessToken"))
+      this.logger.warn("WHATSAPP_ACCESS_TOKEN is not set: sending will fail");
+    if (!this._Config.get("Whatsapp.PhoneNumberId"))
+      this.logger.warn("WHATSAPP_PHONE_NUMBER_ID is not set: sending will fail");
+  }
+
+  // load customer + conversation -> rules -> limits -> API -> save row -> wamid
+  async send(
+    customerId: string,
+    msg: OutboundMessage,
+    purpose: SendPurpose,
+    replyToWaMessageId?: string,
+  ): Promise<string> {
+    const cust = await customer.findOne({ where: { id: customerId } });
+    if (!cust) throw new InvalidMessageError("customer not found");
+    const conv = await conversation.findOne({
+      where: { customer_id: customerId },
+      order: { created_on: "DESC" },
+    });
+    if (!conv) throw new InvalidMessageError("customer has no conversation");
+
+    checkAllowed(msg, purpose, conv.last_customer_message_at, new Date());
+    validateMessage(msg);
+
+    const wamid = await this.callApi(cust.wa_number, msg);
+
+    await message.save(
+      message.create({
+        conversation_id: conv.id,
+        direction: "out",
+        sender: "bot",
+        wa_message_id: wamid,
+        type: msg.kind,
+        body: msg.kind === "template" ? null : msg.body,
+        template_name: msg.kind === "template" ? msg.name : null,
+        reply_to_wa_message_id: replyToWaMessageId ?? null,
+        message_status: "sent",
+      }),
+    );
+    this.logger.log(`${wamid} sent (${msg.kind})`); // never the body or the phone number
+    return wamid;
+  }
+
+  private async callApi(to: string, msg: OutboundMessage): Promise<string> {
+    const version = this._Config.get<string>("Whatsapp.ApiVersion");
+    const phoneId = this._Config.get<string>("Whatsapp.PhoneNumberId");
+    const token = this._Config.get<string>("Whatsapp.AccessToken");
     try {
-      const res = await axios.post(
-        `https://graph.facebook.com/v21.0/${phoneId}/messages`,
-        { messaging_product: "whatsapp", recipient_type: "individual", ...payload },
-        { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 },
+      const res = await axios.post<{ messages?: { id?: string }[] }>(
+        `https://graph.facebook.com/${version}/${phoneId}/messages`,
+        buildPayload(to, msg),
+        { headers: { Authorization: `Bearer ${token}` }, timeout: TIMEOUT_MS },
       );
-      return res.data?.messages?.[0]?.id ?? null;
-    } catch (e: any) {
-      this.logger.error(`WhatsApp send failed: ${JSON.stringify(e?.response?.data ?? e.message)}`);
-      throw e;
+      const wamid = res.data?.messages?.[0]?.id;
+      if (!wamid)
+        throw new WhatsappApiError("WhatsApp did not return a message id", { retryable: false });
+      return wamid;
+    } catch (e) {
+      if (e instanceof WhatsappApiError) throw e;
+      const mapped = mapMetaError(e);
+      if (mapped instanceof WhatsappApiError && mapped.metaCode === 190)
+        this.logger.error(mapped.message);
+      else
+        this.logger.warn(
+          `send (${msg.kind}) failed: ${mapped.name}${mapped instanceof WhatsappApiError ? ` retryable=${mapped.retryable}` : ""}`,
+        );
+      throw mapped;
     }
-  }
-
-  sendText(to: string, body: string) {
-    return this.post({ to, type: "text", text: { body, preview_url: false } });
-  }
-
-  // max 3 buttons, title max 20 chars
-  sendButtons(to: string, body: string, buttons: ReplyButton[]) {
-    return this.post({
-      to,
-      type: "interactive",
-      interactive: {
-        type: "button",
-        body: { text: body },
-        action: {
-          buttons: buttons.slice(0, 3).map((b) => ({
-            type: "reply",
-            reply: { id: b.id, title: cut(b.title, 20) },
-          })),
-        },
-      },
-    });
-  }
-
-  // list rows, title max 24 chars (WhatsApp allows up to 10 rows)
-  sendList(to: string, body: string, buttonText: string, rows: ListRow[]) {
-    return this.post({
-      to,
-      type: "interactive",
-      interactive: {
-        type: "list",
-        body: { text: body },
-        action: {
-          button: cut(buttonText, 20),
-          sections: [
-            {
-              title: "Options",
-              rows: rows.slice(0, 10).map((r) => ({
-                id: r.id,
-                title: cut(r.title, 24),
-                ...(r.description ? { description: cut(r.description, 72) } : {}),
-              })),
-            },
-          ],
-        },
-      },
-    });
   }
 }

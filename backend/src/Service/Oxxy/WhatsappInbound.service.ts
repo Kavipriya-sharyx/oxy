@@ -50,10 +50,13 @@ export class WhatsappInboundService implements OnModuleInit {
 
   private async handleMessage(msg: WaMessage, value: WaValue): Promise<void> {
     const type = msg.type ?? "text";
-    // text only for text / button / interactive replies; image, audio, location etc. have an empty body
-    const text =
-      msg.text?.body ?? msg.button?.text ?? msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? "";
-    const profileName = value.contacts?.find((c) => c.wa_id === msg.from)?.profile?.name ?? value.contacts?.[0]?.profile?.name;
+    // text messages: the text. Interactive replies: the tapped id (title if there is no id).
+    // image, audio, location etc.: empty body
+    const reply = msg.interactive?.button_reply ?? msg.interactive?.list_reply;
+    const text = msg.text?.body ?? msg.button?.text ?? reply?.id ?? reply?.title ?? "";
+    const profileName =
+      value.contacts?.find((c) => c.wa_id === msg.from)?.profile?.name ??
+      value.contacts?.[0]?.profile?.name;
 
     const saved = await this._Pipeline.saveInbound({
       waNumber: msg.from,
@@ -69,7 +72,11 @@ export class WhatsappInboundService implements OnModuleInit {
       return;
     }
     await this._Queue.enqueue(
-      { messageId: saved.message.id, conversationId: saved.conversation.id, customerId: saved.customer.id },
+      {
+        messageId: saved.message.id,
+        conversationId: saved.conversation.id,
+        customerId: saved.customer.id,
+      },
       msg.id,
     );
     this.logger.log(`${msg.id} queued`);

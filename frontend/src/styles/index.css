@@ -5,6 +5,11 @@ body,
   margin: 0;
 }
 
+/* antd <App> renders a div between #root and the page: keep the height chain unbroken */
+.ant-app {
+  height: 100%;
+}
+
 body {
   font-family:
     system-ui,
