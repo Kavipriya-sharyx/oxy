@@ -6,6 +6,7 @@ import { JwtModule } from "@nestjs/jwt";
 import { PassportModule } from "@nestjs/passport";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import Configuration from "./Config/Configuration";
+import { redisDb } from "./Config/Redis";
 import { MulterModule } from "@nestjs/platform-express";
 import { Redis } from "ioredis";
 import { EventEmitterModule } from "@nestjs/event-emitter";
@@ -42,6 +43,8 @@ import { DateWindowService } from "./Service/Oxxy/DateWindow.service";
 import { BookingService } from "./Service/Oxxy/Booking.service";
 import { CentreSearchService } from "./Service/Oxxy/CentreSearch.service";
 import { ChatPipelineService } from "./Service/Oxxy/ChatPipeline.service";
+import { ConversationRepository } from "./Service/Oxxy/ConversationRepository.service";
+import { CustomerLockService } from "./Service/Oxxy/CustomerLock.service";
 import { InboundQueueService } from "./Service/Oxxy/InboundQueue.service";
 import { WhatsappInboundService } from "./Service/Oxxy/WhatsappInbound.service";
 import { CrmClient } from "./Service/Crm/CrmClient.service";
@@ -134,6 +137,8 @@ import { CrmAdminController } from "./Controller/Crm/CrmAdmin.controller";
     BookingService,
     CentreSearchService,
     ChatPipelineService,
+    ConversationRepository,
+    CustomerLockService,
     InboundQueueService,
     WhatsappInboundService,
     CrmClient,
@@ -146,6 +151,7 @@ import { CrmAdminController } from "./Controller/Crm/CrmAdmin.controller";
         return new Redis({
           host: process.env.REDIS_HOST,
           port: Number(process.env.REDIS_PORT),
+          db: redisDb(),
         });
       },
     },

@@ -38,6 +38,7 @@ function setup(sendImpl?: Fn) {
     {} as never,
     { transaction } as never,
     { enqueue: jest.fn(async () => null), dispatch: jest.fn() } as never,
+    {} as never,
   );
   const saved = {
     customer: { id: "c1" },

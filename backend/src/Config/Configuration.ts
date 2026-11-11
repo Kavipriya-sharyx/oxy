@@ -1,3 +1,5 @@
+import { queuePrefix, redisDb } from "./Redis";
+
 export default () => ({
   Port: process.env.PORT || 8000,
   Database: {
@@ -23,6 +25,14 @@ export default () => ({
     INFLUX_ORG: process.env.INFLUX_ORG,
     INFLUX_BUCKET: process.env.INFLUX_BUCKET,
     INFLUX_DB: process.env.INFLUX_DB,
+  },
+  Redis: {
+    Host: process.env.REDIS_HOST,
+    Port: Number(process.env.REDIS_PORT),
+    Db: redisDb(),
+  },
+  Queue: {
+    Prefix: queuePrefix(),
   },
   Anthropic: {
     ApiKey: process.env.ANTHROPIC_API_KEY,

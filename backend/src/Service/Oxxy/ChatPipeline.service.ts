@@ -28,6 +28,8 @@ import { DateWindowService } from "./DateWindow.service";
 import { DataSource } from "typeorm";
 import { CrmOutboxService } from "@Service/Crm/CrmOutbox.service";
 import { CrmAction } from "@Helper/Enum/CrmAction";
+import { ConversationRepository } from "./ConversationRepository.service";
+import { InvalidTransitionError } from "./ConversationStateMachine";
 
 export const HOLDING_MESSAGE = "Thank you for your message. Our team will get back to you shortly.";
 
@@ -68,6 +70,7 @@ export class ChatPipelineService {
     private readonly _DateWindow: DateWindowService,
     private readonly _DataSource: DataSource,
     private readonly _Outbox: CrmOutboxService,
+    private readonly _ConvRepo: ConversationRepository,
   ) {}
 
   // Step 1: dedupe + save. Returns null for a duplicate wa_message_id.
@@ -94,13 +97,10 @@ export class ChatPipelineService {
       cust.first_name = m.profileName;
       await cust.save();
     }
-    let conv = await conversation.findOne({
-      where: { customer_id: cust.id, closed_at: null as unknown as undefined },
-      order: { created_on: "DESC" },
-    });
-    if (!conv) conv = await conversation.save(conversation.create({ customer_id: cust.id }));
+    const conv = (await this._ConvRepo.findOpenByCustomer(cust.id)) ?? (await this._ConvRepo.openNew(cust.id));
     conv.last_customer_message_at = new Date();
-    await conv.save();
+    // update only this column: a full save() could overwrite the state the repository just wrote
+    await conversation.update(conv.id, { last_customer_message_at: conv.last_customer_message_at });
 
     let saved: message;
     try {
@@ -136,6 +136,24 @@ export class ChatPipelineService {
       await this._Wa.send(customerId, { kind: "text", body: text }, "reply", replyTo);
     } catch (e) {
       if (!isUniqueViolation(e)) throw e; // someone else already saved a reply: fine
+    }
+  }
+
+  // Change state only through ConversationRepository. A change the state machine does not allow
+  // is logged (ids and state names only) and skipped, never forced.
+  private async setState(s: Saved, path: ConversationState[]): Promise<void> {
+    if (s.conversation.state === path[path.length - 1]) return;
+    for (const to of path) {
+      try {
+        const updated = await this._ConvRepo.transition(s.conversation.id, to);
+        s.conversation.state = updated.state;
+      } catch (e) {
+        if (e instanceof InvalidTransitionError) {
+          this.logger.warn(`conversation ${s.conversation.id}: state change ${e.from} -> ${e.to} not allowed, skipped`);
+          return;
+        }
+        throw e;
+      }
     }
   }
 
@@ -175,17 +193,25 @@ export class ChatPipelineService {
     if (hit) {
       if (hit.kind === "stop") {
         cons.opt_out_at = new Date();
-        s.conversation.state = ConversationState.OptedOut;
-        s.conversation.closed_at = new Date();
-        // opt-out + conversation close + CRM outbox row: all or nothing
+        // opt-out + state OPTED_OUT + CRM outbox row: all or nothing
         const row = await this._DataSource.transaction(async (mg) => {
           await mg.save(cons);
-          await mg.save(s.conversation);
+          try {
+            await this._ConvRepo.transition(s.conversation.id, ConversationState.OptedOut, {
+              reason: "stop",
+              manager: mg,
+            });
+          } catch (e) {
+            // STOP must always work: the opt-out is saved even if the state change is refused
+            if (!(e instanceof InvalidTransitionError)) throw e;
+            this.logger.warn(`conversation ${s.conversation.id}: state change ${e.from} -> ${e.to} not allowed, skipped`);
+          }
           return await this._Outbox.enqueue(mg, CrmAction.SetOptOut, s.customer.id, {
             customer_id: s.customer.id,
             opt_out_at: cons.opt_out_at.toISOString(),
           });
         });
+        s.conversation.state = ConversationState.OptedOut;
         await this._Outbox.dispatch(row);
         return;
       }
@@ -198,6 +224,9 @@ export class ChatPipelineService {
       await this.sendAndSave(s.customer.id, hit.reply, m.waMessageId);
       return;
     }
+
+    // the first message of a conversation starts the discovery
+    await this.setState(s, [ConversationState.Discovery]);
 
     // 2. Last 20 messages
     const rows = await message.find({
@@ -254,8 +283,7 @@ export class ChatPipelineService {
         s,
         result.reply_text.slice(0, 500),
       );
-      s.conversation.state = ConversationState.Human;
-      await s.conversation.save();
+      await this.setState(s, [ConversationState.Escalated]);
     }
     await this.sendAndSave(s.customer.id, finalText, m.waMessageId);
   }
@@ -334,7 +362,10 @@ export class ChatPipelineService {
       );
       if (pick) {
         conv.recommended_plan = pick.plan;
-        conv.state = ConversationState.Recommend;
+        await this.setState(s, [
+          ConversationState.Routing,
+          product === ProductType.CutMediBills ? ConversationState.CutMediBillsFit : ConversationState.PlanFit,
+        ]);
         const gst = 0.18;
         extras.push(
           `Suggested plan: ${pick.plan.toUpperCase()} - \u20b9${pick.price} per year + GST ` +
@@ -387,7 +418,7 @@ export class ChatPipelineService {
             s,
             `Booking request at ${ctr.name} on ${f.preferred_date}`,
           );
-          conv.state = ConversationState.Booking;
+          await this.setState(s, [ConversationState.BookingCapture, ConversationState.BookingRecorded]);
           extras.push(
             "Your booking request has been received. Our team will confirm it with you shortly.",
           );
@@ -422,7 +453,7 @@ export class ChatPipelineService {
           });
         });
         await this._Outbox.dispatch(actRow);
-        conv.state = ConversationState.Activation;
+        await this.setState(s, [ConversationState.Activation]);
         extras.push(`Activation link: ${cat.activation_link}`);
       } else {
         await this.createTask(
@@ -434,7 +465,10 @@ export class ChatPipelineService {
       }
     }
 
-    await conv.save();
+    await conversation.update(conv.id, {
+      selected_product: conv.selected_product,
+      recommended_plan: conv.recommended_plan,
+    });
     return extras;
   }
 }

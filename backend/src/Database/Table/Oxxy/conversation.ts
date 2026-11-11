@@ -28,6 +28,9 @@ export class conversation extends BaseTable {
   @Column({ type: "timestamp", nullable: true })
   last_customer_message_at: Date;
 
+  @Column({ type: "varchar", nullable: true }) // state to return to after PAUSE / ESCALATED / FOLLOW_UP
+  resume_state: string | null;
+
   @Column({ type: "int", default: 0 })
   rescue_count: number;
 
