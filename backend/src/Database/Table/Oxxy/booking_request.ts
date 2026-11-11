@@ -50,4 +50,7 @@ export class booking_request extends BaseTable {
   @Column({ type: "uuid", nullable: true })
   @Index()
   confirmed_by_id: string;
+
+  @Column({ type: "text", nullable: true, unique: true })
+  crm_booking_id: string;
 }

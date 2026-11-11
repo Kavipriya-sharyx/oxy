@@ -17,7 +17,11 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "migration:run": "typeorm-ts-node-commonjs migration:run -d src/Database/data-source.ts",
+    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/Database/data-source.ts",
+    "migration:show": "typeorm-ts-node-commonjs migration:show -d src/Database/data-source.ts",
+    "seed": "ts-node src/Database/Seeds/seed.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.7.0",
@@ -33,6 +37,7 @@
     "@nestjs/swagger": "^11.2.0",
     "@nestjs/typeorm": "^11.0.0",
     "axios": "^1.11.0",
+    "bullmq": "^6.7.3",
     "cache-manager": "^7.1.0",
     "cache-manager-ioredis": "^2.1.0",
     "class-transformer": "^0.5.1",

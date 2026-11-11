@@ -35,4 +35,7 @@ export class user extends BaseTable {
 
   @Column({ type: "bigint", nullable: true })
   reset_otp: number;
+
+  @Column({ type: "text", nullable: true, unique: true })
+  crm_user_id: string;
 }

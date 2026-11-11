@@ -33,6 +33,9 @@ export class centre extends BaseTable {
   @Column({ default: false })
   verified: boolean;
 
+  @Column({ type: "date", nullable: true })
+  verified_at: string;
+
   @Column({ default: true })
   active: boolean;
 }

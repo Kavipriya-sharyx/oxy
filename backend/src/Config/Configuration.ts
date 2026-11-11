@@ -33,6 +33,13 @@ export default () => ({
     AccessToken: process.env.WHATSAPP_ACCESS_TOKEN,
     PhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
   },
+  Crm: {
+    Enabled: process.env.CRM_ENABLED == "true",
+    BaseUrl: process.env.CRM_BASE_URL,
+    ApiKey: process.env.CRM_API_KEY,
+    WebhookSecret: process.env.CRM_WEBHOOK_SECRET,
+    MaxAttempts: Number(process.env.CRM_MAX_ATTEMPTS || 8),
+  },
   AuditLog: {
     Enable: process.env.AUDIT_LOG == "true",
   },

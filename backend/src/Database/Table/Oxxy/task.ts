@@ -44,4 +44,7 @@ export class task extends BaseTable {
 
   @Column({ type: "timestamp", nullable: true })
   due_at: Date;
+
+  @Column({ type: "text", nullable: true, unique: true })
+  crm_task_id: string;
 }

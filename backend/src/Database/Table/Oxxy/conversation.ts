@@ -3,6 +3,7 @@ import { BaseTable } from "../BaseTable";
 import { customer } from "./customer";
 
 @Entity()
+@Index("uq_conversation_one_open", ["customer_id"], { unique: true, where: '"closed_at" IS NULL' })
 export class conversation extends BaseTable {
   @ManyToOne(() => customer, { onDelete: "RESTRICT" })
   @JoinColumn({ name: "customer_id" })
@@ -26,6 +27,9 @@ export class conversation extends BaseTable {
 
   @Column({ type: "timestamp", nullable: true })
   last_customer_message_at: Date;
+
+  @Column({ type: "int", default: 0 })
+  rescue_count: number;
 
   @Column({ type: "timestamp", nullable: true })
   closed_at: Date;

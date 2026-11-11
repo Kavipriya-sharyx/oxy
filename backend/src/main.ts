@@ -14,6 +14,7 @@ import { json } from "express";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
     cors: { origin: "*", exposedHeaders: "*" },
   });
   app.setGlobalPrefix("api");

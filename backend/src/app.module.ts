@@ -41,13 +41,20 @@ import { DateWindowService } from "./Service/Oxxy/DateWindow.service";
 import { BookingService } from "./Service/Oxxy/Booking.service";
 import { CentreSearchService } from "./Service/Oxxy/CentreSearch.service";
 import { ChatPipelineService } from "./Service/Oxxy/ChatPipeline.service";
+import { InboundQueueService } from "./Service/Oxxy/InboundQueue.service";
+import { WhatsappInboundService } from "./Service/Oxxy/WhatsappInbound.service";
+import { CrmClient } from "./Service/Crm/CrmClient.service";
+import { CrmOutboxService } from "./Service/Crm/CrmOutbox.service";
+import { CrmWebhookService } from "./Service/Crm/CrmWebhook.service";
+import { CrmWebhookController } from "./Controller/Crm/CrmWebhook.controller";
+import { CrmAdminController } from "./Controller/Crm/CrmAdmin.controller";
 
 @Module({
   imports: [
     ClsModule,
     ServeStaticModule.forRoot({
       rootPath: __dirname + "/client",
-      exclude: ["/api/*", "swagger"],
+      exclude: ["/api{/*path}", "/swagger{/*path}", "/swagger-json"], // Express 5 wildcard syntax
     }),
     EventEmitterModule.forRoot({ maxListeners: 0 }),
     ConfigModule.forRoot({ isGlobal: true, load: [Configuration] }),
@@ -63,7 +70,7 @@ import { ChatPipelineService } from "./Service/Oxxy/ChatPipeline.service";
         database: _ConfigService.get("Database.Name"),
         synchronize: _ConfigService.get("Database.Sync"),
         keepConnectionAlive: true,
-        entities: [__dirname + "/Database/**/*.{ts,js}"],
+        entities: [__dirname + "/Database/Table/**/*.{ts,js}"],
         logger: "advanced-console",
         logging: _ConfigService.get("Database.LOG"),
         bigNumberStrings: false,
@@ -96,6 +103,8 @@ import { ChatPipelineService } from "./Service/Oxxy/ChatPipeline.service";
     AutoNumberController,
     WhatsappWebhookController,
     BookingController,
+    CrmWebhookController,
+    CrmAdminController,
   ],
   providers: [
     AuthService,
@@ -123,6 +132,11 @@ import { ChatPipelineService } from "./Service/Oxxy/ChatPipeline.service";
     BookingService,
     CentreSearchService,
     ChatPipelineService,
+    InboundQueueService,
+    WhatsappInboundService,
+    CrmClient,
+    CrmOutboxService,
+    CrmWebhookService,
     CacheService,
     {
       provide: "REDIS_CLIENT",

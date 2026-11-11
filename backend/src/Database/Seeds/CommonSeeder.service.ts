@@ -29,6 +29,7 @@ export class CommonSeederService {
   }
 
   UserRoleSeed = async () => {
+    if (await user_role.findOne({ where: { name: 'Super Admin' } })) return; // already seeded
     await this._DataSource.manager
       .createQueryBuilder()
       .insert()
@@ -38,6 +39,7 @@ export class CommonSeederService {
   };
 
   UserSeed = async () => {
+    if (await user.findOne({ where: { email: 'admin@user.com' } })) return; // already seeded
     const UserRoleData = await user_role.findOne({ where: { name: "Super Admin" } });
     await this._DataSource.manager
       .createQueryBuilder()

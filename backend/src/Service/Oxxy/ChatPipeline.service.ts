@@ -25,19 +25,32 @@ import { ValueCheckService } from "./ValueCheck.service";
 import { CentreSearchService } from "./CentreSearch.service";
 import { BookingService } from "./Booking.service";
 import { DateWindowService } from "./DateWindow.service";
+import { DataSource } from "typeorm";
+import { CrmOutboxService } from "@Service/Crm/CrmOutbox.service";
+import { CrmAction } from "@Helper/Enum/CrmAction";
 
 export const HOLDING_MESSAGE = "Thank you for your message. Our team will get back to you shortly.";
 
 export interface Inbound {
   waNumber: string;
   waMessageId: string;
-  text: string;
+  text: string; // "" for non-text messages
+  type?: string;
+  timestamp?: Date;
+  profileName?: string;
   location?: { latitude: number; longitude: number };
+}
+
+// Postgres unique_violation
+export function isUniqueViolation(e: unknown): boolean {
+  const err = e as { code?: string; driverError?: { code?: string } };
+  return err?.code === "23505" || err?.driverError?.code === "23505";
 }
 
 export interface Saved {
   customer: customer;
   conversation: conversation;
+  message?: message;
 }
 
 @Injectable()
@@ -53,6 +66,8 @@ export class ChatPipelineService {
     private readonly _CentreSearch: CentreSearchService,
     private readonly _Booking: BookingService,
     private readonly _DateWindow: DateWindowService,
+    private readonly _DataSource: DataSource,
+    private readonly _Outbox: CrmOutboxService,
   ) {}
 
   // Step 1: dedupe + save. Returns null for a duplicate wa_message_id.
@@ -62,59 +77,113 @@ export class ChatPipelineService {
 
     let cust = await customer.findOne({ where: { wa_number: m.waNumber } });
     if (!cust) {
-      cust = await customer.save(customer.create({ wa_number: m.waNumber } as any));
-      await consent.save(consent.create({ customer_id: cust.id } as any));
+      const created = await this._DataSource.transaction(async (mg) => {
+        const c = await mg.save(
+          mg.create(customer, { wa_number: m.waNumber, first_name: m.profileName ?? null }),
+        );
+        await mg.save(mg.create(consent, { customer_id: c.id }));
+        const row = await this._Outbox.enqueue(mg, CrmAction.UpsertCustomer, c.id, {
+          customer_id: c.id,
+          wa_number: m.waNumber,
+        });
+        return { c, row };
+      });
+      cust = created.c;
+      await this._Outbox.dispatch(created.row);
+    } else if (!cust.first_name && m.profileName) {
+      cust.first_name = m.profileName;
+      await cust.save();
     }
     let conv = await conversation.findOne({
-      where: { customer_id: cust.id, closed_at: null as any },
-      order: { created_on: "DESC" } as any,
+      where: { customer_id: cust.id, closed_at: null as unknown as undefined },
+      order: { created_on: "DESC" },
     });
-    if (!conv) conv = await conversation.save(conversation.create({ customer_id: cust.id } as any));
+    if (!conv) conv = await conversation.save(conversation.create({ customer_id: cust.id }));
     conv.last_customer_message_at = new Date();
     await conv.save();
 
-    await message.save(
-      message.create({
-        conversation_id: conv.id,
-        direction: "in",
-        sender: "customer",
-        wa_message_id: m.waMessageId,
-        body: m.text,
-        message_status: "received",
-      } as any),
-    );
-    return { customer: cust, conversation: conv };
+    let saved: message;
+    try {
+      saved = await message.save(
+        message.create({
+          conversation_id: conv.id,
+          direction: "in",
+          sender: "customer",
+          wa_message_id: m.waMessageId,
+          type: m.type ?? "text",
+          body: m.text,
+          wa_timestamp: m.timestamp ?? null,
+          message_status: "received",
+        }),
+      );
+    } catch (e) {
+      if (isUniqueViolation(e)) return null; // same wamid arrived twice at once
+      throw e;
+    }
+    return { customer: cust, conversation: conv, message: saved };
   }
 
-  private async sendAndSave(conv: conversation, to: string, text: string, sender = "bot") {
+  private async alreadyReplied(inboundWamid: string): Promise<boolean> {
+    if (!inboundWamid) return false;
+    return !!(await message.findOne({ where: { direction: "out", reply_to_wa_message_id: inboundWamid } }));
+  }
+
+  // Send, then save the outbound row (tagged with the inbound wamid) right away.
+  // If a reply to this inbound message already exists, nothing is sent.
+  private async sendAndSave(
+    conv: conversation,
+    to: string,
+    text: string,
+    replyTo: string,
+    sender = "bot",
+  ) {
+    if (await this.alreadyReplied(replyTo)) return;
     const waId = await this._Wa.sendText(to, text);
-    await message.save(
-      message.create({
-        conversation_id: conv.id,
-        direction: "out",
-        sender,
-        wa_message_id: waId,
-        body: text,
-        message_status: "sent",
-      } as any),
-    );
+    try {
+      await message.save(
+        message.create({
+          conversation_id: conv.id,
+          direction: "out",
+          sender,
+          wa_message_id: waId,
+          reply_to_wa_message_id: replyTo,
+          body: text,
+          message_status: "sent",
+        }),
+      );
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e; // someone else already saved a reply: fine
+    }
   }
 
   private async createTask(type: TaskType, priority: TaskPriority, s: Saved, summary: string) {
-    await task.save(
-      task.create({
+    const row = await this._DataSource.transaction(async (mg) => {
+      const t = await mg.save(
+        mg.create(task, {
+          type,
+          task_status: TaskStatus.Open,
+          priority,
+          customer_id: s.customer.id,
+          conversation_id: s.conversation.id,
+          summary,
+        } as any),
+      );
+      return await this._Outbox.enqueue(mg, CrmAction.CreateTask, s.customer.id, {
+        task_id: (t as any).id,
         type,
-        task_status: TaskStatus.Open,
         priority,
-        customer_id: s.customer.id,
-        conversation_id: s.conversation.id,
         summary,
-      } as any),
-    );
+        conversation_id: s.conversation.id,
+      });
+    });
+    await this._Outbox.dispatch(row);
   }
 
   // Pipeline: guardrails -> last 20 messages -> Claude -> validator -> send -> save
   async process(m: Inbound, s: Saved): Promise<void> {
+    // a retried job must not do the work (or reply) twice: already answered = job done
+    if (await this.alreadyReplied(m.waMessageId)) return;
+
     const cons = await consent.findOne({ where: { customer_id: s.customer.id } });
     if (cons?.opt_out_at) return; // opted out: no messages at all
 
@@ -123,10 +192,18 @@ export class ChatPipelineService {
     if (hit) {
       if (hit.kind === "stop") {
         cons.opt_out_at = new Date();
-        await cons.save();
         s.conversation.state = ConversationState.OptedOut;
         s.conversation.closed_at = new Date();
-        await s.conversation.save();
+        // opt-out + conversation close + CRM outbox row: all or nothing
+        const row = await this._DataSource.transaction(async (mg) => {
+          await mg.save(cons);
+          await mg.save(s.conversation);
+          return await this._Outbox.enqueue(mg, CrmAction.SetOptOut, s.customer.id, {
+            customer_id: s.customer.id,
+            opt_out_at: cons.opt_out_at.toISOString(),
+          });
+        });
+        await this._Outbox.dispatch(row);
         return;
       }
       await this.createTask(
@@ -135,7 +212,7 @@ export class ChatPipelineService {
         s,
         `${hit.kind}: ${m.text}`.slice(0, 500),
       );
-      await this.sendAndSave(s.conversation, m.waNumber, hit.reply);
+      await this.sendAndSave(s.conversation, m.waNumber, hit.reply, m.waMessageId);
       return;
     }
 
@@ -152,6 +229,8 @@ export class ChatPipelineService {
     // Claude needs the conversation to start with and end on a user turn
     while (history.length && history[0].role !== "user") history.shift();
     if (!history.length) history.push({ role: "user", content: m.text });
+    // the current message must be the last (user) turn
+    if (history[history.length - 1].role !== "user") history.push({ role: "user", content: m.text });
 
     const context = this.describe(s.customer, cons);
 
@@ -177,7 +256,7 @@ export class ChatPipelineService {
         s,
         `Draft rejected: ${feedback ?? "n/a"}`,
       );
-      await this.sendAndSave(s.conversation, m.waNumber, HOLDING_MESSAGE);
+      await this.sendAndSave(s.conversation, m.waNumber, HOLDING_MESSAGE, m.waMessageId);
       return;
     }
 
@@ -195,7 +274,7 @@ export class ChatPipelineService {
       s.conversation.state = ConversationState.Human;
       await s.conversation.save();
     }
-    await this.sendAndSave(s.conversation, m.waNumber, finalText);
+    await this.sendAndSave(s.conversation, m.waNumber, finalText, m.waMessageId);
   }
 
   private describe(c: customer, cons: consent | null): string {
@@ -339,18 +418,27 @@ export class ChatPipelineService {
         where: { product, plan: conv.recommended_plan, billing: BillingCycle.Yearly, status: true },
       });
       if (cat?.activation_link) {
-        await activation.save(
-          activation.create({
-            customer_id: c.id,
-            catalog_id: cat.id,
+        const actRow = await this._DataSource.transaction(async (mg) => {
+          const a = await mg.save(
+            mg.create(activation, {
+              customer_id: c.id,
+              catalog_id: cat.id,
+              product: cat.product,
+              plan: cat.plan,
+              billing: cat.billing,
+              link_sent_at: new Date(),
+              payment_status: PaymentStatus.Pending,
+              activation_status: ActivationStatus.LinkSent,
+            } as any),
+          );
+          return await this._Outbox.enqueue(mg, CrmAction.CreateActivation, c.id, {
+            activation_id: (a as any).id,
             product: cat.product,
             plan: cat.plan,
             billing: cat.billing,
-            link_sent_at: new Date(),
-            payment_status: PaymentStatus.Pending,
-            activation_status: ActivationStatus.LinkSent,
-          } as any),
-        );
+          });
+        });
+        await this._Outbox.dispatch(actRow);
         conv.state = ConversationState.Activation;
         extras.push(`Activation link: ${cat.activation_link}`);
       } else {

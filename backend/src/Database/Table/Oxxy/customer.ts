@@ -20,4 +20,7 @@ export class customer extends BaseTable {
 
   @Column({ nullable: true }) // OxxyPlan
   active_plan: string;
+
+  @Column({ type: "text", nullable: true, unique: true })
+  crm_customer_id: string;
 }

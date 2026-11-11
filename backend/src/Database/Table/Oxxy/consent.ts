@@ -1,8 +1,9 @@
-import { Column, Entity, Index, JoinColumn, ManyToOne } from "typeorm";
+﻿import { Column, Entity, Index, JoinColumn, ManyToOne } from "typeorm";
 import { BaseTable } from "../BaseTable";
 import { customer } from "./customer";
 
 @Entity()
+@Index("uq_consent_customer", ["customer_id"], { unique: true })
 export class consent extends BaseTable {
   @ManyToOne(() => customer, { onDelete: "RESTRICT" })
   @JoinColumn({ name: "customer_id" })
@@ -21,6 +22,13 @@ export class consent extends BaseTable {
   @Column({ default: false })
   marketing_consent: boolean;
 
+  @Column({ nullable: true })
+  notice_version: string;
+
   @Column({ type: "timestamp", nullable: true })
   opt_out_at: Date;
+
+  @Column({ type: "date", nullable: true })
+  retention_until: string;
 }
+

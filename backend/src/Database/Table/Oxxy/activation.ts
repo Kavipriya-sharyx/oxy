@@ -4,6 +4,7 @@ import { customer } from "./customer";
 import { plan_catalog } from "./plan_catalog";
 
 @Entity()
+@Index("uq_activation_one_active", ["customer_id"], { unique: true, where: "\"activation_status\" = 'active'" })
 export class activation extends BaseTable {
   @ManyToOne(() => customer, { onDelete: "RESTRICT" })
   @JoinColumn({ name: "customer_id" })
@@ -33,9 +34,15 @@ export class activation extends BaseTable {
   @Column({ type: "timestamp", nullable: true })
   link_sent_at: Date;
 
+  @Column({ type: "int", nullable: true })
+  link_version: number;
+
   @Column({ default: "pending" })
   payment_status: string;
 
   @Column({ default: "pending" })
   activation_status: string;
+
+  @Column({ type: "text", nullable: true, unique: true })
+  crm_activation_id: string;
 }

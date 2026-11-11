@@ -1,6 +1,7 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne } from "typeorm";
 import { BaseTable } from "../BaseTable";
 import { conversation } from "./conversation";
+import { encrypted } from "./encrypted.transformer";
 
 @Entity()
 export class need extends BaseTable {
@@ -15,10 +16,10 @@ export class need extends BaseTable {
   @Column({ nullable: true })
   beneficiary: string;
 
-  @Column({ nullable: true })
+  @Column({ type: "text", nullable: true, transformer: encrypted })
   healthcare_need: string;
 
-  @Column({ nullable: true })
+  @Column({ type: "text", nullable: true, transformer: encrypted })
   specialisation: string;
 
   @Column({ nullable: true })
@@ -39,6 +40,6 @@ export class need extends BaseTable {
   @Column({ type: "int", nullable: true })
   annual_medical_spend: number;
 
-  @Column({ nullable: true })
+  @Column({ type: "text", nullable: true, transformer: encrypted })
   insurance_status: string;
 }
