@@ -114,12 +114,13 @@ export class WhatsappClient implements OnModuleInit {
   }
 
   private async callApi(to: string, msg: OutboundMessage): Promise<string> {
+    const base = (this._Config.get<string>("Whatsapp.ApiBase") || "https://graph.facebook.com").replace(/\/+$/, "");
     const version = this._Config.get<string>("Whatsapp.ApiVersion");
     const phoneId = this._Config.get<string>("Whatsapp.PhoneNumberId");
     const token = this._Config.get<string>("Whatsapp.AccessToken");
     try {
       const res = await axios.post<{ messages?: { id?: string }[] }>(
-        `https://graph.facebook.com/${version}/${phoneId}/messages`,
+        `${base}/${version}/${phoneId}/messages`,
         buildPayload(to, msg),
         { headers: { Authorization: `Bearer ${token}` }, timeout: TIMEOUT_MS },
       );

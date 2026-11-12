@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { ILike } from "typeorm";
+import { ILike, In } from "typeorm";
 import { customer } from "@Database/Table/Oxxy/customer";
 import { consent } from "@Database/Table/Oxxy/consent";
 import { conversation } from "@Database/Table/Oxxy/conversation";
@@ -9,6 +9,11 @@ import { centre } from "@Database/Table/Oxxy/centre";
 import { plan_catalog } from "@Database/Table/Oxxy/plan_catalog";
 import { activation } from "@Database/Table/Oxxy/activation";
 import { task } from "@Database/Table/Oxxy/task";
+import { booking_request } from "@Database/Table/Oxxy/booking_request";
+import { BookingStatus } from "@Helper/Enum/BookingStatus";
+import { fixedReply, NEUTRAL_SAVINGS_LINE, NOTICE_VERSION } from "@Helper/FixedReplies";
+import { OutboundMessage } from "@Helper/WhatsappMessage";
+import { matchMenuRow, menuReply, openingList, WELCOME } from "@Helper/OpeningMenu";
 import { ConversationState } from "@Helper/Enum/ConversationState";
 import { TaskType } from "@Helper/Enum/TaskType";
 import { TaskPriority } from "@Helper/Enum/TaskPriority";
@@ -17,7 +22,7 @@ import { ActivationStatus } from "@Helper/Enum/ActivationStatus";
 import { PaymentStatus } from "@Helper/Enum/PaymentStatus";
 import { ProductType } from "@Helper/Enum/ProductType";
 import { BillingCycle } from "@Helper/Enum/BillingCycle";
-import { GuardrailService } from "./Guardrail.service";
+import { GuardrailService, GuardrailHit } from "./Guardrail.service";
 import { ClaudeService, ChatTurn, ClaudeResult } from "./Claude.service";
 import { ReplyValidatorService } from "./ReplyValidator.service";
 import { WhatsappClient } from "./WhatsappClient.service";
@@ -30,6 +35,12 @@ import { CrmOutboxService } from "@Service/Crm/CrmOutbox.service";
 import { CrmAction } from "@Helper/Enum/CrmAction";
 import { ConversationRepository } from "./ConversationRepository.service";
 import { InvalidTransitionError } from "./ConversationStateMachine";
+import {
+  asksHealthQuestion,
+  healthConsentStatus,
+  parseConsentAnswer,
+  withoutHealthFields,
+} from "./HealthConsent";
 
 export const HOLDING_MESSAGE = "Thank you for your message. Our team will get back to you shortly.";
 
@@ -130,10 +141,11 @@ export class ChatPipelineService {
 
   // WhatsappClient.send() checks the rules, sends and saves the outbound row (tagged with the inbound wamid).
   // If a reply to this inbound message already exists, nothing is sent.
-  private async sendAndSave(customerId: string, text: string, replyTo: string) {
+  private async sendAndSave(customerId: string, content: string | OutboundMessage, replyTo: string) {
     if (await this.alreadyReplied(replyTo)) return;
+    const msg: OutboundMessage = typeof content === "string" ? { kind: "text", body: content } : content;
     try {
-      await this._Wa.send(customerId, { kind: "text", body: text }, "reply", replyTo);
+      await this._Wa.send(customerId, msg, "reply", replyTo);
     } catch (e) {
       if (!isUniqueViolation(e)) throw e; // someone else already saved a reply: fine
     }
@@ -180,49 +192,208 @@ export class ChatPipelineService {
     await this._Outbox.dispatch(row);
   }
 
-  // Pipeline: guardrails -> last 20 messages -> Claude -> validator -> send -> save
+  // Task for a guardrail event. Stores only type, priority, and the inbound wamid (no message text,
+  // no health detail). Safe to call again for the same wamid: the second call creates nothing.
+  private async createTaskOnce(type: TaskType, priority: TaskPriority, s: Saved, summary: string) {
+    const exists = await task.findOne({
+      where: { conversation_id: s.conversation.id, type, summary },
+    });
+    if (exists) return;
+    await this.createTask(type, priority, s, summary);
+  }
+
+  // An open booking request or an unpaid activation = a human must still follow up after STOP
+  private async openCases(customerId: string): Promise<{ booking: boolean; payment: boolean }> {
+    const booking = await booking_request.findOne({
+      where: {
+        customer_id: customerId,
+        booking_status: In([BookingStatus.PendingConfirmation, BookingStatus.Confirmed]),
+      },
+    });
+    const payment = await activation.findOne({
+      where: {
+        customer_id: customerId,
+        payment_status: PaymentStatus.Pending,
+        activation_status: In([ActivationStatus.Pending, ActivationStatus.LinkSent]),
+      },
+    });
+    return { booking: !!booking, payment: !!payment };
+  }
+
+  // Opt-out + state OPTED_OUT + CRM outbox row: all or nothing.
+  // Not built yet (no follow_up table and no scheduler exist): cancelling pending follow-ups and
+  // delayed jobs. Today the only marketing flag is consent.marketing_consent. The inbound
+  // recovery job already skips opted-out customers.
+  private async recordOptOut(s: Saved, cons: consent | null) {
+    const at = new Date();
+    const row = await this._DataSource.transaction(async (mg) => {
+      const c = cons ?? mg.create(consent, { customer_id: s.customer.id });
+      c.opt_out_at = at;
+      c.marketing_consent = false;
+      await mg.save(c);
+      try {
+        const updated = await this._ConvRepo.transition(s.conversation.id, ConversationState.OptedOut, {
+          reason: "stop",
+          manager: mg,
+        });
+        s.conversation.state = updated.state;
+      } catch (e) {
+        // STOP must always work: the opt-out is saved even if the state change is refused
+        if (!(e instanceof InvalidTransitionError)) throw e;
+        this.logger.warn(`conversation ${s.conversation.id}: state change ${e.from} -> ${e.to} not allowed, skipped`);
+      }
+      return await this._Outbox.enqueue(mg, CrmAction.SetOptOut, s.customer.id, {
+        customer_id: s.customer.id,
+        opt_out_at: at.toISOString(),
+      });
+    });
+    await this._Outbox.dispatch(row);
+  }
+
+  // Fixed replies, no Claude. Each branch: task first (once per wamid), then state, then the reply
+  // last, so a retried job after a failed send still ends with the reply and no second task.
+  private async handleGuardrail(hit: GuardrailHit, m: Inbound, s: Saved, cons: consent | null) {
+    const optedOut = !!cons?.opt_out_at;
+    const lang = s.customer.language;
+    const ref = `wamid:${m.waMessageId}`;
+
+    if (hit.kind === "emergency" || hit.kind === "self_harm") {
+      const type = hit.kind === "emergency" ? TaskType.Emergency : TaskType.SelfHarm;
+      await this.createTaskOnce(type, TaskPriority.Urgent, s, ref);
+      // an opted-out customer stays OPTED_OUT (the machine would refuse PAUSE anyway); safety reply still goes out
+      if (!optedOut) await this.setState(s, [ConversationState.Pause]);
+      if (hit.also_stop && !optedOut) await this.recordOptOut(s, cons); // PAUSE -> OPTED_OUT
+      await this.sendAndSave(s.customer.id, fixedReply(hit.kind, lang), m.waMessageId);
+      return;
+    }
+
+    if (optedOut) return; // STOP again, or a request for a person: no messages to an opted-out customer
+
+    if (hit.kind === "stop") {
+      const open = await this.openCases(s.customer.id);
+      await this.recordOptOut(s, cons);
+      if (open.booking || open.payment) {
+        await this.createTaskOnce(
+          TaskType.OptOutOpenCase,
+          TaskPriority.Normal,
+          s,
+          `${ref} opted out, ${open.booking ? "booking request" : "payment"} still open`,
+        );
+      }
+      await this.sendAndSave(
+        s.customer.id,
+        fixedReply(open.booking ? "opt_out_booking" : "opt_out", lang),
+        m.waMessageId,
+      );
+      return;
+    }
+
+    // talk to a person
+    await this.createTaskOnce(TaskType.Escalation, TaskPriority.Normal, s, `${ref} customer asked for a person`);
+    await this.setState(s, [ConversationState.Escalated]);
+    await this.sendAndSave(s.customer.id, fixedReply("escalation", lang), m.waMessageId);
+  }
+
+  // DPDP consent step. Ends the turn. No Claude call, no health question, no other text than the fixed replies.
+  //  none     -> send the notice (nothing else in this turn), then remember it was sent
+  //  awaiting -> read this message as the answer: YES / NO saved first, then the reply; unclear -> ask again
+  private async handleConsentStep(status: "none" | "awaiting", m: Inbound, s: Saved, cons: consent | null) {
+    const lang = s.customer.language;
+    const customerId = s.customer.id;
+
+    if (status === "none") {
+      await this.sendAndSave(customerId, fixedReply("health_notice", lang), m.waMessageId);
+      await this.saveConsentRow(customerId, cons, (c) => {
+        c.notice_sent_at = new Date();
+        c.notice_sent_version = NOTICE_VERSION;
+      });
+      return;
+    }
+
+    const answer = parseConsentAnswer(m.text);
+    if (answer === "yes") {
+      // saved BEFORE the reply: if saving fails nothing is sent and nothing is allowed (the job is retried)
+      await this.saveConsentRow(customerId, cons, (c) => {
+        c.health_data_consent = true;
+        c.notice_version = NOTICE_VERSION;
+        c.consent_timestamp = new Date();
+        c.consent_source = m.waMessageId;
+        c.health_refused_at = null;
+        c.health_refused_version = null;
+      });
+      const ack = fixedReply("health_consent_yes", lang);
+      if (s.conversation.state === ConversationState.New) {
+        // the first thing after consent: welcome + the 4-row opening list
+        await this.sendAndSave(customerId, openingList(lang, ack), m.waMessageId);
+        await this.setState(s, [ConversationState.IntentMenu]);
+      } else {
+        await this.sendAndSave(customerId, `${ack} ${WELCOME[lang === "hi" || lang === "hinglish" ? lang : "en"]}`, m.waMessageId);
+      }
+    } else if (answer === "no") {
+      await this.saveConsentRow(customerId, cons, (c) => {
+        c.health_data_consent = false;
+        c.consent_timestamp = null;
+        c.consent_source = m.waMessageId;
+        c.health_refused_at = new Date();
+        c.health_refused_version = NOTICE_VERSION;
+      });
+      await this.sendAndSave(customerId, fixedReply("health_consent_no", lang), m.waMessageId);
+    } else {
+      await this.sendAndSave(customerId, fixedReply("health_consent_unclear", lang), m.waMessageId);
+    }
+  }
+
+  // One transaction; throws when it cannot save (fail closed)
+  private async saveConsentRow(customerId: string, cons: consent | null, change: (c: consent) => void) {
+    await this._DataSource.transaction(async (mg) => {
+      const c = cons ?? mg.create(consent, { customer_id: customerId });
+      change(c);
+      await mg.save(c);
+    });
+  }
+
+  // Pipeline: guardrails -> consent gate -> last 20 messages -> Claude -> validator -> send -> save
   async process(m: Inbound, s: Saved): Promise<void> {
     // a retried job must not do the work (or reply) twice: already answered = job done
     if (await this.alreadyReplied(m.waMessageId)) return;
 
     const cons = await consent.findOne({ where: { customer_id: s.customer.id } });
-    if (cons?.opt_out_at) return; // opted out: no messages at all
 
-    // 1. Guardrails (before Claude, fixed replies)
+    // 1. Guardrails run first: before Claude, before any context is loaded, and even for an
+    // opted-out customer (a safety reply must still go out). A hit ends the turn.
     const hit = this._Guardrail.check(m.text);
     if (hit) {
-      if (hit.kind === "stop") {
-        cons.opt_out_at = new Date();
-        // opt-out + state OPTED_OUT + CRM outbox row: all or nothing
-        const row = await this._DataSource.transaction(async (mg) => {
-          await mg.save(cons);
-          try {
-            await this._ConvRepo.transition(s.conversation.id, ConversationState.OptedOut, {
-              reason: "stop",
-              manager: mg,
-            });
-          } catch (e) {
-            // STOP must always work: the opt-out is saved even if the state change is refused
-            if (!(e instanceof InvalidTransitionError)) throw e;
-            this.logger.warn(`conversation ${s.conversation.id}: state change ${e.from} -> ${e.to} not allowed, skipped`);
-          }
-          return await this._Outbox.enqueue(mg, CrmAction.SetOptOut, s.customer.id, {
-            customer_id: s.customer.id,
-            opt_out_at: cons.opt_out_at.toISOString(),
-          });
-        });
-        s.conversation.state = ConversationState.OptedOut;
-        await this._Outbox.dispatch(row);
+      await this.handleGuardrail(hit, m, s, cons);
+      return;
+    }
+
+    if (cons?.opt_out_at) return; // opted out: no messages at all
+
+    // 1b. DPDP health-data consent gate. Server-side, before any context is loaded and before Claude is
+    // called, so no health question can be asked (or even generated) until YES is saved for the CURRENT
+    // notice version. Only the customer's own words decide it, never Claude. Any other state fails closed.
+    const consentStatus = healthConsentStatus(cons);
+    if (consentStatus === "none" || consentStatus === "awaiting") {
+      await this.handleConsentStep(consentStatus, m, s, cons);
+      return;
+    }
+    const healthBlocked = consentStatus === "refused"; // refused: Claude may talk, but never about health
+
+    // 1c. Opening list (plan 12.2). A new conversation gets the welcome + 4-row list (state INTENT_MENU).
+    // A tap on a row goes to that row's state with a fixed reply. Anything else is a normal conversation.
+    if (consentStatus === "granted") {
+      const row = matchMenuRow(m.text);
+      const tapped = !!row && m.text.trim().toLowerCase() === row.id; // a list tap sends the row id
+      if (row && (tapped || s.conversation.state === ConversationState.IntentMenu)) {
+        await this.sendAndSave(s.customer.id, menuReply(row, s.customer.language), m.waMessageId);
+        await this.setState(s, [row.state]);
         return;
       }
-      await this.createTask(
-        TaskType.Emergency,
-        TaskPriority.Urgent,
-        s,
-        `${hit.kind}: ${m.text}`.slice(0, 500),
-      );
-      await this.sendAndSave(s.customer.id, hit.reply, m.waMessageId);
-      return;
+      if (s.conversation.state === ConversationState.New) {
+        await this.sendAndSave(s.customer.id, openingList(s.customer.language), m.waMessageId);
+        await this.setState(s, [ConversationState.IntentMenu]);
+        return;
+      }
     }
 
     // the first message of a conversation starts the discovery
@@ -244,7 +415,7 @@ export class ChatPipelineService {
     // the current message must be the last (user) turn
     if (history[history.length - 1].role !== "user") history.push({ role: "user", content: m.text });
 
-    const context = this.describe(s.customer, cons);
+    const context = this.describe(s.customer, cons, !healthBlocked);
 
     // 3. Claude + validator (retry once)
     let result: ClaudeResult | null = null;
@@ -253,15 +424,27 @@ export class ChatPipelineService {
       try {
         const draft = await this._Claude.generate(history, context, feedback);
         if (draft.needs_human && !draft.reply_text) break;
-        const v = await this._Validator.validate(draft.reply_text);
+        // refused customer: a reply that asks about health is never sent (checked here, not by prompt)
+        if (healthBlocked && asksHealthQuestion(draft.reply_text)) {
+          feedback = "do not ask any health question";
+          continue;
+        }
+        // prices and plan names only from plan_catalog; nothing about a second product
+        const lockedProduct = s.customer.active_product || s.conversation.selected_product || null;
+        const v = await this._Validator.validate(draft.reply_text, { lockedProduct });
         if (v.ok && draft.reply_text) result = draft;
-        else feedback = v.reasons.join("; ") || "empty reply";
+        else {
+          feedback = v.reasons.join("; ") || "empty reply";
+          // the reasons only (never the draft text) go to the log
+          this.logger.warn(`conversation ${s.conversation.id}: draft rejected (attempt ${attempt + 1}): ${feedback}`);
+        }
       } catch (e: any) {
         this.logger.error(`Claude call failed: ${e.message}`);
         feedback = "technical error";
       }
     }
     if (!result) {
+      this.logger.warn(`conversation ${s.conversation.id}: draft replaced by the fixed holding message: ${feedback ?? "n/a"}`);
       await this.createTask(
         TaskType.HoldingMessage,
         TaskPriority.High,
@@ -273,6 +456,14 @@ export class ChatPipelineService {
     }
 
     // 4. Apply extracted fields + system-built additions (prices, links, centres come from the DB)
+    if (healthBlocked) {
+      // health answers are not stored, and a plan pick (it needs the yearly medical spend) is not made
+      result = {
+        ...result,
+        extracted_fields: withoutHealthFields(result.extracted_fields || {}),
+        intent: result.intent === "recommend" ? "other" : result.intent,
+      };
+    }
     const extras = await this.applyResult(result, s, m);
     const finalText = [result.reply_text, ...extras].join("\n\n");
 
@@ -288,14 +479,14 @@ export class ChatPipelineService {
     await this.sendAndSave(s.customer.id, finalText, m.waMessageId);
   }
 
-  private describe(c: customer, cons: consent | null): string {
+  private describe(c: customer, cons: consent | null, healthQuestionsAllowed: boolean): string {
     return JSON.stringify({
       first_name: c.first_name,
       language: c.language,
       age: c.age,
       active_product: c.active_product,
       whatsapp_consent: cons?.whatsapp_consent,
-      health_data_consent: cons?.health_data_consent,
+      health_questions_allowed: healthQuestionsAllowed,
     });
   }
 
@@ -323,10 +514,10 @@ export class ChatPipelineService {
     await c.save();
 
     // consent
-    if (f.whatsapp_consent != null || f.health_data_consent != null) {
+    // health_data_consent is NOT read from Claude: only the consent gate (the customer's own YES/NO) sets it
+    if (f.whatsapp_consent != null) {
       const cons = await consent.findOne({ where: { customer_id: c.id } });
       if (f.whatsapp_consent != null) cons.whatsapp_consent = !!f.whatsapp_consent;
-      if (f.health_data_consent != null) cons.health_data_consent = !!f.health_data_consent;
       await cons.save();
     }
 
@@ -371,6 +562,8 @@ export class ChatPipelineService {
           `Suggested plan: ${pick.plan.toUpperCase()} - \u20b9${pick.price} per year + GST ` +
             `(\u20b9${Math.round(pick.price * (1 + gst))} incl. 18% GST).`,
         );
+        // never a saving promise: the neutral line goes with every plan suggestion
+        extras.push(NEUTRAL_SAVINGS_LINE[c.language === "hi" || c.language === "hinglish" ? c.language : "en"]);
       }
     }
 

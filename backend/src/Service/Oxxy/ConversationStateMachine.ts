@@ -35,7 +35,8 @@ export const GLOBAL_EXITS: readonly S[] = [S.FollowUp, S.Escalated, S.Pause, S.O
 // The forward edges of the diagram (plan 12.2)
 const FLOW: [S, S[]][] = [
   [S.New, [S.Discovery, S.IntentMenu, S.NeedDiscovery]],
-  [S.IntentMenu, [S.Discovery]],
+  // the opening list: each row goes to its own state (plan 12.2)
+  [S.IntentMenu, [S.Discovery, S.NeedDiscovery, S.OxxyExplain, S.ServiceOrEscalation, S.FollowUpTime]],
   [S.NeedDiscovery, [S.Discovery]],
   [S.OxxyExplain, [S.Discovery]],
   [S.ServiceOrEscalation, [S.Escalated]],

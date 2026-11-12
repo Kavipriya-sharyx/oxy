@@ -1,67 +1,70 @@
 import { Injectable } from "@nestjs/common";
+import {
+  COVERAGE_WORDS,
+  EMERGENCY,
+  EMERGENCY_ACTIVE_EVENT,
+  EMERGENCY_UNLESS_COVERAGE_QUESTION,
+  SELF_HARM,
+  STOP_PHRASES,
+  STOP_WHOLE_MESSAGE,
+  TALK_TO_PERSON,
+} from "@Helper/GuardrailKeywords";
 
-export type GuardrailKind = "emergency" | "self_harm" | "stop";
+export type GuardrailKind = "emergency" | "self_harm" | "stop" | "person";
+
 export interface GuardrailHit {
-  kind: GuardrailKind;
-  reply: string | null; // null = send nothing
+  kind: GuardrailKind; // the trigger that decides the reply (first in the order below)
+  also_stop: boolean; // the same message also contains an opt-out (e.g. "STOP, I have chest pain")
 }
 
-const EMERGENCY = [
-  "chest pain",
-  "heart attack",
-  "can't breathe",
-  "cannot breathe",
-  "not breathing",
-  "difficulty breathing",
-  "unconscious",
-  "severe bleeding",
-  "heavy bleeding",
-  "stroke",
-  "seizure",
-  "overdose",
-  "ambulance",
-  "emergency",
-  "accident",
-  "saans nahi",
-  "seene mein dard",
-  "behosh",
-  "बेहोश",
-  "सीने में दर्द",
-  "सांस नहीं",
-];
-const SELF_HARM = [
-  "suicide",
-  "kill myself",
-  "end my life",
-  "want to die",
-  "self harm",
-  "self-harm",
-  "hurt myself",
-  "khudkushi",
-  "jeena nahi",
-  "mar jana chahta",
-  "mar jana chahti",
-  "आत्महत्या",
-  "मरना चाहता",
-  "मरना चाहती",
-];
-const STOP_RE = /^\s*(stop|unsubscribe|opt[\s-]?out)\s*[.!]*\s*$/i;
+// lowercase, punctuation removed (so "can't" = "cant"), spaces collapsed
+export function normalise(text: string): string {
+  return (text || "")
+    .toLowerCase()
+    .replace(/[-_/]/g, " ")
+    .replace(/[^\p{L}\p{M}\p{N}\s]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-export const EMERGENCY_REPLY =
-  "This sounds like an emergency. Please call 112 or 108 (ambulance) right now, or go to the nearest hospital. " +
-  "Please do not wait for a reply here.";
-export const SELF_HARM_REPLY =
-  "I am really sorry you are going through this. You are not alone. Please call Tele-MANAS on 14416 " +
-  "(free, 24x7) to talk to someone right now. If you are in immediate danger, call 112.";
+const norm = (list: string[]) => list.map(normalise);
+const L = {
+  emergency: norm(EMERGENCY),
+  emergencyActive: norm(EMERGENCY_ACTIVE_EVENT),
+  emergencyUnlessCoverage: norm(EMERGENCY_UNLESS_COVERAGE_QUESTION),
+  coverage: norm(COVERAGE_WORDS),
+  selfHarm: norm(SELF_HARM),
+  stopWhole: norm(STOP_WHOLE_MESSAGE),
+  stopPhrases: norm(STOP_PHRASES),
+  person: norm(TALK_TO_PERSON),
+};
+
+// "STOP, I have chest pain" / "I want to die. Unsubscribe": the message starts with the word, or ends with it after punctuation.
+// Only used to ALSO record an opt-out next to a safety reply; never to trigger by itself.
+const STOP_BESIDE_SAFETY = /^\s*(stop|unsubscribe)\b|[,.;\-–—]\s*(stop|unsubscribe)\s*[.!]*\s*$/i;
+
+const anywhere = (t: string, list: string[]) => list.some((k) => t.includes(k)); // over-triggers on purpose
+const wholeWords = (t: string, list: string[]) => list.some((k) => ` ${t} `.includes(` ${k} `)); // precise
 
 @Injectable()
 export class GuardrailService {
-  // Order matters: emergency, self-harm, STOP
+  // Order matters, first hit decides: emergency, self-harm, STOP, [privacy, complaint later], talk to a person.
   check(text: string): GuardrailHit | null {
-    const t = (text || "").toLowerCase();
-    if (EMERGENCY.some((k) => t.includes(k))) return { kind: "emergency", reply: EMERGENCY_REPLY };
-    if (SELF_HARM.some((k) => t.includes(k))) return { kind: "self_harm", reply: SELF_HARM_REPLY };
-    if (STOP_RE.test(text || "")) return { kind: "stop", reply: null };
+    const t = normalise(text);
+    if (!t) return null;
+    const stop = L.stopWhole.includes(t) || wholeWords(t, L.stopPhrases);
+
+    const safetyStop = stop || STOP_BESIDE_SAFETY.test(text);
+
+    const emergency =
+      anywhere(t, L.emergency) ||
+      anywhere(t, L.emergencyActive) ||
+      (anywhere(t, L.emergencyUnlessCoverage) && !wholeWords(t, L.coverage));
+    if (emergency) return { kind: "emergency", also_stop: safetyStop };
+    if (anywhere(t, L.selfHarm)) return { kind: "self_harm", also_stop: safetyStop };
+    if (stop) return { kind: "stop", also_stop: true };
+    // privacy request, complaint / payment issue: not built yet, they go here
+    if (wholeWords(t, L.person)) return { kind: "person", also_stop: false };
     return null;
   }
 }
