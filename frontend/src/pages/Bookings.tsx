@@ -47,6 +47,21 @@ export default function Bookings() {
       render: (v: string) => <Tag color="orange">{v.replace(/_/g, " ")}</Tag>,
     },
     {
+      title: "CRM",
+      key: "crm",
+      render: (_, b) => {
+        const crmUrl = import.meta.env.VITE_CRM_BASE_URL;
+        if (!b.crm_booking_id) return <Tag>Pending sync</Tag>;
+        return crmUrl ? (
+          <a href={`${crmUrl}/bookings/${b.crm_booking_id}`} target="_blank" rel="noreferrer">
+            Open in CRM
+          </a>
+        ) : (
+          b.crm_booking_id
+        );
+      },
+    },
+    {
       title: "Action",
       key: "action",
       render: (_, b) => (

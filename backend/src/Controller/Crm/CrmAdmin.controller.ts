@@ -1,15 +1,35 @@
 import { Controller, Get, Param, Put } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { JWTAuthController } from "@Controller/JWTAuth.controller";
+import { crm_outbox } from "@Database/Table/Crm/crm_outbox";
+import { crm_webhook_event } from "@Database/Table/Crm/crm_webhook_event";
 import { CrmOutboxService } from "@Service/Crm/CrmOutbox.service";
 import { ResponseEnum } from "@Helper/Enum/ResponseEnum";
 
-// Logged-in users only: see CRM calls that gave up, and retry them.
+// Logged-in users only: see CRM calls, webhook logs, and retry failed ones.
 @Controller({ path: "CrmAdmin", version: "1" })
 @ApiTags("CRM Admin")
 export class CrmAdminController extends JWTAuthController {
   constructor(private readonly _Outbox: CrmOutboxService) {
     super();
+  }
+
+  @Get("Outbox")
+  async Outbox() {
+    const rows = await crm_outbox.find({
+      order: { created_on: "DESC" } as any,
+      take: 100,
+    });
+    return this.SendResponseData(rows);
+  }
+
+  @Get("Webhooks")
+  async Webhooks() {
+    const rows = await crm_webhook_event.find({
+      order: { received_at: "DESC" } as any,
+      take: 100,
+    });
+    return this.SendResponseData(rows);
   }
 
   @Get("Dead")

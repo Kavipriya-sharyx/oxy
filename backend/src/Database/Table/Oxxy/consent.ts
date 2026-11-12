@@ -1,4 +1,4 @@
-﻿import { Column, Entity, Index, JoinColumn, ManyToOne } from "typeorm";
+import { Column, Entity, Index, JoinColumn, ManyToOne } from "typeorm";
 import { BaseTable } from "../BaseTable";
 import { customer } from "./customer";
 
@@ -52,5 +52,8 @@ export class consent extends BaseTable {
 
   @Column({ type: "date", nullable: true })
   retention_until: string;
+
+  @Column({ type: "timestamp", nullable: true })
+  privacy_request_at: Date | null;
 }
 

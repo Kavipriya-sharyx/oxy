@@ -37,6 +37,10 @@ export default () => ({
   Anthropic: {
     ApiKey: process.env.ANTHROPIC_API_KEY,
   },
+  OpenAI: {
+    ApiKey: process.env.OPENAI_API_KEY,
+    Model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+  },
   Whatsapp: {
     VerifyToken: process.env.WHATSAPP_VERIFY_TOKEN,
     AppSecret: process.env.WHATSAPP_APP_SECRET,

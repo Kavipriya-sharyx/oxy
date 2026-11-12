@@ -1,6 +1,7 @@
+import client from "./client";
 import type { PlanCatalog } from "../types";
 
-// Backend endpoint not ready yet.
-export function listPlanCatalog(): Promise<PlanCatalog[]> {
-  return Promise.reject(new Error("Not implemented yet"));
+export async function listPlanCatalog(): Promise<PlanCatalog[]> {
+  const res = await client.get<PlanCatalog[]>("/Console/PlanCatalog");
+  return res.data;
 }

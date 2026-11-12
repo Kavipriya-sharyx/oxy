@@ -6,6 +6,11 @@ import LiveChat from "../pages/LiveChat";
 import Bookings from "../pages/Bookings";
 import Centres from "../pages/Centres";
 import PlanCatalog from "../pages/PlanCatalog";
+import CrmSync from "../pages/CrmSync";
+import AuditLog from "../pages/AuditLog";
+import Reports from "../pages/Reports";
+import Triggers from "../pages/Triggers";
+import PrivacyRequests from "../pages/PrivacyRequests";
 
 export default function AppRoutes() {
   return (
@@ -22,6 +27,11 @@ export default function AppRoutes() {
         <Route path="/bookings" element={<Bookings />} />
         <Route path="/centres" element={<Centres />} />
         <Route path="/plan-catalog" element={<PlanCatalog />} />
+        <Route path="/reports" element={<Reports />} />
+        <Route path="/triggers" element={<Triggers />} />
+        <Route path="/crm-sync" element={<CrmSync />} />
+        <Route path="/privacy" element={<PrivacyRequests />} />
+        <Route path="/audit-log" element={<AuditLog />} />
       </Route>
       <Route path="*" element={<Navigate to="/bookings" replace />} />
     </Routes>

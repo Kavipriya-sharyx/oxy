@@ -11,7 +11,9 @@ export type ReplyKey =
   | "health_notice"
   | "health_consent_yes"
   | "health_consent_no"
-  | "health_consent_unclear";
+  | "health_consent_unclear"
+  | "privacy"
+  | "complaint";
 export type ReplyLanguage = "en" | "hi" | "hinglish";
 
 // Version of the DPDP health-data notice below. Change it whenever the notice text changes: every
@@ -145,6 +147,31 @@ export const FIXED_REPLIES: Record<ReplyKey, Record<ReplyLanguage, string>> = {
     hinglish:
       "Maaf kijiye, main samajh nahi paya. Kya aap bataye gaye tarike se apni health se judi jaankari humare saath share karne " +
       "ke liye sehmat hain? Kripya YES ya NO likhein.",
+  },
+  privacy: {
+    // [CONFIRM]
+    en:
+      "We have logged your privacy / data deletion request and paused any activation or promotional messages. " +
+      "Our privacy team will follow up with you shortly.",
+    // [CONFIRM]
+    hi:
+      "हमने आपका गोपनीयता / डेटा हटाने का अनुरोध दर्ज कर लिया है और सभी प्रचार संदेश रोक दिए हैं। " +
+      "हमारी गोपनीयता टीम जल्द ही आपसे संपर्क करेगी।",
+    // [CONFIRM]
+    hinglish:
+      "Humne aapka privacy / data deletion request record kar liya hai aur promotional messages rok diye hain. " +
+      "Hamari privacy team jaldi aapse sampark karegi.",
+  },
+  complaint: {
+    // [CONFIRM]
+    en:
+      "I am sorry for the trouble. I have raised an urgent request for a senior team member to review this and call you back shortly.",
+    // [CONFIRM]
+    hi:
+      "असुविधा के लिए क्षमा करें। मैंने इस मामले की समीक्षा करने और आपको जल्द कॉल करने के लिए वरिष्ठ टीम को अनुरोध भेज दिया है।",
+    // [CONFIRM]
+    hinglish:
+      "Takleef ke liye maafi chahte hain. Maine senior team member ko turant review karke aapko call karne ke liye request bhej di hai.",
   },
 };
 

@@ -7,4 +7,6 @@ export enum TaskType {
   SelfHarm = "self_harm",
   Escalation = "escalation",
   OptOutOpenCase = "opt_out_open_case",
+  PrivacyRequest = "privacy_request",
+  VerifyActivation = "verify_activation",
 }

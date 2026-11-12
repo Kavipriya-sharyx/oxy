@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import Anthropic from "@anthropic-ai/sdk";
+import axios from "axios";
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -68,17 +69,50 @@ export class ClaudeService {
       (feedback
         ? `\n\nYour previous draft was rejected: ${feedback}. Rewrite it without those problems.`
         : "");
-    const res = await this.getClient().messages.create({
-      model: "claude-opus-5-5",
-      max_tokens: 1024,
-      system,
-      messages: history,
-    });
-    const text = res.content.map((b: any) => (b.type === "text" ? b.text : "")).join("");
+
+    const anthropicKey = this._Config.get<string>("Anthropic.ApiKey");
+    const openAiKey = this._Config.get<string>("OpenAI.ApiKey");
+
+    let text = "";
+    if (anthropicKey) {
+      const res = await this.getClient().messages.create(
+        {
+          model: "claude-opus-5-5",
+          max_tokens: 1024,
+          system,
+          messages: history,
+        },
+        { timeout: 10_000 },
+      );
+      if ((res as any).stop_reason === "refusal") {
+        this.logger.warn("Claude refused response; escalating to human fallback");
+        return { reply_text: "", intent: "other", extracted_fields: {}, needs_human: true };
+      }
+      text = res.content.map((b: any) => (b.type === "text" ? b.text : "")).join("");
+    } else if (openAiKey) {
+      const model = this._Config.get<string>("OpenAI.Model") || "gpt-4o-mini";
+      const res = await axios.post(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          model,
+          temperature: 0.2,
+          response_format: { type: "json_object" },
+          messages: [{ role: "system", content: system }, ...history],
+        },
+        {
+          headers: { Authorization: `Bearer ${openAiKey}` },
+          timeout: 10_000,
+        },
+      );
+      text = String(res.data?.choices?.[0]?.message?.content ?? "");
+    } else {
+      throw new Error("Neither ANTHROPIC_API_KEY nor OPENAI_API_KEY is set");
+    }
+
     try {
       return parseClaudeJson(text);
     } catch (e: any) {
-      this.logger.warn(`Bad JSON from Claude: ${e.message}`);
+      this.logger.warn(`Bad JSON from AI: ${e.message}`);
       return { reply_text: "", intent: "other", extracted_fields: {}, needs_human: true };
     }
   }

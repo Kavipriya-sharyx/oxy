@@ -52,6 +52,9 @@ import { CrmOutboxService } from "./Service/Crm/CrmOutbox.service";
 import { CrmWebhookService } from "./Service/Crm/CrmWebhook.service";
 import { CrmWebhookController } from "./Controller/Crm/CrmWebhook.controller";
 import { CrmAdminController } from "./Controller/Crm/CrmAdmin.controller";
+import { ConsoleController } from "./Controller/Oxxy/Console.controller";
+import { TriggerEngineService } from "./Service/Oxxy/TriggerEngine.service";
+import { FollowUpSchedulerService } from "./Service/Oxxy/FollowUpScheduler.service";
 
 @Module({
   imports: [
@@ -111,6 +114,7 @@ import { CrmAdminController } from "./Controller/Crm/CrmAdmin.controller";
     WhatsappDevSendController,
     CrmWebhookController,
     CrmAdminController,
+    ConsoleController,
   ],
   providers: [
     AuthService,
@@ -145,6 +149,8 @@ import { CrmAdminController } from "./Controller/Crm/CrmAdmin.controller";
     CrmClient,
     CrmOutboxService,
     CrmWebhookService,
+    TriggerEngineService,
+    FollowUpSchedulerService,
     CacheService,
     {
       provide: "REDIS_CLIENT",

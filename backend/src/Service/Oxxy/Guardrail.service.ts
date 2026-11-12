@@ -1,16 +1,18 @@
 import { Injectable } from "@nestjs/common";
 import {
+  COMPLAINT_PAYMENT,
   COVERAGE_WORDS,
   EMERGENCY,
   EMERGENCY_ACTIVE_EVENT,
   EMERGENCY_UNLESS_COVERAGE_QUESTION,
+  PRIVACY_REQUEST,
   SELF_HARM,
   STOP_PHRASES,
   STOP_WHOLE_MESSAGE,
   TALK_TO_PERSON,
 } from "@Helper/GuardrailKeywords";
 
-export type GuardrailKind = "emergency" | "self_harm" | "stop" | "person";
+export type GuardrailKind = "emergency" | "self_harm" | "stop" | "privacy" | "complaint" | "person";
 
 export interface GuardrailHit {
   kind: GuardrailKind; // the trigger that decides the reply (first in the order below)
@@ -36,6 +38,8 @@ const L = {
   selfHarm: norm(SELF_HARM),
   stopWhole: norm(STOP_WHOLE_MESSAGE),
   stopPhrases: norm(STOP_PHRASES),
+  privacy: norm(PRIVACY_REQUEST),
+  complaint: norm(COMPLAINT_PAYMENT),
   person: norm(TALK_TO_PERSON),
 };
 
@@ -63,7 +67,8 @@ export class GuardrailService {
     if (emergency) return { kind: "emergency", also_stop: safetyStop };
     if (anywhere(t, L.selfHarm)) return { kind: "self_harm", also_stop: safetyStop };
     if (stop) return { kind: "stop", also_stop: true };
-    // privacy request, complaint / payment issue: not built yet, they go here
+    if (anywhere(t, L.privacy)) return { kind: "privacy", also_stop: false };
+    if (anywhere(t, L.complaint)) return { kind: "complaint", also_stop: false };
     if (wholeWords(t, L.person)) return { kind: "person", also_stop: false };
     return null;
   }

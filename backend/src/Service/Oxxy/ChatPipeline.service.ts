@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { ILike, In } from "typeorm";
 import { customer } from "@Database/Table/Oxxy/customer";
 import { consent } from "@Database/Table/Oxxy/consent";
@@ -35,6 +35,7 @@ import { CrmOutboxService } from "@Service/Crm/CrmOutbox.service";
 import { CrmAction } from "@Helper/Enum/CrmAction";
 import { ConversationRepository } from "./ConversationRepository.service";
 import { InvalidTransitionError } from "./ConversationStateMachine";
+import { TriggerEngineService } from "./TriggerEngine.service";
 import {
   asksHealthQuestion,
   healthConsentStatus,
@@ -82,6 +83,7 @@ export class ChatPipelineService {
     private readonly _DataSource: DataSource,
     private readonly _Outbox: CrmOutboxService,
     private readonly _ConvRepo: ConversationRepository,
+    @Optional() private readonly _Triggers?: TriggerEngineService,
   ) {}
 
   // Step 1: dedupe + save. Returns null for a duplicate wa_message_id.
@@ -288,6 +290,24 @@ export class ChatPipelineService {
       return;
     }
 
+    if (hit.kind === "privacy") {
+      await this.saveConsentRow(s.customer.id, cons, (c) => {
+        c.privacy_request_at = new Date();
+        c.marketing_consent = false;
+      });
+      await this.createTaskOnce(TaskType.PrivacyRequest, TaskPriority.High, s, `${ref} privacy / deletion request`);
+      await this.setState(s, [ConversationState.Pause]);
+      await this.sendAndSave(s.customer.id, fixedReply("privacy", lang), m.waMessageId);
+      return;
+    }
+
+    if (hit.kind === "complaint") {
+      await this.createTaskOnce(TaskType.Escalation, TaskPriority.Urgent, s, `${ref} complaint or payment dispute`);
+      await this.setState(s, [ConversationState.Escalated]);
+      await this.sendAndSave(s.customer.id, fixedReply("complaint", lang), m.waMessageId);
+      return;
+    }
+
     // talk to a person
     await this.createTaskOnce(TaskType.Escalation, TaskPriority.Normal, s, `${ref} customer asked for a person`);
     await this.setState(s, [ConversationState.Escalated]);
@@ -368,6 +388,13 @@ export class ChatPipelineService {
     }
 
     if (cons?.opt_out_at) return; // opted out: no messages at all
+
+    if (
+      s.conversation.state === ConversationState.Pause ||
+      s.conversation.state === ConversationState.Escalated
+    ) {
+      return; // bot stays quiet while paused or handed off to a human
+    }
 
     // 1b. DPDP health-data consent gate. Server-side, before any context is loaded and before Claude is
     // called, so no health question can be asked (or even generated) until YES is saved for the CURRENT
@@ -451,6 +478,7 @@ export class ChatPipelineService {
         s,
         `Draft rejected: ${feedback ?? "n/a"}`,
       );
+      await this.setState(s, [ConversationState.Pause]);
       await this.sendAndSave(s.customer.id, HOLDING_MESSAGE, m.waMessageId);
       return;
     }
@@ -465,6 +493,10 @@ export class ChatPipelineService {
       };
     }
     const extras = await this.applyResult(result, s, m);
+    if (this._Triggers) {
+      const trig = this._Triggers.inferCandidate(result.intent, s.conversation.selected_product, result.needs_human);
+      await this._Triggers.recordIfAllowed(s.customer.id, s.conversation, trig, result.intent);
+    }
     const finalText = [result.reply_text, ...extras].join("\n\n");
 
     if (result.needs_human) {

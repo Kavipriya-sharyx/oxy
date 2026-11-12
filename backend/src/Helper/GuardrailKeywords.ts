@@ -147,5 +147,31 @@ export const TALK_TO_PERSON: string[] = [
   "एजेंट से बात",
 ];
 
-// Privacy and complaint triggers come here later (plan 12.7: privacy, then complaint/payment).
+// Privacy and complaint triggers (plan 12.7: privacy, then complaint/payment).
 // They go BETWEEN STOP and TALK_TO_PERSON in the order inside GuardrailService.
+export const PRIVACY_REQUEST: string[] = [
+  "delete my data",
+  "erase my data",
+  "remove my data",
+  "privacy request",
+  "data deletion",
+  "withdraw consent",
+  // Hinglish
+  "mera data delete karo",
+  "data hatao",
+];
+
+export const COMPLAINT_PAYMENT: string[] = [
+  "charged twice",
+  "double charge",
+  "deducted twice",
+  "refund",
+  "legal notice",
+  "consumer court",
+  "scam",
+  "fraud",
+  "complaint",
+  // Hinglish
+  "do baar paise kat gaye",
+  "paise wapas",
+];

@@ -19,6 +19,7 @@ export interface Customer {
   age: number | null;
   active_product: string | null;
   active_plan: string | null;
+  crm_customer_id?: string | null;
 }
 
 export interface Centre {
@@ -46,6 +47,7 @@ export interface Booking {
   preferred_time: string | null;
   booking_status: string;
   confirmed_by_id: string | null;
+  crm_booking_id?: string | null;
   customer?: Customer;
   centre?: Centre;
 }
@@ -75,6 +77,7 @@ export interface Conversation {
   last_question: string | null;
   last_customer_message_at: string | null;
   closed_at: string | null;
+  customer?: Customer;
 }
 
 export interface Message {
@@ -86,4 +89,35 @@ export interface Message {
   body: string | null;
   template_name: string | null;
   message_status: string;
+  created_on?: string;
+}
+
+export interface CrmOutboxRow {
+  id: string;
+  action: string;
+  customer_id: string | null;
+  sync_status: string;
+  attempts: number;
+  last_error: string | null;
+  crm_record_id: string | null;
+  next_attempt_at: string;
+  sent_at: string | null;
+  created_on: string;
+}
+
+export interface CrmWebhookEvent {
+  event_id: string;
+  event_type: string;
+  processed_at: string | null;
+  error: string | null;
+  created_on: string;
+}
+
+export interface AuditLogRow {
+  id: string;
+  action: string;
+  table_name: string;
+  record_id: string;
+  created_on: string;
+  user_id?: string | null;
 }
