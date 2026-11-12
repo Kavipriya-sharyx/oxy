@@ -43,6 +43,7 @@ export default () => ({
     AccessToken: process.env.WHATSAPP_ACCESS_TOKEN,
     PhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
     ApiVersion: process.env.WHATSAPP_API_VERSION || "v21.0",
+    ApiBase: process.env.WHATSAPP_API_BASE || "https://graph.facebook.com",
   },
   Crm: {
     Enabled: process.env.CRM_ENABLED == "true",

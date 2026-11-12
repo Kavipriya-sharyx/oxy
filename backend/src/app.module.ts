@@ -74,7 +74,8 @@ import { CrmAdminController } from "./Controller/Crm/CrmAdmin.controller";
         database: _ConfigService.get("Database.Name"),
         synchronize: _ConfigService.get("Database.Sync"),
         keepConnectionAlive: true,
-        entities: [__dirname + "/Database/Table/**/*.{ts,js}"],
+        // forward slashes only: a Windows path with backslashes matches no entity files
+        entities: [(__dirname + "/Database/Table/**/*.{ts,js}").replace(/\\/g, "/")],
         logger: "advanced-console",
         logging: _ConfigService.get("Database.LOG"),
         bigNumberStrings: false,

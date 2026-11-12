@@ -2,6 +2,7 @@ import { ChatPipelineService } from "./ChatPipeline.service";
 import { GuardrailService } from "./Guardrail.service";
 import { message } from "@Database/Table/Oxxy/message";
 import { consent } from "@Database/Table/Oxxy/consent";
+import { task } from "@Database/Table/Oxxy/task";
 
 type Fn = (...a: unknown[]) => unknown;
 const stub = (cls: unknown, name: string, impl: Fn) =>
@@ -26,6 +27,7 @@ function setup(sendImpl?: Fn) {
     return rows.find((r) => Object.entries(where).every(([k, v]) => r[k] === v)) ?? null;
   });
   stub(consent, "findOne", async () => ({ opt_out_at: null }));
+  stub(task, "findOne", async () => null);
 
   const pipeline = new ChatPipelineService(
     new GuardrailService(),
@@ -38,7 +40,7 @@ function setup(sendImpl?: Fn) {
     {} as never,
     { transaction } as never,
     { enqueue: jest.fn(async () => null), dispatch: jest.fn() } as never,
-    {} as never,
+    { transition: async (_id: unknown, to: unknown) => ({ state: to }) } as never,
   );
   const saved = {
     customer: { id: "c1" },

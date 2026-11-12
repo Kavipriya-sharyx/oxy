@@ -1,4 +1,5 @@
 import axios from "axios";
+import Configuration from "../../Config/Configuration";
 import { ConfigService } from "@nestjs/config";
 import { WhatsappClient, mapMetaError } from "./WhatsappClient.service";
 import {
@@ -94,6 +95,28 @@ describe("WhatsappClient.send", () => {
     expect(url).toBe("https://graph.facebook.com/v99.0/PHONE1/messages");
     expect(body).toMatchObject({ to: "919800000001", type: "text", text: { body: "hello" } });
     expect(opts).toMatchObject({ headers: { Authorization: "Bearer TOKEN" }, timeout: 10000 });
+  });
+
+  it("WHATSAPP_API_BASE: a custom base is used, a trailing slash is ignored", async () => {
+    const t = setup(recent());
+    const custom = {
+      get: (k: string) => (k === "Whatsapp.ApiBase" ? "http://localhost:9999/" : config.get(k)),
+    } as unknown as ConfigService;
+    await new WhatsappClient(custom).send("c1", { kind: "text", body: "hello" }, "reply");
+    expect(t.post.mock.calls[0][0]).toBe("http://localhost:9999/v99.0/PHONE1/messages");
+  });
+
+  it("WHATSAPP_API_BASE: the config default is Meta, an env value overrides it", async () => {
+    const saved = process.env.WHATSAPP_API_BASE;
+    try {
+      delete process.env.WHATSAPP_API_BASE;
+      expect(Configuration().Whatsapp.ApiBase).toBe("https://graph.facebook.com");
+      process.env.WHATSAPP_API_BASE = "http://localhost:9999";
+      expect(Configuration().Whatsapp.ApiBase).toBe("http://localhost:9999");
+    } finally {
+      if (saved === undefined) delete process.env.WHATSAPP_API_BASE;
+      else process.env.WHATSAPP_API_BASE = saved;
+    }
   });
 
   it("saves the outbound row: text", async () => {
