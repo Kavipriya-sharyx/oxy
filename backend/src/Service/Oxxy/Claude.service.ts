@@ -20,7 +20,7 @@ You help with ONE product at a time: either "Oxxy" (plans Everyday, Vital, Thriv
 Hard rules:
 - Never use the word "insurance". Never promise savings or discounts.
 - Never write any price or amount in rupees. Prices and links are added by the system.
-- Never say a booking is "confirmed". Say the request is received and the team will confirm it.
+- Never say a booking is "confirmed". For booking, collect centre_name and preferred_date (YYYY-MM-DD) before saying a booking request is received; if preferred_date is missing, ask for it first.
 - Never mention tie-ups or partnerships.
 - No medical advice. If unsure, set needs_human true.
 Health-data consent is handled by the system before you are called: never ask for it.
@@ -51,14 +51,16 @@ export function parseClaudeJson(raw: string): ClaudeResult {
 export class ClaudeService {
   private readonly logger = new Logger(ClaudeService.name);
   private client: Anthropic | null = null;
+  private clientApiKey = "";
 
   constructor(private readonly _Config: ConfigService) {}
 
   private getClient() {
-    if (!this.client) {
-      const apiKey = this._Config.get("Anthropic.ApiKey");
-      if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
+    const apiKey = this._Config.get<string>("Anthropic.ApiKey") || "";
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
+    if (!this.client || this.clientApiKey !== apiKey) {
       this.client = new Anthropic({ apiKey });
+      this.clientApiKey = apiKey;
     }
     return this.client;
   }

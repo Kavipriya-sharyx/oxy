@@ -11,6 +11,7 @@ import AuditLog from "../pages/AuditLog";
 import Reports from "../pages/Reports";
 import Triggers from "../pages/Triggers";
 import PrivacyRequests from "../pages/PrivacyRequests";
+import Settings from "../pages/Settings";
 
 export default function AppRoutes() {
   return (
@@ -32,6 +33,7 @@ export default function AppRoutes() {
         <Route path="/crm-sync" element={<CrmSync />} />
         <Route path="/privacy" element={<PrivacyRequests />} />
         <Route path="/audit-log" element={<AuditLog />} />
+        <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/bookings" replace />} />
     </Routes>

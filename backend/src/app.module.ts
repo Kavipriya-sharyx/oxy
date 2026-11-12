@@ -55,6 +55,7 @@ import { CrmAdminController } from "./Controller/Crm/CrmAdmin.controller";
 import { ConsoleController } from "./Controller/Oxxy/Console.controller";
 import { TriggerEngineService } from "./Service/Oxxy/TriggerEngine.service";
 import { FollowUpSchedulerService } from "./Service/Oxxy/FollowUpScheduler.service";
+import { SystemConfigService } from "./Service/Admin/SystemConfig.service";
 
 @Module({
   imports: [
@@ -151,6 +152,7 @@ import { FollowUpSchedulerService } from "./Service/Oxxy/FollowUpScheduler.servi
     CrmWebhookService,
     TriggerEngineService,
     FollowUpSchedulerService,
+    SystemConfigService,
     CacheService,
     {
       provide: "REDIS_CLIENT",

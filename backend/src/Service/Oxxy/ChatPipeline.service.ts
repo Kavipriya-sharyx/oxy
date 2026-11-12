@@ -620,33 +620,41 @@ export class ChatPipelineService {
       }
     }
 
-    if (r.intent === "book" && f.preferred_date) {
-      const chk = this._DateWindow.validate(String(f.preferred_date));
-      if (!chk.valid) {
-        extras.push(`Please choose a date between ${chk.min} and ${chk.max}.`);
-      } else if (f.centre_name) {
-        const ctr = await centre.findOne({
-          where: { name: ILike(`%${String(f.centre_name)}%`), verified: true, active: true },
-        });
-        if (ctr) {
-          await this._Booking.create({
-            customer_id: c.id,
-            conversation_id: conv.id,
-            centre_id: ctr.id,
-            specialisation: n?.specialisation,
-            preferred_date: String(f.preferred_date),
-            preferred_time: f.preferred_time ? String(f.preferred_time) : undefined,
-          });
-          await this.createTask(
-            TaskType.BookingConfirm,
-            TaskPriority.Normal,
-            s,
-            `Booking request at ${ctr.name} on ${f.preferred_date}`,
-          );
-          await this.setState(s, [ConversationState.BookingCapture, ConversationState.BookingRecorded]);
-          extras.push(
-            "Your booking request has been received. Our team will confirm it with you shortly.",
-          );
+    if (r.intent === "book") {
+      if (!f.preferred_date) {
+        extras.push(
+          "Please share your preferred date (YYYY-MM-DD) and optional time so I can submit your booking request.",
+        );
+      } else {
+        const chk = this._DateWindow.validate(String(f.preferred_date));
+        if (!chk.valid) {
+          extras.push(`Please choose a date between ${chk.min} and ${chk.max}.`);
+        } else if (f.centre_name) {
+          const ctr = await this.findVerifiedCentre(String(f.centre_name));
+          if (ctr) {
+            await this._Booking.create({
+              customer_id: c.id,
+              conversation_id: conv.id,
+              centre_id: ctr.id,
+              specialisation: n?.specialisation,
+              preferred_date: String(f.preferred_date),
+              preferred_time: f.preferred_time ? String(f.preferred_time) : undefined,
+            });
+            await this.createTask(
+              TaskType.BookingConfirm,
+              TaskPriority.Normal,
+              s,
+              `Booking request at ${ctr.name} on ${f.preferred_date}`,
+            );
+            await this.setState(s, [ConversationState.BookingCapture, ConversationState.BookingRecorded]);
+            extras.push(
+              "Your booking request has been received. Our team will confirm it with you shortly.",
+            );
+          } else {
+            extras.push(
+              "I couldn't match that centre name—please pick one of the listed centres and share your preferred date.",
+            );
+          }
         }
       }
     }
@@ -695,5 +703,24 @@ export class ChatPipelineService {
       recommended_plan: conv.recommended_plan,
     });
     return extras;
+  }
+
+  /** Match a centre by full text or stripped base name (e.g. "Sample Dental Clinic, Adyar (Adyar)"). */
+  private async findVerifiedCentre(rawName: string): Promise<centre | null> {
+    const trimmed = rawName.trim();
+    if (!trimmed) return null;
+    const direct = await centre.findOne({
+      where: { name: ILike(`%${trimmed}%`), verified: true, active: true },
+    });
+    if (direct) return direct;
+    const baseName = trimmed
+      .replace(/^\d+\.\s*/, "")
+      .replace(/\(.*?\)/g, "")
+      .split(",")[0]
+      .trim();
+    if (!baseName || baseName === trimmed) return null;
+    return await centre.findOne({
+      where: { name: ILike(`%${baseName}%`), verified: true, active: true },
+    });
   }
 }

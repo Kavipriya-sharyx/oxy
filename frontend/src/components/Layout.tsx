@@ -14,6 +14,7 @@ const ALL_ITEMS = [
   { key: "/crm-sync", label: "CRM sync", roles: ["supervisor", "admin", "super admin"] },
   { key: "/privacy", label: "Privacy requests", roles: ["admin", "super admin"] },
   { key: "/audit-log", label: "Audit log", roles: ["admin", "super admin"] },
+  { key: "/settings", label: "Settings", roles: ["admin", "super admin"] },
 ];
 
 export default function Layout() {

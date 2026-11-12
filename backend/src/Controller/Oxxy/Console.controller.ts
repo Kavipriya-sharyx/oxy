@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, Put, Query } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { JWTAuthController } from "@Controller/JWTAuth.controller";
 import { audit_log } from "@Database/Table/Admin/audit_log";
@@ -17,6 +17,7 @@ import { ResponseEnum } from "@Helper/Enum/ResponseEnum";
 import { ConversationRepository } from "@Service/Oxxy/ConversationRepository.service";
 import { TRIGGER_CATALOG } from "@Service/Oxxy/TriggerEngine.service";
 import { WhatsappClient } from "@Service/Oxxy/WhatsappClient.service";
+import { SystemConfigService } from "@Service/Admin/SystemConfig.service";
 
 @Controller({ path: "Console", version: "1" })
 @ApiTags("Sales Console")
@@ -24,6 +25,7 @@ export class ConsoleController extends JWTAuthController {
   constructor(
     private readonly _ConvRepo: ConversationRepository,
     private readonly _Wa: WhatsappClient,
+    private readonly _SystemConfig: SystemConfigService,
   ) {
     super();
   }
@@ -188,6 +190,20 @@ export class ConsoleController extends JWTAuthController {
       created++;
     }
     return this.SendResponseData({ created });
+  }
+
+  @Get("Settings")
+  GetSettings() {
+    return this.SendResponseData(this._SystemConfig.getSettings());
+  }
+
+  @Put("Settings")
+  async UpdateSettings(@Body("values") values: Record<string, string | boolean>) {
+    if (!values || typeof values !== "object") {
+      throw new BadRequestException("values object is required");
+    }
+    const res = await this._SystemConfig.updateSettings(values);
+    return this.SendResponseData(res);
   }
 }
 
