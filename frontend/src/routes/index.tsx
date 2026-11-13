@@ -12,8 +12,18 @@ import Reports from "../pages/Reports";
 import Triggers from "../pages/Triggers";
 import PrivacyRequests from "../pages/PrivacyRequests";
 import Settings from "../pages/Settings";
+import Users from "../pages/Users";
+import NoAccess from "../pages/NoAccess";
+import { ROUTE_ROLES, landingFor } from "../auth/roles";
+import { useAuth } from "../hooks/useAuth";
+import type { ReactElement } from "react";
+
+const guard = (path: string, el: ReactElement) => (
+  <ProtectedRoute roles={ROUTE_ROLES[path]}>{el}</ProtectedRoute>
+);
 
 export default function AppRoutes() {
+  const { role } = useAuth();
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
@@ -24,18 +34,20 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route path="/live-chat" element={<LiveChat />} />
-        <Route path="/bookings" element={<Bookings />} />
-        <Route path="/centres" element={<Centres />} />
-        <Route path="/plan-catalog" element={<PlanCatalog />} />
-        <Route path="/reports" element={<Reports />} />
-        <Route path="/triggers" element={<Triggers />} />
-        <Route path="/crm-sync" element={<CrmSync />} />
-        <Route path="/privacy" element={<PrivacyRequests />} />
-        <Route path="/audit-log" element={<AuditLog />} />
-        <Route path="/settings" element={<Settings />} />
+        <Route path="/live-chat" element={guard("/live-chat", <LiveChat />)} />
+        <Route path="/bookings" element={guard("/bookings", <Bookings />)} />
+        <Route path="/centres" element={guard("/centres", <Centres />)} />
+        <Route path="/plan-catalog" element={guard("/plan-catalog", <PlanCatalog />)} />
+        <Route path="/reports" element={guard("/reports", <Reports />)} />
+        <Route path="/triggers" element={guard("/triggers", <Triggers />)} />
+        <Route path="/crm-sync" element={guard("/crm-sync", <CrmSync />)} />
+        <Route path="/privacy" element={guard("/privacy", <PrivacyRequests />)} />
+        <Route path="/audit-log" element={guard("/audit-log", <AuditLog />)} />
+        <Route path="/users" element={guard("/users", <Users />)} />
+        <Route path="/no-access" element={<NoAccess />} />
+        <Route path="/settings" element={guard("/settings", <Settings />)} />
       </Route>
-      <Route path="*" element={<Navigate to="/bookings" replace />} />
+      <Route path="*" element={<Navigate to={landingFor(role)} replace />} />
     </Routes>
   );
 }

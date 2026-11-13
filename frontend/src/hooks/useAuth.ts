@@ -17,6 +17,10 @@ function readPayload(token: string | null): TokenPayload | null {
   }
 }
 
+export function roleFromToken(token: string | null): string | null {
+  return readPayload(token)?.user_role_name ?? null;
+}
+
 export function useAuth() {
   const [token, setTokenState] = useState<string | null>(() => getToken());
 

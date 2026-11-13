@@ -2,7 +2,8 @@ import { Alert, Button, Card, Form, Input, Typography } from "antd";
 import { useMutation } from "@tanstack/react-query";
 import { Navigate, useNavigate } from "react-router-dom";
 import { login as loginRequest } from "../api/auth.api";
-import { useAuth } from "../hooks/useAuth";
+import { useAuth, roleFromToken } from "../hooks/useAuth";
+import { landingFor } from "../auth/roles";
 
 interface LoginForm {
   email: string;
@@ -11,17 +12,17 @@ interface LoginForm {
 
 export default function Login() {
   const navigate = useNavigate();
-  const { isLoggedIn, login } = useAuth();
+  const { isLoggedIn, login, role } = useAuth();
 
   const mutation = useMutation({
     mutationFn: (v: LoginForm) => loginRequest(v.email, v.password),
     onSuccess: (token) => {
       login(token);
-      navigate("/bookings", { replace: true });
+      navigate(landingFor(roleFromToken(token)), { replace: true });
     },
   });
 
-  if (isLoggedIn && !mutation.isSuccess) return <Navigate to="/bookings" replace />;
+  if (isLoggedIn && !mutation.isSuccess) return <Navigate to={landingFor(role)} replace />;
 
   return (
     <div className="login-wrap">
