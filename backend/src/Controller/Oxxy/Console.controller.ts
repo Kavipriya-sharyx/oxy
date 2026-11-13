@@ -1,6 +1,8 @@
 import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, Put, Query } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { JWTAuthController } from "@Controller/JWTAuth.controller";
+import { Roles } from "@Helper/Roles.decorator";
+import { RoleEnum } from "@Helper/Enum/RoleEnum";
 import { audit_log } from "@Database/Table/Admin/audit_log";
 import { booking_request } from "@Database/Table/Oxxy/booking_request";
 import { centre } from "@Database/Table/Oxxy/centre";
@@ -51,6 +53,7 @@ export class ConsoleController extends JWTAuthController {
     return this.SendResponseData(rows);
   }
 
+  @Roles(RoleEnum.SuperAdmin, RoleEnum.Admin)
   @Post("Conversations/:Id/TakeOver")
   async TakeOver(@Param("Id") Id: string) {
     const conv = await this._ConvRepo.findById(Id);
@@ -61,6 +64,7 @@ export class ConsoleController extends JWTAuthController {
     return this.SendResponse(ResponseEnum.Success, ResponseEnum.Updated);
   }
 
+  @Roles(RoleEnum.SuperAdmin, RoleEnum.Admin)
   @Post("Conversations/:Id/HandBack")
   async HandBack(@Param("Id") Id: string) {
     const conv = await this._ConvRepo.findById(Id);
@@ -73,6 +77,7 @@ export class ConsoleController extends JWTAuthController {
     return this.SendResponse(ResponseEnum.Success, ResponseEnum.Updated);
   }
 
+  @Roles(RoleEnum.SuperAdmin, RoleEnum.Admin)
   @Post("Conversations/:Id/Reply")
   async Reply(@Param("Id") Id: string, @Body("body") body: string) {
     const text = (body ?? "").trim();
@@ -102,6 +107,7 @@ export class ConsoleController extends JWTAuthController {
     return this.SendResponseData(rows);
   }
 
+  @Roles(RoleEnum.SuperAdmin)
   @Get("AuditLogs")
   async AuditLogs(@Query("action") action?: string, @Query("table") table?: string) {
     const qb = audit_log.createQueryBuilder("a").orderBy("a.created_on", "DESC").take(100);
@@ -140,6 +146,7 @@ export class ConsoleController extends JWTAuthController {
     });
   }
 
+  @Roles(RoleEnum.SuperAdmin, RoleEnum.Admin)
   @Get("Triggers")
   async Triggers() {
     const events = await trigger_event.find({
@@ -150,6 +157,7 @@ export class ConsoleController extends JWTAuthController {
     return this.SendResponseData({ catalog: TRIGGER_CATALOG, events });
   }
 
+  @Roles(RoleEnum.SuperAdmin)
   @Get("PrivacyRequests")
   async PrivacyRequests() {
     const rows = await consent
@@ -162,6 +170,7 @@ export class ConsoleController extends JWTAuthController {
     return this.SendResponseData(rows);
   }
 
+  @Roles(RoleEnum.SuperAdmin, RoleEnum.Admin)
   @Post("Centres/Import")
   async ImportCentres(@Body("rows") rows: any[]) {
     if (!Array.isArray(rows) || !rows.length) throw new BadRequestException("rows array is required");
@@ -192,11 +201,13 @@ export class ConsoleController extends JWTAuthController {
     return this.SendResponseData({ created });
   }
 
+  @Roles(RoleEnum.SuperAdmin)
   @Get("Settings")
   GetSettings() {
     return this.SendResponseData(this._SystemConfig.getSettings());
   }
 
+  @Roles(RoleEnum.SuperAdmin)
   @Put("Settings")
   async UpdateSettings(@Body("values") values: Record<string, string | boolean>) {
     if (!values || typeof values !== "object") {

@@ -13,6 +13,6 @@ export default function ProtectedRoute({ children, roles }: Props) {
   const location = useLocation();
 
   if (!isLoggedIn) return <Navigate to="/login" replace state={{ from: location }} />;
-  if (roles && (!role || !roles.includes(role))) return <Navigate to="/bookings" replace />;
+  if (roles && (!role || !roles.includes(role))) return <Navigate to="/no-access" replace />;
   return children;
 }

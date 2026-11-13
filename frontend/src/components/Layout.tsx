@@ -1,29 +1,29 @@
 import { Button, Layout as AntLayout, Menu, Tag, Typography } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { ROUTE_ROLES } from "../auth/roles";
 
 const { Sider, Header, Content } = AntLayout;
 
 const ALL_ITEMS = [
-  { key: "/live-chat", label: "Live chat", roles: ["agent", "supervisor", "admin", "super admin"] },
-  { key: "/bookings", label: "Bookings", roles: ["agent", "supervisor", "admin", "super admin"] },
-  { key: "/centres", label: "Centres", roles: ["agent", "supervisor", "admin", "super admin"] },
-  { key: "/plan-catalog", label: "Plan catalogue", roles: ["agent", "supervisor", "admin", "super admin"] },
-  { key: "/reports", label: "Reports", roles: ["supervisor", "admin", "super admin"] },
-  { key: "/triggers", label: "Triggers A–R", roles: ["admin", "super admin"] },
-  { key: "/crm-sync", label: "CRM sync", roles: ["supervisor", "admin", "super admin"] },
-  { key: "/privacy", label: "Privacy requests", roles: ["admin", "super admin"] },
-  { key: "/audit-log", label: "Audit log", roles: ["admin", "super admin"] },
-  { key: "/settings", label: "Settings", roles: ["admin", "super admin"] },
+  { key: "/live-chat", label: "Live chat" },
+  { key: "/bookings", label: "Bookings" },
+  { key: "/centres", label: "Centres" },
+  { key: "/plan-catalog", label: "Plan catalogue" },
+  { key: "/reports", label: "Reports" },
+  { key: "/triggers", label: "Triggers A–R" },
+  { key: "/crm-sync", label: "CRM sync" },
+  { key: "/users", label: "Users" },
+  { key: "/privacy", label: "Privacy requests" },
+  { key: "/audit-log", label: "Audit log" },
+  { key: "/settings", label: "Settings" },
 ];
 
 export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { email, role, logout } = useAuth();
-  const items = ALL_ITEMS.filter((i) => !role || i.roles.includes(role.toLowerCase())).map(
-    ({ key, label }) => ({ key, label }),
-  );
+  const items = ALL_ITEMS.filter((i) => !!role && ROUTE_ROLES[i.key]?.includes(role));
 
   const onLogout = () => {
     logout();

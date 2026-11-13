@@ -2,11 +2,13 @@ import { Injectable } from "@nestjs/common";
 import { user } from "@Database/Table/Admin/user";
 import { RandomValue } from "@Helper/Common.helper";
 import { ChangePasswordModel, ResetPasswordModel, UserModel } from "@Model/Admin/User.model";
-import { Not } from "typeorm";
 import { EmailService } from "../Email.service";
 import { EncryptionService } from "../Encryption.service";
 import { AuditLogService } from "./AuditLog.service";
 import { LogActionEnum } from "@Helper/Enum/AuditLogEnum";
+import { RoleEnum, RoleRank } from "@Helper/Enum/RoleEnum";
+import { user_role } from "@Database/Table/Admin/user_role";
+import { ForbiddenException } from "@nestjs/common";
 @Injectable()
 export class UserService {
   constructor(
@@ -15,8 +17,34 @@ export class UserService {
     private _AuditLogService: AuditLogService,
   ) {}
 
-  async GetAllExpectSuperAdmin() {
-    return await user.find({ where: { id: Not("0") }, relations: ["user_role"] });
+  /**
+   * Super Admin may manage anyone. Admin may only manage plain Users: they cannot
+   * create/edit/suspend Admins or Super Admins, nor promote anyone to those roles.
+   */
+  async AssertCanManage(actorRole: string, targetRoleId?: string, targetUserId?: string) {
+    if (actorRole === RoleEnum.SuperAdmin) return;
+    const limit = RoleRank[RoleEnum.User];
+    if (targetRoleId) {
+      const role = await user_role.findOne({ where: { id: targetRoleId } });
+      if (!role || (RoleRank[role.name] ?? 99) > limit) {
+        throw new ForbiddenException("You cannot assign this role");
+      }
+    }
+    if (targetUserId) {
+      const target = await user.findOne({ where: { id: targetUserId }, relations: ["user_role"] });
+      if (target && (RoleRank[target.user_role?.name] ?? 99) > limit) {
+        throw new ForbiddenException("You cannot modify this user");
+      }
+    }
+  }
+
+  /** Super Admin sees everyone; Admin only sees plain Users. */
+  async GetAllForRole(actorRole: string) {
+    const rows = await user.find({ relations: ["user_role"], order: { created_on: "DESC" } as any });
+    const visible =
+      actorRole === RoleEnum.SuperAdmin ? rows : rows.filter((u) => u.user_role?.name === RoleEnum.User);
+    // never send password hashes or reset OTPs to the client
+    return visible.map(({ password: _p, reset_otp: _o, ...safe }) => safe);
   }
 
   async GetById(UserId: string) {
