@@ -12,6 +12,7 @@ import { customer } from "@Database/Table/Oxxy/customer";
 import { follow_up } from "@Database/Table/Oxxy/follow_up";
 import { ActivationStatus } from "@Helper/Enum/ActivationStatus";
 import { PaymentStatus } from "@Helper/Enum/PaymentStatus";
+import { MAX_RESCUES, RESCUE_DELAYS_MS, RESCUE_TEMPLATES } from "./RecoveryFlow";
 
 const QUEUE = "scheduled";
 
@@ -113,6 +114,28 @@ export class FollowUpSchedulerService implements OnModuleInit, OnModuleDestroy {
     return res.affected ?? 0;
   }
 
+  /** Cancels the scheduled follow-ups of these kinds in one conversation (e.g. rescues when the customer replies) */
+  async cancelForConversation(conversationId: string, kinds: FollowUpKind[], reason: string): Promise<number> {
+    let n = 0;
+    for (const kind of kinds) {
+      const res = await follow_up.update(
+        { conversation_id: conversationId, kind, follow_up_status: "scheduled" },
+        { follow_up_status: "cancelled", skip_reason: reason, updated_on: new Date() } as any,
+      );
+      n += res.affected ?? 0;
+    }
+    return n;
+  }
+
+  /** Something is already waiting for this conversation (a rescue or an agreed follow-up) */
+  async hasScheduled(conversationId: string, kinds: FollowUpKind[]): Promise<boolean> {
+    for (const kind of kinds) {
+      if (await follow_up.findOne({ where: { conversation_id: conversationId, kind, follow_up_status: "scheduled" } }))
+        return true;
+    }
+    return false;
+  }
+
   private async finish(job: FollowUpJob, status: "sent" | "skipped" | "cancelled", reason?: string) {
     if (!job.followUpId) return;
     await follow_up.update(job.followUpId, {
@@ -175,7 +198,23 @@ export class FollowUpSchedulerService implements OnModuleInit, OnModuleDestroy {
         "proactive",
       );
       if (job.kind === "rescue" && conv) {
-        await conversation.update(conv.id, { rescue_count: conv.rescue_count + 1 });
+        const count = conv.rescue_count + 1;
+        await conversation.update(conv.id, { rescue_count: count });
+        // Playbook 15: at most two rescues in a row; the second is scheduled only after the first went out
+        if (count < MAX_RESCUES) {
+          await this.finish(job, "sent");
+          await this.create({
+            customerId: job.customerId,
+            conversationId: conv.id,
+            kind: "rescue",
+            scheduledFor: new Date(Date.now() + RESCUE_DELAYS_MS[count]),
+            templateName: RESCUE_TEMPLATES[count],
+            reason: `no reply, rescue ${count + 1} of ${MAX_RESCUES}`,
+            selectedProduct: conv.selected_product ?? null,
+            source: "whatsapp_outbound",
+          });
+          return;
+        }
       }
       if (job.kind === "trigger_q" && conv) {
         await trigger_event.save(

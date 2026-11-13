@@ -175,15 +175,28 @@ export const FIXED_REPLIES: Record<ReplyKey, Record<ReplyLanguage, string>> = {
   },
 };
 
-// The neutral savings line (plan 12.x: "use the neutral savings line"). The ONLY savings wording a reply may
-// contain: no promise, no number. The system adds it after a plan suggestion; the reply validator lets it
-// through word for word and rejects every other saving / discount wording.
-// DRAFT: [CONFIRM] Oxxy must approve it.
+// The neutral savings line (Playbook 10, Trigger layer 6). The ONLY savings wording a Claude draft may
+// contain: no promise, no number, no tie-up. Used for "do I get a discount at this centre?", the centre
+// list and after a booking; the reply validator lets it through word for word and rejects every other
+// saving / discount wording. English is the Playbook text; Hindi / Hinglish are DRAFTS: [CONFIRM].
 export const NEUTRAL_SAVINGS_LINE: Record<ReplyLanguage, string> = {
-  en: "Any illustrated saving depends on your own medical spend and is not guaranteed.",
-  hi: "कोई भी दर्शाई गई बचत आपके अपने चिकित्सा खर्च पर निर्भर करती है और उसकी गारंटी नहीं है।",
-  hinglish: "Dikhayi gayi koi bhi bachat aapke apne medical kharche par nirbhar karti hai aur uski guarantee nahi hai.",
+  en: "Any saving at a specific centre is confirmed separately by the Oxxy team and may depend on the centre, service and plan.",
+  hi: "किसी खास केंद्र पर कोई भी बचत Oxxy टीम अलग से पुष्टि करती है, और यह केंद्र, सेवा और प्लान पर निर्भर कर सकती है।",
+  hinglish:
+    "Kisi specific centre par koi bhi bachat Oxxy team alag se confirm karti hai, aur yeh centre, service aur plan par depend kar sakti hai.",
 };
+
+// Playbook 10: the neutral line + "I can still take your booking request there."
+const BOOKING_STILL_POSSIBLE: Record<ReplyLanguage, string> = {
+  en: "I can still take your booking request there.",
+  hi: "मैं फिर भी वहाँ के लिए आपका बुकिंग अनुरोध ले सकता हूँ।",
+  hinglish: "Main phir bhi wahan ke liye aapka booking request le sakta hoon.",
+};
+
+export function centreSavingReply(language?: string | null): string {
+  const lang: ReplyLanguage = language === "hi" || language === "hinglish" ? language : "en";
+  return `${NEUTRAL_SAVINGS_LINE[lang]} ${BOOKING_STILL_POSSIBLE[lang]}`;
+}
 
 // Unknown or missing language -> English
 export function fixedReply(key: ReplyKey, language?: string | null): string {

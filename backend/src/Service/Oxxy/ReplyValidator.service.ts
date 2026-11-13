@@ -30,7 +30,9 @@ const NOT_A_PLAN_NAME = new Set(
     "following above below with for of and or to in on if is are can will would its their his her no not both either " +
     "first second next last perfect ideal simple regular general personal personalised custom we you it there here " +
     "oxxy bills cut medi per as at by from so than then also only just very more most less ask choose pick compare " +
-    "details detail information about rates pricing price prices cost costs"
+    "details detail information about rates pricing price prices cost costs " +
+    // Hinglish ("aur plan", "aapke plan", "kaunsa plan")
+    "aur ya aapke aapka aapki apne apna apni ke ka ki kis kaunsa kaunse koi yeh ye woh sahi accha achha"
   ).split(" "),
 );
 
@@ -51,6 +53,8 @@ const CMB_RE = /cut\s*medi\s*bills/i;
 const OXXY_PLAN_RE = /\b(everyday|vital|thrive|infinity)\b|\boxxy\s+(plans?|membership)\b/i;
 const BOTH_RE =
   /\boxxy\b\s*(or|and|\/|,|&)\s*cut\s*medi|cut\s*medi\s*bills\s*(or|and|\/|,|&)\s*(the\s+)?oxxy\b|\bboth\b/i;
+const LINK_RE =
+  /https?:\/\/|\bwww\.|\b[\w-]+\.(?:in|com|org|net|co|biz|info|io|me|app|ly|link|xyz|site|online)\b/i;
 const CONFIRMED_CLAIM_RE =
   /\b(booking|appointment|slot|visit|request)\b[^.!?\n]{0,40}\b(is|has been|have been|are|now)\s+(now\s+)?confirmed\b|\bconfirmed\s+(your|the)\s+(booking|appointment|slot|visit)\b|^\s*confirmed\b/i;
 
@@ -79,6 +83,9 @@ export function validateReply(
   // only a claim that a booking IS confirmed; "will be confirmed separately" / "pending confirmation" are fine
   if (CONFIRMED_CLAIM_RE.test(t)) reasons.push("says a booking is confirmed");
   if (/tie[\s-]?ups?|tied up|partner(ed|ship|ships)?/i.test(t)) reasons.push("mentions tie-ups");
+  // links come only from plan_catalog / approved_asset, added by the system (Playbook 2.1, 12.2):
+  // a draft with any link, web address or e-mail (even the right one) is rewritten
+  if (LINK_RE.test(t)) reasons.push("contains a link");
   // offering both = Cut Medi Bills next to an Oxxy plan ("Cut Medi Bills is Oxxy's service" is one product)
   if (CMB_RE.test(t) && (OXXY_PLAN_RE.test(t) || BOTH_RE.test(t)))
     reasons.push("offers both products");

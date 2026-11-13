@@ -34,12 +34,23 @@ export default () => ({
   Queue: {
     Prefix: queuePrefix(),
   },
+  // Which LLM drafts the replies: the admin's choice in Settings (claude | openai | gemini), and an
+  // optional second one used when the first fails. Every draft goes through the same validator.
+  Llm: {
+    Provider: process.env.LLM_PROVIDER || "claude",
+    Fallback: process.env.LLM_FALLBACK || "",
+  },
   Anthropic: {
     ApiKey: process.env.ANTHROPIC_API_KEY,
+    Model: process.env.ANTHROPIC_MODEL || "claude-opus-5-5",
   },
   OpenAI: {
     ApiKey: process.env.OPENAI_API_KEY,
     Model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+  },
+  Gemini: {
+    ApiKey: process.env.GEMINI_API_KEY,
+    Model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
   },
   Whatsapp: {
     VerifyToken: process.env.WHATSAPP_VERIFY_TOKEN,

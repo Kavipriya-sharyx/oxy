@@ -34,6 +34,8 @@ describe("helpers", () => {
   });
 });
 
+const U = "11111111-2222-4333-8444-555555555555";
+
 function service(over: Record<string, unknown> = {}) {
   const conv = { id: "v1", state: "discovery", selected_product: null };
   const deps = {
@@ -72,7 +74,7 @@ describe("create_booking_request (17.1)", () => {
   it("refuses a date outside today + 3 days .. + 6 months (Asia/Kolkata)", async () => {
     const { svc, deps } = service();
     await expect(
-      svc.createBookingRequest({ customer_id: "c1", centre: { centre_id: "x" }, specialisation: "dental", preferred_date: "2020-01-01" }),
+      svc.createBookingRequest({ customer_id: U, centre: { centre_id: "x" }, specialisation: "dental", preferred_date: "2020-01-01" }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(deps.booking.create).not.toHaveBeenCalled();
   });
@@ -83,7 +85,7 @@ describe("create_booking_request (17.1)", () => {
     const { svc, deps } = service();
     const d = new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10);
     await expect(
-      svc.createBookingRequest({ customer_id: "c1", centre: { name: "Kumar Nursing Home" }, specialisation: "ortho", preferred_date: d }),
+      svc.createBookingRequest({ customer_id: U, centre: { name: "Kumar Nursing Home" }, specialisation: "ortho", preferred_date: d }),
     ).rejects.toBeInstanceOf(UnprocessableEntityException);
     expect(deps.booking.create).not.toHaveBeenCalled();
     expect(deps.outbox.enqueue).toHaveBeenCalledWith(expect.anything(), "create_task", "c1", expect.objectContaining({ type: "directory_verification" }));
@@ -100,8 +102,8 @@ describe("create_follow_up (17.1)", () => {
     const { svc } = service();
     const night = new Date(Date.now() + 2 * 86400000);
     night.setUTCHours(17, 0, 0, 0); // 22:30 IST
-    await expect(svc.createFollowUp({ customer_id: "c1", scheduled_for: night.toISOString(), reason: "call back" })).rejects.toThrow(/09:00 and 21:00/);
-    await expect(svc.createFollowUp({ customer_id: "c1", scheduled_for: "2020-01-01T05:00:00Z", reason: "x" })).rejects.toThrow(/future/);
+    await expect(svc.createFollowUp({ customer_id: U, scheduled_for: night.toISOString(), reason: "call back" })).rejects.toThrow(/09:00 and 21:00/);
+    await expect(svc.createFollowUp({ customer_id: U, scheduled_for: "2020-01-01T05:00:00Z", reason: "x" })).rejects.toThrow(/future/);
   });
 
   it("refuses an opted-out customer", async () => {
@@ -109,7 +111,7 @@ describe("create_follow_up (17.1)", () => {
     const { svc } = service();
     const day = new Date(Date.now() + 2 * 86400000);
     day.setUTCHours(6, 0, 0, 0); // 11:30 IST
-    await expect(svc.createFollowUp({ customer_id: "c1", scheduled_for: day.toISOString(), reason: "x" })).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.createFollowUp({ customer_id: U, scheduled_for: day.toISOString(), reason: "x" })).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
 
@@ -125,5 +127,12 @@ describe("get_official_plan (17.1)", () => {
   it("needs a plan for Oxxy", async () => {
     const { svc } = service();
     await expect(svc.getOfficialPlan({ product: "oxxy" })).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe("ids", () => {
+  it("a customer_id that is not a UUID is a 400, not a database error", async () => {
+    const { svc } = service();
+    await expect(svc.lookupCustomer({ customer_id: "abc" })).rejects.toBeInstanceOf(BadRequestException);
   });
 });

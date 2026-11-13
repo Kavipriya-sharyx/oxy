@@ -57,6 +57,26 @@ export type Recommendation =
   | { status: "recommend"; plan: string; saving: number; price: number; rate: number }
   | { status: "not_worth_it"; plan: string; price: number; spend: number };
 
+/**
+ * The one plan that fits the need and the age, WITHOUT any savings claim (no yearly spend known yet).
+ * Used for "send me the link" and to mark one plan in the comparison (Trigger layer 7). A savings-based
+ * recommendation still needs recommendPlan() and its value check.
+ */
+export function planForNeed(
+  age: number | null,
+  need: string | null | undefined,
+  plans: PlanLike[],
+): { status: "ask_age" } | { status: "plan"; plan: string } | null {
+  const byName = new Map(plans.map((p) => [p.plan, p]));
+  const ordered = PLAN_ORDER.map((n) => byName.get(n)).filter(Boolean) as PlanLike[];
+  if (!ordered.length) return null;
+  if (age == null || !Number.isFinite(age)) return { status: "ask_age" };
+  const allowed = (p: PlanLike) => !p.age_limit || age <= p.age_limit;
+  let i = Math.min(needLevel(need), ordered.length - 1);
+  while (i < ordered.length - 1 && !allowed(ordered[i])) i++;
+  return allowed(ordered[i]) ? { status: "plan", plan: ordered[i].plan } : null;
+}
+
 export function recommendPlan(
   spend: number,
   age: number | null,

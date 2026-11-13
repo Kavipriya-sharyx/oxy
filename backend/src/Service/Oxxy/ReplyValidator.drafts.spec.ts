@@ -145,6 +145,15 @@ describe("a Claude draft is rejected when it breaks a rule", () => {
   });
 
   describe("other fixed rules", () => {
+    it.each([
+      "Verify us at https://fake-oxxy.biz/pay before paying.",
+      "Please visit www.oxxy.in for details.",
+      "Our site oxxy.in has everything.",
+      "Write to info@oxxy.in.",
+    ])("rejects a link written by the model: %p", (t) => expect(rejected(t)).toContain("contains a link"));
+    it("does not see a link in normal text", () => {
+      expect(check("e.g. a check-up. Dr. Rao is fine.").reasons).not.toContain("contains a link");
+    });
     it("rejects 'confirmed' and tie-ups", () => {
       expect(rejected("Your booking is confirmed.")).toContain("says a booking is confirmed");
       expect(rejected("We have a tie-up with this hospital.")).toContain("mentions tie-ups");

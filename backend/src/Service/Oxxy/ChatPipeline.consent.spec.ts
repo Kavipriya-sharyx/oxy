@@ -189,7 +189,7 @@ describe("DPDP health-data consent gate", () => {
     expect(texts(t)[1]).toBe(fixedReply("health_consent_no", "en"));
     expect(t.generate).not.toHaveBeenCalled();
     // the notice is NOT asked again in the same conversation
-    await t.run("what plans do you have?");
+    await t.run("how does Oxxy work?");
     expect(texts(t).filter((x) => x === fixedReply("health_notice", "en"))).toHaveLength(1);
   });
 
@@ -209,7 +209,7 @@ describe("DPDP health-data consent gate", () => {
       cons: { health_refused_at: new Date(), health_refused_version: NOTICE_VERSION },
       claude: async () => draft("We have a few plans. Which city are you in?"),
     });
-    await t.run("what plans do you have?");
+    await t.run("how does Oxxy work?");
     expect(texts(t)).toEqual(["We have a few plans. Which city are you in?"]);
     expect(JSON.parse(t.generate.mock.calls[0][1] as string).health_questions_allowed).toBe(false);
   });

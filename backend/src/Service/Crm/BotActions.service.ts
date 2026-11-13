@@ -66,6 +66,14 @@ export function parseWhen(v: unknown): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** 400 instead of a database error for an id that is not a UUID */
+export function assertId(v: unknown, name: string): string {
+  const s = String(v ?? "");
+  if (!UUID.test(s)) throw new BadRequestException({ message: `${name} must be a UUID`, code: "invalid_id" });
+  return s;
+}
+
 export interface CustomerRef {
   customer_id?: string;
   wa_number?: string;
@@ -89,7 +97,7 @@ export class BotActionsService {
   // ---------------------------------------------------------------- helpers
 
   async findCustomer(ref: CustomerRef): Promise<customer | null> {
-    if (ref.customer_id) return await customer.findOne({ where: { id: ref.customer_id } });
+    if (ref.customer_id) return await customer.findOne({ where: { id: assertId(ref.customer_id, "customer_id") } });
     const wa = normaliseWa(ref.wa_number);
     if (!wa) return null;
     return await customer.findOne({ where: { wa_number: wa } });
@@ -97,9 +105,9 @@ export class BotActionsService {
 
   private async mustFindCustomer(ref: CustomerRef): Promise<customer> {
     if (!ref.customer_id && !ref.wa_number)
-      throw new BadRequestException("customer_id or wa_number is required");
+      throw new BadRequestException({ message: "customer_id or wa_number is required", code: "customer_ref_required" });
     const c = await this.findCustomer(ref);
-    if (!c) throw new NotFoundException("Customer not found");
+    if (!c) throw new NotFoundException({ message: "Customer not found", code: "customer_not_found" });
     return c;
   }
 
@@ -252,7 +260,7 @@ export class BotActionsService {
     const lat = q.latitude != null && q.latitude !== "" ? Number(q.latitude) : undefined;
     const lon = q.longitude != null && q.longitude !== "" ? Number(q.longitude) : undefined;
     if (!q.city && (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)))
-      throw new BadRequestException("city, or latitude and longitude, is required");
+      throw new BadRequestException({ message: "city, or latitude and longitude, is required", code: "location_required" });
     const radius = Math.min(200, Math.max(1, Number(q.radius_km) || 10));
     const list = await this._CentreSearch.search({
       city: q.city,
@@ -263,7 +271,7 @@ export class BotActionsService {
     });
     if (q.customer_id) {
       // Provider group: the ids shown, so the record says exactly what was suggested
-      const conv = await this._ConvRepo.findOpenByCustomer(q.customer_id);
+      const conv = await this._ConvRepo.findOpenByCustomer(assertId(q.customer_id, "customer_id"));
       if (conv) {
         let n = await need.findOne({ where: { conversation_id: conv.id } });
         if (!n) n = need.create({ conversation_id: conv.id } as any);
@@ -316,16 +324,17 @@ export class BotActionsService {
     if (!chk.valid)
       throw new BadRequestException({
         message: `preferred_date must be between ${chk.min} and ${chk.max} (Asia/Kolkata)`,
+        code: "date_out_of_window",
         reason: chk.reason,
         min: chk.min,
         max: chk.max,
       });
-    if (!body.specialisation?.trim()) throw new BadRequestException("specialisation is required");
+    if (!body.specialisation?.trim()) throw new BadRequestException({ message: "specialisation is required", code: "specialisation_required" });
     const conv = await this.openConversation(c.id);
 
     const centreId = body.centre?.centre_id ?? body.centre?.id;
     let ctr: centre | null = null;
-    if (centreId) ctr = await centre.findOne({ where: { id: centreId, verified: true, active: true } });
+    if (centreId) ctr = await centre.findOne({ where: { id: assertId(centreId, "centre.centre_id"), verified: true, active: true } });
     else if (body.centre?.name) {
       ctr = await centre.findOne({
         where: {
@@ -335,7 +344,7 @@ export class BotActionsService {
           active: true,
         },
       });
-    } else throw new BadRequestException("centre.centre_id or centre.name is required");
+    } else throw new BadRequestException({ message: "centre.centre_id or centre.name is required", code: "centre_required" });
 
     if (!ctr) {
       // never reject a centre the customer chose: the team checks it, then the booking is made
@@ -414,18 +423,18 @@ export class BotActionsService {
   }) {
     const c = await this.mustFindCustomer(body);
     const when = parseWhen(body.scheduled_for);
-    if (!when) throw new BadRequestException("scheduled_for must be an ISO date-time, e.g. 2026-11-20T11:00:00+05:30");
-    if (when.getTime() < Date.now() + 60_000) throw new BadRequestException("scheduled_for must be in the future");
+    if (!when) throw new BadRequestException({ message: "scheduled_for must be an ISO date-time, e.g. 2026-11-20T11:00:00+05:30", code: "invalid_time" });
+    if (when.getTime() < Date.now() + 60_000) throw new BadRequestException({ message: "scheduled_for must be in the future", code: "time_in_past" });
     if (when.getTime() > Date.now() + 90 * 24 * 3600 * 1000)
-      throw new BadRequestException("scheduled_for must be within 90 days");
-    if (isQuietHours(when)) throw new BadRequestException("Follow-ups can be sent only between 09:00 and 21:00 IST");
-    if (!body.reason?.trim()) throw new BadRequestException("reason is required");
+      throw new BadRequestException({ message: "scheduled_for must be within 90 days", code: "time_too_far" });
+    if (isQuietHours(when)) throw new BadRequestException({ message: "Follow-ups can be sent only between 09:00 and 21:00 IST", code: "quiet_hours" });
+    if (!body.reason?.trim()) throw new BadRequestException({ message: "reason is required", code: "reason_required" });
     const product = body.selected_product ?? null;
     if (product && !Object.values(ProductType).includes(product as ProductType))
-      throw new BadRequestException("selected_product must be oxxy or cut_medi_bills");
+      throw new BadRequestException({ message: "selected_product must be oxxy or cut_medi_bills", code: "invalid_product" });
     const cons = await consent.findOne({ where: { customer_id: c.id } });
-    if (cons?.opt_out_at) throw new ForbiddenException("The customer opted out: no follow-ups");
-    if (cons?.privacy_request_at) throw new ForbiddenException("Open privacy request: no follow-ups");
+    if (cons?.opt_out_at) throw new ForbiddenException({ message: "The customer opted out: no follow-ups", code: "opted_out" });
+    if (cons?.privacy_request_at) throw new ForbiddenException({ message: "Open privacy request: no follow-ups", code: "privacy_request_open" });
     const kind = ["agreed_follow_up", "rescue", "booking_update"].includes(String(body.kind))
       ? (body.kind as "agreed_follow_up")
       : "agreed_follow_up";
@@ -462,9 +471,9 @@ export class BotActionsService {
   async getOfficialPlan(q: { product?: string; plan?: string; billing?: string }) {
     const product = String(q.product ?? "");
     if (!Object.values(ProductType).includes(product as ProductType))
-      throw new BadRequestException("product must be oxxy or cut_medi_bills");
+      throw new BadRequestException({ message: "product must be oxxy or cut_medi_bills", code: "invalid_product" });
     if (product === ProductType.Oxxy && !q.plan)
-      throw new BadRequestException("plan is required for oxxy (everyday, vital, thrive, infinity)");
+      throw new BadRequestException({ message: "plan is required for oxxy (everyday, vital, thrive, infinity)", code: "plan_required" });
     const where: any = { product, status: true };
     if (product === ProductType.Oxxy) where.plan = String(q.plan).toLowerCase();
     if (q.billing) where.billing = String(q.billing).toLowerCase();
@@ -477,7 +486,7 @@ export class BotActionsService {
         "max_saving_pct", "age_limit", "activation_time", "activation_link", "version", "created_on", "updated_on",
       ] as any,
     });
-    if (!rows.length) throw new NotFoundException("No current official plan for this product");
+    if (!rows.length) throw new NotFoundException({ message: "No current official plan for this product", code: "plan_not_found" });
     return {
       product,
       plan: product === ProductType.Oxxy ? where.plan : null,
@@ -513,21 +522,21 @@ export class BotActionsService {
   async sendApprovedAsset(body: { customer_id?: string; wa_number?: string; asset_id?: string; code?: string; source?: string }) {
     const c = await this.mustFindCustomer(body);
     const source = sourceOf(body.source);
-    if (!body.asset_id && !body.code) throw new BadRequestException("asset_id or code is required");
+    if (!body.asset_id && !body.code) throw new BadRequestException({ message: "asset_id or code is required", code: "asset_ref_required" });
     const a = await approved_asset.findOne({
-      where: body.asset_id ? { id: body.asset_id } : { code: String(body.code) },
+      where: body.asset_id ? { id: assertId(body.asset_id, "asset_id") } : { code: String(body.code) },
     });
-    if (!a || !a.status) throw new NotFoundException("Asset not found");
-    if (!a.approved || !ASSET_KINDS.includes(a.kind)) throw new ForbiddenException("Asset is not approved for sending");
-    if (a.valid_to && new Date(a.valid_to).getTime() < Date.now()) throw new GoneException("Asset has expired");
+    if (!a || !a.status) throw new NotFoundException({ message: "Asset not found", code: "asset_not_found" });
+    if (!a.approved || !ASSET_KINDS.includes(a.kind)) throw new ForbiddenException({ message: "Asset is not approved for sending", code: "asset_not_approved" });
+    if (a.valid_to && new Date(a.valid_to).getTime() < Date.now()) throw new GoneException({ message: "Asset has expired", code: "asset_expired" });
 
     const cons = await consent.findOne({ where: { customer_id: c.id } });
-    if (cons?.opt_out_at) throw new ForbiddenException("The customer opted out");
-    if (cons?.privacy_request_at) throw new ForbiddenException("Open privacy request");
+    if (cons?.opt_out_at) throw new ForbiddenException({ message: "The customer opted out", code: "opted_out" });
+    if (cons?.privacy_request_at) throw new ForbiddenException({ message: "Open privacy request", code: "privacy_request_open" });
     const conv = await this.openConversation(c.id);
-    if (conv.state === ConversationState.Pause) throw new ConflictException("Safety event open: no commercial content");
+    if (conv.state === ConversationState.Pause) throw new ConflictException({ message: "Safety event open: no commercial content", code: "safety_event_open" });
     if (await asset_send.findOne({ where: { conversation_id: conv.id, asset_id: a.id } }))
-      throw new ConflictException({ message: "Already sent in this journey", suppression_reason: "duplicate" });
+      throw new ConflictException({ message: "Already sent in this journey", code: "duplicate", suppression_reason: "duplicate" });
 
     const inWindow = isWithin24h(conv.last_customer_message_at);
     let wamid: string;
@@ -545,12 +554,12 @@ export class BotActionsService {
           "proactive",
         );
       } else {
-        throw new ConflictException("Outside the 24-hour window and the asset has no approved template");
+        throw new ConflictException({ message: "Outside the 24-hour window and the asset has no approved template", code: "window_closed_no_template" });
       }
     } catch (e) {
       if (e instanceof QuietHoursError)
-        throw new ConflictException({ message: "Quiet hours (21:00-09:00 IST)", next_allowed_at: e.nextAllowedAt });
-      if (e instanceof WindowClosedError) throw new ConflictException(e.message);
+        throw new ConflictException({ message: "Quiet hours (21:00-09:00 IST)", code: "quiet_hours", next_allowed_at: e.nextAllowedAt });
+      if (e instanceof WindowClosedError) throw new ConflictException({ message: e.message, code: "window_closed" });
       throw e;
     }
     const sent = await asset_send.save(
@@ -627,13 +636,13 @@ export class BotActionsService {
     const priority = Object.values(TaskPriority).includes(body.priority as TaskPriority)
       ? (body.priority as TaskPriority)
       : TaskPriority.Normal;
-    if (!body.reason?.trim()) throw new BadRequestException("reason is required");
-    if (!body.summary?.trim()) throw new BadRequestException("summary is required (no health details)");
+    if (!body.reason?.trim()) throw new BadRequestException({ message: "reason is required", code: "reason_required" });
+    if (!body.summary?.trim()) throw new BadRequestException({ message: "summary is required (no health details)", code: "summary_required" });
     const from = parseWhen(body.callback_window?.from);
     const to = parseWhen(body.callback_window?.to);
     if ((body.callback_window?.from && !from) || (body.callback_window?.to && !to))
-      throw new BadRequestException("callback_window.from / to must be ISO date-times");
-    if (from && to && to <= from) throw new BadRequestException("callback_window.to must be after from");
+      throw new BadRequestException({ message: "callback_window.from / to must be ISO date-times", code: "invalid_time" });
+    if (from && to && to <= from) throw new BadRequestException({ message: "callback_window.to must be after from", code: "invalid_callback_window" });
     const conv = await this.openConversation(c.id);
     const t = await this.newTask(c, conv, {
       type: TaskType.Escalation,

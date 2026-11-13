@@ -79,21 +79,34 @@ export class ConsoleController extends JWTAuthController {
   // the sales team (User role) chats with customers too (Full Plan 12.9)
   @Permission("conversations.reply")
   @Post("Conversations/:Id/TakeOver")
-  async TakeOver(@Param("Id") Id: string) {
+  async TakeOver(@Param("Id") Id: string, @Req() req: any) {
     const conv = await this._ConvRepo.findById(Id);
     if (!conv) throw new NotFoundException("Conversation not found");
+    // a person has the chat: ESCALATED. PAUSE stays the safety state (emergency / privacy), so a takeover
+    // is not counted as an emergency in the trigger suppression and the KPIs
     if (conv.state !== ConversationState.Pause && conv.state !== ConversationState.Escalated) {
-      await this._ConvRepo.transition(Id, ConversationState.Pause, { reason: "agent take over" });
+      await this._ConvRepo.transition(Id, ConversationState.Escalated, { reason: "agent take over" });
     }
+    await conversation.update(Id, {
+      taken_over_by_id: req.user?.user_id ?? null,
+      taken_over_at: new Date(),
+    });
     return this.SendResponse(ResponseEnum.Success, ResponseEnum.Updated);
   }
 
-  // the sales team (User role) chats with customers too (Full Plan 12.9)
+  // the sales team (User role) chats with customers too (Full Plan 12.9).
+  // `note` (optional) is what the bot should know when it takes over again; it reaches the next prompts.
   @Permission("conversations.reply")
   @Post("Conversations/:Id/HandBack")
-  async HandBack(@Param("Id") Id: string) {
+  async HandBack(@Param("Id") Id: string, @Body("note") note: string | undefined, @Req() req: any) {
     const conv = await this._ConvRepo.findById(Id);
     if (!conv) throw new NotFoundException("Conversation not found");
+    const clean = typeof note === "string" ? note.trim().slice(0, 1000) : "";
+    await conversation.update(Id, {
+      handed_back_by_id: req.user?.user_id ?? null,
+      handed_back_at: new Date(),
+      handback_note: clean || null,
+    });
     if (conv.state === ConversationState.Pause) {
       await this._ConvRepo.resolveSafetyEvent(Id);
     } else if (conv.state === ConversationState.Escalated) {

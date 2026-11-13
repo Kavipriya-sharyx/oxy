@@ -29,6 +29,15 @@ export const TRIGGER_CATALOG: { id: TriggerId; name: string; when: string }[] = 
   { id: "R", name: "Stop commercial flow", when: "Refusal, opt-out, emergency or privacy" },
 ];
 
+export interface TriggerDecision {
+  id: TriggerId;
+  suppression: string | null; // opt_out | emergency | active_complaint | active_product
+}
+
+// Fired only when the pipeline really showed them (a centre list, a plan / disclosure, the Cut Medi
+// Bills gate result), never just because Claude named the intent: "find a hospital" + ASK_CITY is not D.
+export const NEEDS_SHOWN: TriggerId[] = ["D", "E", "F", "I"];
+
 const PRIORITY: TriggerId[] = [
   "R", "O", "P", "G", "H", "D", "A", "B", "L", "C", "J", "K", "M", "I", "F", "E", "N", "Q",
 ];
@@ -47,20 +56,31 @@ export class TriggerEngineService {
       case "recommend":
         return product === "cut_medi_bills" ? "I" : "E";
       case "activate":
+      case "compare_plans":
         return "E";
+      // content triggers: answered with an approved asset (Trigger layer A, C, L)
+      case "trust_doubt":
+        return "A";
+      case "why_activate":
+        return "C";
+      case "wants_proof":
+        return "L";
       default:
         return null;
     }
   }
 
-  async recordIfAllowed(
+  /**
+   * Before the reply is sent: may this trigger fire? null = already fired in this journey (or unknown).
+   * A decision with a suppression_reason is recorded (for the KPIs) but its content is not sent.
+   */
+  async decide(
     customerId: string,
     conv: conversation,
     candidate: TriggerId | null,
-    reason: string,
     activeProduct?: string | null,
-  ): Promise<TriggerId | null> {
-    if (!candidate) return null;
+  ): Promise<TriggerDecision | null> {
+    if (!candidate || !PRIORITY.includes(candidate)) return null;
     const cons = await consent.findOne({ where: { customer_id: customerId } });
     let suppression: string | null = null;
     if (cons?.opt_out_at || cons?.privacy_request_at) suppression = "opt_out";
@@ -74,27 +94,49 @@ export class TriggerEngineService {
       where: { conversation_id: conv.id, trigger_id: candidate },
     });
     if (existing) return null;
+    return { id: candidate, suppression };
+  }
 
-    const ordered = PRIORITY.includes(candidate) ? candidate : null;
-    if (!ordered) return null;
-
+  /** After the reply is sent: the trigger_event row. Assets are stored only when they really went out. */
+  async record(
+    customerId: string,
+    conv: conversation,
+    d: TriggerDecision,
+    reason: string,
+    extra: { assets?: string[]; cta?: string | null } = {},
+  ): Promise<void> {
     try {
       await trigger_event.save(
         trigger_event.create({
           customer_id: customerId,
           conversation_id: conv.id,
-          trigger_id: ordered,
+          trigger_id: d.id,
           reason,
-          suppression_reason: suppression,
+          suppression_reason: d.suppression,
           conversation_source: "whatsapp_inbound",
           next_state: conv.state,
+          assets: !d.suppression && extra.assets?.length ? extra.assets : null,
+          cta: d.suppression ? null : (extra.cta ?? null),
         } as any),
       );
-      return suppression ? null : ordered;
     } catch (e) {
-      this.logger.debug(`trigger ${ordered} skipped: ${(e as Error).message}`);
-      return null;
+      this.logger.debug(`trigger ${d.id} not recorded: ${(e as Error).message}`);
     }
+  }
+
+  /** decide + record in one step (for triggers with nothing extra to send) */
+  async recordIfAllowed(
+    customerId: string,
+    conv: conversation,
+    candidate: TriggerId | null,
+    reason: string,
+    activeProduct?: string | null,
+    extra: { assets?: string[]; cta?: string | null } = {},
+  ): Promise<TriggerId | null> {
+    const d = await this.decide(customerId, conv, candidate, activeProduct);
+    if (!d) return null;
+    await this.record(customerId, conv, d, reason, extra);
+    return d.suppression ? null : d.id;
   }
 }
 

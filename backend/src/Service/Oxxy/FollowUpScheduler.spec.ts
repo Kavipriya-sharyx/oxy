@@ -60,3 +60,28 @@ describe("Trigger Q reminder (plan 12.5 / 12.8)", () => {
     expect(schedule).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("conversation rescue (Playbook 15: at most two in a row)", () => {
+  const rescue = { customerId: "c1", conversationId: "v1", kind: "rescue" as const, templateName: "conversation_rescue_1" };
+  it("after the first rescue the second is scheduled; after the second, nothing more", async () => {
+    const { svc, wa } = setup();
+    const upd = jest.spyOn(conversation, "update").mockResolvedValue({} as never);
+    const create = jest.spyOn(svc, "create").mockResolvedValue({} as never);
+    await svc.execute(rescue);
+    expect(wa.send).toHaveBeenCalledWith("c1", expect.objectContaining({ name: "conversation_rescue_1" }), "proactive");
+    expect(upd).toHaveBeenCalledWith("v1", { rescue_count: 1 });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ kind: "rescue", templateName: "conversation_rescue_2" }));
+
+    jest.spyOn(conversation, "findOne").mockResolvedValue({ id: "v1", state: "discovery", rescue_count: 1 } as never);
+    create.mockClear();
+    await svc.execute({ ...rescue, templateName: "conversation_rescue_2" });
+    expect(upd).toHaveBeenCalledWith("v1", { rescue_count: 2 });
+    expect(create).not.toHaveBeenCalled();
+  });
+  it("a third is never sent", async () => {
+    const { svc, wa } = setup();
+    jest.spyOn(conversation, "findOne").mockResolvedValue({ id: "v1", state: "discovery", rescue_count: 2 } as never);
+    await svc.execute(rescue);
+    expect(wa.send).not.toHaveBeenCalled();
+  });
+});

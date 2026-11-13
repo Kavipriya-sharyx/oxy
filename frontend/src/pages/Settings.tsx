@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Form, Input, Spin, Switch, message } from "antd";
+import { Button, Form, Input, Select, Spin, Switch, message } from "antd";
 import { Panel, Pill, usePageTitle } from "../components/ui";
 import { getSettings, updateSettings, type SettingItem } from "../api/settings.api";
 
@@ -114,13 +114,15 @@ export default function Settings() {
                         <span className="row" style={{ gap: 8 }}>
                           <span>{item.label}</span>
                           <span className="mono small muted">{item.key}</span>
-                          {item.type !== "boolean" &&
+                          {item.type === "string" &&
                             (item.isSet ? <Pill tone="ok">Set</Pill> : <Pill>Not set</Pill>)}
                         </span>
                       }
                     >
                       {item.type === "boolean" ? (
                         <Switch />
+                      ) : item.type === "select" ? (
+                        <Select options={item.options ?? []} style={{ maxWidth: 320 }} />
                       ) : item.secret ? (
                         <Input.Password placeholder={item.placeholder || "Enter secret value"} />
                       ) : (

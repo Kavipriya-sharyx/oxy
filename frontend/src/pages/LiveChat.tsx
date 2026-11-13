@@ -93,6 +93,7 @@ export default function LiveChat() {
     if (active?.id) await queryClient.invalidateQueries({ queryKey: ["messages", active.id] });
   };
   const onError = (e: Error) => message.error(e.message);
+  const [handBackNote, setHandBackNote] = useState<string | null>(null); // null = the note box is closed
   const takeOver = useMutation({
     mutationFn: takeOverConversation,
     onSuccess: async () => {
@@ -102,8 +103,9 @@ export default function LiveChat() {
     onError,
   });
   const handBack = useMutation({
-    mutationFn: handBackConversation,
+    mutationFn: ({ id, note }: { id: string; note?: string }) => handBackConversation(id, note),
     onSuccess: async () => {
+      setHandBackNote(null);
       message.success("Handed back. The bot resumes from the stored state.");
       await refresh();
     },
@@ -155,7 +157,10 @@ export default function LiveChat() {
             <div
               key={c.id}
               className={`iitem ${c.id === active?.id ? "on" : ""}`}
-              onClick={() => setSelectedId(c.id)}
+              onClick={() => {
+                setSelectedId(c.id);
+                setHandBackNote(null);
+              }}
             >
               <div className="avatar">{initials(nameOf(c))}</div>
               <div className="t">
@@ -195,8 +200,8 @@ export default function LiveChat() {
                   (withPerson ? (
                     <button
                       className="btn sm"
-                      disabled={handBack.isPending}
-                      onClick={() => handBack.mutate(active.id)}
+                      disabled={handBack.isPending || handBackNote !== null}
+                      onClick={() => setHandBackNote("")}
                     >
                       Hand back to bot
                     </button>
@@ -210,6 +215,35 @@ export default function LiveChat() {
                     </button>
                   ))}
               </div>
+              {handBackNote !== null && (
+                <div className="panel-b small" style={{ background: "var(--sunk)" }}>
+                  <div style={{ marginBottom: 6 }}>
+                    Note for the bot (optional): what was agreed, or what it should not bring up again.
+                    The customer never sees it.
+                  </div>
+                  <textarea
+                    className="input"
+                    rows={2}
+                    maxLength={1000}
+                    style={{ width: "100%" }}
+                    value={handBackNote}
+                    onChange={(e) => setHandBackNote(e.target.value)}
+                    placeholder="e.g. Customer will pay after salary on the 1st; do not send the link again."
+                  />
+                  <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                    <button
+                      className="btn sm"
+                      disabled={handBack.isPending}
+                      onClick={() => handBack.mutate({ id: active.id, note: handBackNote })}
+                    >
+                      Hand back
+                    </button>
+                    <button className="btn sm" onClick={() => setHandBackNote(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="msgs" ref={msgsRef}>
                 {(msgs.data ?? []).map((m) => (
                   <div key={m.id} className={`bub ${m.direction === "in" ? "" : "out"}`}>
@@ -245,7 +279,7 @@ export default function LiveChat() {
                   className="panel-b small"
                   style={{ background: "var(--crit-soft)", color: "var(--crit)" }}
                 >
-                  Automation is paused (safety, privacy or a failed reply). Reply manually only
+                  Automation is paused (safety or privacy). Reply manually only
                   after checking on the customer.
                 </div>
               )}

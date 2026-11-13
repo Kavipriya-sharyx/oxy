@@ -8,9 +8,16 @@ export interface ConfigFieldDef {
   label: string;
   group: "whatsapp" | "ai" | "crm";
   secret?: boolean;
-  type?: "string" | "boolean";
+  type?: "string" | "boolean" | "select";
+  options?: { value: string; label: string }[]; // type "select" only
   placeholder?: string;
 }
+
+const LLM_OPTIONS = [
+  { value: "claude", label: "Claude (Anthropic)" },
+  { value: "openai", label: "OpenAI" },
+  { value: "gemini", label: "Gemini (Google)" },
+];
 
 export const CONFIG_FIELDS: ConfigFieldDef[] = [
   {
@@ -58,6 +65,22 @@ export const CONFIG_FIELDS: ConfigFieldDef[] = [
     placeholder: "https://graph.facebook.com",
   },
   {
+    key: "LLM_PROVIDER",
+    configPath: "Llm.Provider",
+    label: "Preferred LLM",
+    group: "ai",
+    type: "select",
+    options: LLM_OPTIONS,
+  },
+  {
+    key: "LLM_FALLBACK",
+    configPath: "Llm.Fallback",
+    label: "Fallback LLM (used when the preferred one fails)",
+    group: "ai",
+    type: "select",
+    options: [{ value: "", label: "None" }, ...LLM_OPTIONS],
+  },
+  {
     key: "ANTHROPIC_API_KEY",
     configPath: "Anthropic.ApiKey",
     label: "Anthropic API Key (Claude)",
@@ -68,7 +91,7 @@ export const CONFIG_FIELDS: ConfigFieldDef[] = [
   {
     key: "OPENAI_API_KEY",
     configPath: "OpenAI.ApiKey",
-    label: "OpenAI API Key (Fallback)",
+    label: "OpenAI API Key",
     group: "ai",
     secret: true,
     placeholder: "sk-proj-...",
@@ -79,6 +102,28 @@ export const CONFIG_FIELDS: ConfigFieldDef[] = [
     label: "OpenAI Model",
     group: "ai",
     placeholder: "gpt-4o-mini",
+  },
+  {
+    key: "ANTHROPIC_MODEL",
+    configPath: "Anthropic.Model",
+    label: "Claude Model",
+    group: "ai",
+    placeholder: "claude-opus-5-5",
+  },
+  {
+    key: "GEMINI_API_KEY",
+    configPath: "Gemini.ApiKey",
+    label: "Gemini API Key",
+    group: "ai",
+    secret: true,
+    placeholder: "AIza...",
+  },
+  {
+    key: "GEMINI_MODEL",
+    configPath: "Gemini.Model",
+    label: "Gemini Model",
+    group: "ai",
+    placeholder: "gemini-2.5-flash",
   },
   {
     key: "CRM_ENABLED",
@@ -163,6 +208,19 @@ export class SystemConfigService implements OnModuleInit {
       }
       const str = current === undefined || current === null ? "" : String(current);
       const isSet = str.length > 0;
+      if (def.type === "select") {
+        return {
+          key: def.key,
+          label: def.label,
+          group: def.group,
+          type: "select",
+          secret: false,
+          isSet,
+          value: str,
+          options: def.options ?? [],
+          placeholder: def.placeholder,
+        };
+      }
       return {
         key: def.key,
         label: def.label,
@@ -190,6 +248,8 @@ export class SystemConfigService implements OnModuleInit {
       const strVal = incoming === undefined || incoming === null ? "" : String(incoming).trim();
       // Preserve existing secret when the masked placeholder was submitted untouched
       if (def.secret && strVal.startsWith(MASK_PREFIX)) continue;
+      // a select keeps only one of its own values
+      if (def.type === "select" && !(def.options ?? []).some((o) => o.value === strVal)) continue;
       await this.upsertKey(def, strVal);
       updated++;
     }

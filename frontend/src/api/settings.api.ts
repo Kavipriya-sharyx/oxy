@@ -4,10 +4,11 @@ export interface SettingItem {
   key: string;
   label: string;
   group: "whatsapp" | "ai" | "crm";
-  type: "string" | "boolean";
+  type: "string" | "boolean" | "select";
   secret: boolean;
   isSet: boolean;
   value: string | boolean;
+  options?: { value: string; label: string }[]; // type "select" only
   placeholder?: string;
 }
 

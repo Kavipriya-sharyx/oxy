@@ -23,7 +23,7 @@ import {
 import { ApiHeader, ApiTags } from "@nestjs/swagger";
 import { ConfigService } from "@nestjs/config";
 import { timingSafeEqual } from "crypto";
-import { BotActionsService } from "@Service/Crm/BotActions.service";
+import { assertId, BotActionsService } from "@Service/Crm/BotActions.service";
 import { CustomerRecordService } from "@Service/Crm/CustomerRecord.service";
 
 export function validApiKey(given: string | undefined, expected: string | undefined): boolean {
@@ -45,17 +45,37 @@ export class ActionsApiKeyGuard implements CanActivate {
   }
 }
 
+const CODES: Record<number, string> = {
+  400: "bad_request",
+  401: "unauthorized",
+  403: "forbidden",
+  404: "not_found",
+  409: "conflict",
+  410: "gone",
+  422: "unprocessable",
+  503: "not_configured",
+};
+
 @Catch()
 export class ActionsExceptionFilter implements ExceptionFilter {
   catch(e: any, host: ArgumentsHost) {
     const res = host.switchToHttp().getResponse();
+    // one shape for every error: { error: true, status, code, message, ...details }
     if (e instanceof HttpException) {
+      const status = e.getStatus();
       const body = e.getResponse();
-      const obj = typeof body === "string" ? { message: body } : (body as Record<string, unknown>);
-      res.status(e.getStatus()).json({ error: true, ...obj, status: e.getStatus() });
+      const obj: Record<string, unknown> = typeof body === "string" ? { message: body } : { ...(body as Record<string, unknown>) };
+      delete obj.error;
+      delete obj.statusCode;
+      const code = typeof obj.code === "string" ? obj.code : (CODES[status] ?? "error");
+      delete obj.code;
+      const message = Array.isArray(obj.message) ? obj.message.join("; ") : String(obj.message ?? code);
+      delete obj.message;
+      res.status(status).json({ error: true, status, code, message, ...obj });
       return;
     }
-    res.status(500).json({ error: true, status: 500, message: "Internal error" }); // never leak details
+    // never leak details
+    res.status(500).json({ error: true, status: 500, code: "internal_error", message: "Internal error" });
   }
 }
 
@@ -132,6 +152,6 @@ export class ActionsController {
   /** The Playbook 17 record by field group (health details left out) */
   @Get("Customers/:Id/Record")
   async record(@Param("Id") Id: string) {
-    return await this._Record.build(Id, { includeHealth: false });
+    return await this._Record.build(assertId(Id, "Id"), { includeHealth: false });
   }
 }

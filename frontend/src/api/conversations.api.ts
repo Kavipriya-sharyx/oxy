@@ -16,8 +16,11 @@ export async function takeOverConversation(conversationId: string): Promise<ApiE
   return res.data;
 }
 
-export async function handBackConversation(conversationId: string): Promise<ApiEnvelope> {
-  const res = await client.post<ApiEnvelope>(`/Console/Conversations/${conversationId}/HandBack`);
+// `note` (optional): what the bot should know when it takes over again
+export async function handBackConversation(conversationId: string, note?: string): Promise<ApiEnvelope> {
+  const res = await client.post<ApiEnvelope>(`/Console/Conversations/${conversationId}/HandBack`, {
+    note: note?.trim() || undefined,
+  });
   return res.data;
 }
 

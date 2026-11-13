@@ -66,4 +66,20 @@ export class conversation extends BaseTable {
 
   @Column({ type: "varchar", nullable: true }) // booked | activated | declined | closed | opted_out ...
   outcome: string | null;
+
+  // Human takeover (Full Plan 12.9): who took the chat from the bot, and the note left for the bot on hand-back
+  @Column({ type: "varchar", nullable: true })
+  taken_over_by_id: string | null;
+
+  @Column({ type: "timestamp", nullable: true })
+  taken_over_at: Date | null;
+
+  @Column({ type: "varchar", nullable: true })
+  handed_back_by_id: string | null;
+
+  @Column({ type: "timestamp", nullable: true })
+  handed_back_at: Date | null;
+
+  @Column({ type: "text", nullable: true }) // shown to Claude as team_note on the next turns
+  handback_note: string | null;
 }
