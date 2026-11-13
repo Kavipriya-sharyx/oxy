@@ -23,6 +23,8 @@ export const ROUTE_PERMS: Record<string, string | null> = {
   "/audit-log": "audit.read",
   "/settings": "settings.manage",
   "/content": "settings.manage",
+  "/follow-ups": "conversations.read",
+  "/templates": "triggers.read",
 };
 
 const LANDING_ORDER = ["/dashboard", "/live-chat", "/bookings", "/centres", "/flows"];

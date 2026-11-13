@@ -44,6 +44,7 @@ export interface PrivacyRow {
   privacy_request_at: string | null;
   health_data_consent: boolean;
   marketing_consent: boolean;
+  erased_at?: string | null;
   customer?: { wa_number: string; first_name: string | null };
 }
 

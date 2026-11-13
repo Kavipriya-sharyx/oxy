@@ -57,6 +57,7 @@ export default () => ({
     AppSecret: process.env.WHATSAPP_APP_SECRET,
     AccessToken: process.env.WHATSAPP_ACCESS_TOKEN,
     PhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+    WabaId: process.env.WHATSAPP_WABA_ID,
     ApiVersion: process.env.WHATSAPP_API_VERSION || "v21.0",
     ApiBase: process.env.WHATSAPP_API_BASE || "https://graph.facebook.com",
   },

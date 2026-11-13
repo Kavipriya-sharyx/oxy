@@ -55,5 +55,10 @@ export class consent extends BaseTable {
 
   @Column({ type: "timestamp", nullable: true })
   privacy_request_at: Date | null;
+
+  // personal and health data removed (retention job or a handled deletion request); the number and the
+  // opt-out stay so a STOP is still honoured [CONFIRM with legal]
+  @Column({ type: "timestamp", nullable: true })
+  erased_at: Date | null;
 }
 

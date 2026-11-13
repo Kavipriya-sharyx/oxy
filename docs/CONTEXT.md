@@ -13,7 +13,7 @@ Trigger layer section 13 are the source of the CRM work. The Actions API referen
 - Not committed yet: the content-trigger wiring (`AssetPicker.ts` + spec, `ChatPipeline`, `Claude`, `TriggerEngine`).
 - Stack: NestJS 11 + TypeORM (Postgres) + BullMQ / Redis backend; React 18 + Vite + antd + react-query console.
 - Schema: migrations only (`backend/src/Database/Migrations`), run at start-up (`migrationsRun`). In order:
-  `Baseline`, `TriggerEventPerJourney`, `CutMediBillsGate`, `CrmFieldGroups`, `TakeoverHandback`. Generate new ones with
+  `Baseline`, `TriggerEventPerJourney`, `CutMediBillsGate`, `CrmFieldGroups`, `TakeoverHandback`, `ConsoleOps`. Generate new ones with
   `npm run migration:generate -- src/Database/Migrations/Name`, then remove the noise lines TypeORM adds
   (`SET DEFAULT '1'`, the `chk_*` checks, `uq_activation_one_open`): those are kept by the Baseline on purpose.
 
@@ -92,6 +92,20 @@ Super Admin always all; nobody can remove `roles.manage` from their own role). P
   takes over). Preferred without a key = the fallback, else the first provider that has a key. Same prompt
   and JSON for all three; every draft still goes through ReplyValidator.
 
+## Live updates, nightly jobs, ops screens
+
+- Live updates: `GET /api/v1/Console/Live` (server-sent events, JWT in the Authorization header; the console reads
+  it with fetch, `hooks/useLiveUpdates.ts`). A TypeORM subscriber (`LiveEventsService`) turns every insert / update
+  / delete of a shown table into `{ topic, conversation_id }` (no row data), batched 250 ms, sent over Redis
+  pub/sub (`<QUEUE_PREFIX>:live`) to every instance. Polling stays as the fallback (slower now).
+- Nightly (BullMQ job schedulers, queue `nightly`): 02:00 IST CRM reconciliation (bot vs
+  `GET {CRM_BASE_URL}/reconciliation/open` [CONFIRM contract], lists mismatches, changes nothing; skipped when
+  CRM_ENABLED is off), 02:30 IST data retention (`RETENTION_DAYS` [CONFIRM]; unset = skipped). Runs in `job_run`;
+  "Run now" on CRM sync / Data requests. Erase keeps the number and opt-out, never runs with an open case.
+- Screens: Follow-ups (cancel), WhatsApp templates (`wa_template`, status by hand or "Read status from Meta" with
+  `WHATSAPP_WABA_ID`; rejected / paused / disabled templates are refused in WhatsappClient), Plans: propose ->
+  a different user approves (`plan_change`, permissions `plans.edit` / `plans.approve`, version + 1).
+
 ## Human takeover (Full Plan 12.9)
 
 - Take over = ESCALATED (not PAUSE), `taken_over_by_id` / `taken_over_at` saved. Hand back takes an
@@ -130,6 +144,11 @@ Super Admin always all; nobody can remove `roles.manage` from their own role). P
 
 ## Running it locally for tests
 
+On Windows start node with an UPPERCASE drive path (`cd "D:/sharyx/oxxy/oxy/backend" && node "D:/.../dist/main.js"`):
+from Git Bash's `/d/...` the entity glob and the imports load two copies of every entity and every query fails
+with "DataSource is not set for this entity".
+
+
 A throwaway Postgres on 5544 and Redis on 6379 were used (not the developer's databases).
 Backend from `oxy/backend` after `npm run build`:
 
@@ -140,7 +159,7 @@ env PORT=8766 DB_HOST=localhost DB_PORT=5544 DB_USER=postgres DB_PASS=x DB_NAME=
 `WHATSAPP_API_BASE` and `ANTHROPIC_BASE_URL` pointed at a small local mock (fake Meta API + scripted
 Claude) on 8799, so no real messages or API calls were made. Seeded console logins: `admin@oxxy.com`,
 `user@oxxy.com`, `superadmin@oxxy.com` (dev seed password in `CommonSeeder.service.ts`).
-Tests: `npx jest` in `backend` (711 passing); `npx tsc -b`, `npx eslint src`, `npx vite build` in `frontend`.
+Tests: `npx jest` in `backend` (728 passing); `npx tsc -b`, `npx eslint src`, `npx vite build` in `frontend`.
 
 ## Real WhatsApp
 
@@ -151,12 +170,9 @@ template approvals above. The token was shared in chat, so rotate it.
 
 ## Open items (not built yet)
 
-- No WebSocket live updates in the console (it polls).
-- Nightly CRM reconciliation and the data-retention deletion job.
 - The CMB gate YES/NO and booking date parsing accept English / Hinglish forms; Hindi month names are not parsed.
 - O senior callback does not offer callback time options yet (team hours / SLA are [CONFIRM]).
 - No opt-in path after STOP (`ConversationRepository.optIn` exists but nothing calls it).
-- Templates, Follow-ups and two-person price approval screens.
 
 ## Decisions waiting for the business team
 

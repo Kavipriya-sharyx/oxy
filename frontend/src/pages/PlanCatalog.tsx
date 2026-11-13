@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { listPlanCatalog } from "../api/planCatalog.api";
 import type { PlanCatalog as PlanRow } from "../types";
 import { Empty, ErrorNote, inr, Panel, Pill, usePageTitle } from "../components/ui";
+import PlanChangePanel from "../components/PlanChangePanel";
 
 const ORDER = ["everyday", "vital", "thrive", "infinity"];
 const FIT: Record<string, string> = {
@@ -28,7 +29,8 @@ export default function PlanCatalog() {
           <Pill tone="warn">Confirm before launch</Pill>
           <span style={{ flex: 1, minWidth: 0 }}>
             The bot reads every price, GST rate, renewal term and link from this catalogue. Claude
-            never writes a price. Values marked [CONFIRM] are still open with Oxxy.
+            never writes a price. Values marked [CONFIRM] are still open with Oxxy. A change needs two people:
+            one proposes it below, a different user approves it.
           </span>
         </div>
       </div>
@@ -127,6 +129,7 @@ export default function PlanCatalog() {
           </div>
         </Panel>
       </div>
+      <PlanChangePanel rows={rows} />
       <Panel
         title="Links and terms"
         note="What the bot sends after the disclosure and a YES"

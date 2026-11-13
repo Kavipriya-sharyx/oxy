@@ -61,6 +61,14 @@ import { CustomerRecordService } from "./Service/Crm/CustomerRecord.service";
 import { AnalyticsService } from "./Service/Crm/Analytics.service";
 import { ActionsApiKeyGuard, ActionsController } from "./Controller/Crm/Actions.controller";
 import { InsightsController } from "./Controller/Crm/Insights.controller";
+import { LiveController } from "./Controller/Oxxy/Live.controller";
+import { LiveEventsService } from "./Service/Live/LiveEvents.service";
+import { OpsController } from "./Controller/Oxxy/Ops.controller";
+import { CrmReconciliationService } from "./Service/Ops/CrmReconciliation.service";
+import { RetentionService } from "./Service/Ops/Retention.service";
+import { NightlyJobsService } from "./Service/Ops/NightlyJobs.service";
+import { PlanChangeService } from "./Service/Ops/PlanChange.service";
+import { TemplatesService } from "./Service/Ops/Templates.service";
 
 @Module({
   imports: [
@@ -128,6 +136,8 @@ import { InsightsController } from "./Controller/Crm/Insights.controller";
     ConsoleController,
     ActionsController,
     InsightsController,
+    LiveController,
+    OpsController,
   ],
   providers: [
     AuthService,
@@ -168,6 +178,12 @@ import { InsightsController } from "./Controller/Crm/Insights.controller";
     BotActionsService,
     CustomerRecordService,
     AnalyticsService,
+    LiveEventsService,
+    CrmReconciliationService,
+    RetentionService,
+    NightlyJobsService,
+    PlanChangeService,
+    TemplatesService,
     ActionsApiKeyGuard,
     CacheService,
     {

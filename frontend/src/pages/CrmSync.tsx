@@ -11,6 +11,7 @@ import {
   type Tone,
   usePageTitle,
 } from "../components/ui";
+import { ReconciliationPanel } from "../components/JobRunPanels";
 
 const STATUS: Record<string, [string, Tone]> = {
   pending: ["Pending", "info"],
@@ -60,6 +61,7 @@ export default function CrmSync() {
           detail="Signed with HMAC-SHA256"
         />
       </div>
+      <ReconciliationPanel />
       <ErrorNote error={outbox.error || hooks.error} />
       <Panel
         title="Bot to CRM (outbox)"

@@ -3,7 +3,8 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../hooks/useAuth";
 import { usePermissions } from "../hooks/usePermissions";
-import { Icon, initials, TitleProvider, usePageTitleValue } from "./ui";
+import { Icon, initials, Pill, TitleProvider, usePageTitleValue } from "./ui";
+import { useLiveUpdates } from "../hooks/useLiveUpdates";
 import { getPendingBookings } from "../api/bookings.api";
 
 // Same groups and order as the approved prototype
@@ -16,6 +17,7 @@ const NAV: [string, [string, string, string][]][] = [
       ["/bookings", "Booking requests", "cal"],
       ["/activations", "Activations", "card"],
       ["/escalations", "Escalations", "task"],
+      ["/follow-ups", "Follow-ups", "cal"],
     ],
   ],
   ["Directory", [["/centres", "Centres", "pin"]]],
@@ -25,6 +27,7 @@ const NAV: [string, [string, string, string][]][] = [
     [
       ["/plan-catalog", "Plans and prices", "tag"],
       ["/triggers", "Triggers A–R", "zap"],
+      ["/templates", "WhatsApp templates", "doc"],
       ["/reports", "Reports", "chart"],
     ],
   ],
@@ -66,6 +69,7 @@ function Shell() {
     refetchInterval: 60_000,
   });
   const counts: Record<string, number> = { "/bookings": pending.data?.length ?? 0 };
+  const live = useLiveUpdates(!!role);
 
   const toggle = () => {
     if (window.innerWidth <= 860) return setOpen((o) => !o);
@@ -150,6 +154,9 @@ function Shell() {
             {sub && <div className="eyebrow">{sub}</div>}
             <h1>{title}</h1>
           </div>
+          <span title={live === "live" ? "Screens update as soon as something changes" : "Live updates are reconnecting; screens still refresh every few seconds"}>
+            <Pill tone={live === "live" ? "ok" : undefined}>{live === "live" ? "Live" : live === "connecting" ? "Connecting…" : "Offline"}</Pill>
+          </span>
           <label className="search">
             <span className="muted small">Search</span>
             <input

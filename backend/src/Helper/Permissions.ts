@@ -15,6 +15,8 @@ export const PERMISSIONS = [
   { key: "centres.read", group: "Directory", label: "See centres" },
   { key: "centres.edit", group: "Directory", label: "Add, edit and remove centres" },
   { key: "plans.read", group: "Control", label: "See plans and prices" },
+  { key: "plans.edit", group: "Control", label: "Propose a price or plan change" },
+  { key: "plans.approve", group: "Control", label: "Approve someone else's plan change (two-person rule)" },
   { key: "triggers.read", group: "Control", label: "See triggers A–R" },
   { key: "crm.manage", group: "Admin", label: "See CRM sync and retry calls" },
   { key: "privacy.handle", group: "Admin", label: "Handle data requests (DPDP)" },

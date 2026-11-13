@@ -12,6 +12,8 @@ import Reports from "../pages/Reports";
 import Triggers from "../pages/Triggers";
 import PrivacyRequests from "../pages/PrivacyRequests";
 import Settings from "../pages/Settings";
+import FollowUps from "../pages/FollowUps";
+import Templates from "../pages/Templates";
 import Content from "../pages/Content";
 import Users from "../pages/Users";
 import NoAccess from "../pages/NoAccess";
@@ -68,6 +70,8 @@ export default function AppRoutes() {
         <Route path="/no-access" element={<NoAccess />} />
         <Route path="/settings" element={guard("/settings", <Settings />)} />
         <Route path="/content" element={guard("/content", <Content />)} />
+        <Route path="/follow-ups" element={guard("/follow-ups", <FollowUps />)} />
+        <Route path="/templates" element={guard("/templates", <Templates />)} />
       </Route>
       <Route path="*" element={<Landing />} />
     </Routes>

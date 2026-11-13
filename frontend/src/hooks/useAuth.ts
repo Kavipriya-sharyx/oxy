@@ -4,6 +4,7 @@ import { clearToken, getToken, setToken } from "../api/client";
 interface TokenPayload {
   email?: string;
   user_role_name?: string;
+  user_id?: string;
 }
 
 function readPayload(token: string | null): TokenPayload | null {
@@ -40,6 +41,7 @@ export function useAuth() {
     token,
     isLoggedIn: token !== null,
     email: payload?.email ?? null,
+    userId: payload?.user_id ?? null,
     role: payload?.user_role_name ?? null,
     login,
     logout,

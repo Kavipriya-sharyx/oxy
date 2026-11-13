@@ -59,7 +59,7 @@ export default function LiveChat() {
   const convs = useQuery({
     queryKey: ["conversations"],
     queryFn: listConversations,
-    refetchInterval: 5000,
+    refetchInterval: 20_000, // live updates push changes; this is the fallback
   });
   const filters: Record<View, (c: Conversation) => boolean> = {
     all: () => true,
@@ -82,7 +82,7 @@ export default function LiveChat() {
     queryKey: ["messages", active?.id],
     queryFn: () => listMessages(active!.id),
     enabled: !!active?.id,
-    refetchInterval: 4000,
+    refetchInterval: 15_000, // live updates push changes; this is the fallback
   });
   useEffect(() => {
     if (msgsRef.current) msgsRef.current.scrollTop = msgsRef.current.scrollHeight;

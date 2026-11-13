@@ -28,6 +28,13 @@ export const CONFIG_FIELDS: ConfigFieldDef[] = [
     placeholder: "e.g. 1154030421127355",
   },
   {
+    key: "WHATSAPP_WABA_ID",
+    configPath: "Whatsapp.WabaId",
+    label: "WhatsApp Business Account ID (template status sync)",
+    group: "whatsapp",
+    placeholder: "e.g. 102290129340398",
+  },
+  {
     key: "WHATSAPP_VERIFY_TOKEN",
     configPath: "Whatsapp.VerifyToken",
     label: "Webhook Verify Token",
