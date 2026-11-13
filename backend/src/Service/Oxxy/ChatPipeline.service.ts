@@ -11,7 +11,44 @@ import { activation } from "@Database/Table/Oxxy/activation";
 import { task } from "@Database/Table/Oxxy/task";
 import { booking_request } from "@Database/Table/Oxxy/booking_request";
 import { BookingStatus } from "@Helper/Enum/BookingStatus";
-import { fixedReply, NEUTRAL_SAVINGS_LINE, NOTICE_VERSION } from "@Helper/FixedReplies";
+import { fixedReply, NOTICE_VERSION } from "@Helper/FixedReplies";
+import {
+  ASK_AGE,
+  ASK_CITY,
+  disclosureText,
+  honestText,
+  INSURANCE_ANSWER,
+  INSURANCE_COORDINATION,
+  PLAN_REASON,
+  LINK_DECLINED,
+  linkText,
+  NO_CENTRE,
+  PAYMENT_DONE,
+  PAYMENT_FAILED,
+  PAYMENT_NOT_NOW,
+  recommendText,
+  SOFT_ACTIVATION_DECLINED,
+  softActivationText,
+  timingCaution,
+  unknownCentreText,
+} from "@Helper/PlanReplies";
+import { trigger_event } from "@Database/Table/Oxxy/trigger_event";
+import { eligibility } from "@Database/Table/Oxxy/eligibility";
+import { cmbWorthIt } from "./ValueCheck.service";
+import {
+  asksForCmb,
+  cmbNotWorthText,
+  cmbOfferText,
+  columnFor,
+  GATE_QUESTION,
+  GATE_STEPS,
+  GateStep,
+  gateComplete,
+  gateFailed,
+  notEligibleText,
+  parseAmount,
+} from "./CmbGate";
+import { FollowUpSchedulerService } from "./FollowUpScheduler.service";
 import { OutboundMessage } from "@Helper/WhatsappMessage";
 import { matchMenuRow, menuReply, openingList, WELCOME } from "@Helper/OpeningMenu";
 import { ConversationState } from "@Helper/Enum/ConversationState";
@@ -34,7 +71,7 @@ import { DataSource } from "typeorm";
 import { CrmOutboxService } from "@Service/Crm/CrmOutbox.service";
 import { CrmAction } from "@Helper/Enum/CrmAction";
 import { ConversationRepository } from "./ConversationRepository.service";
-import { InvalidTransitionError } from "./ConversationStateMachine";
+import { canTransition, InvalidTransitionError } from "./ConversationStateMachine";
 import { TriggerEngineService } from "./TriggerEngine.service";
 import {
   asksHealthQuestion,
@@ -53,6 +90,41 @@ export interface Inbound {
   timestamp?: Date;
   profileName?: string;
   location?: { latitude: number; longitude: number };
+}
+
+// Trigger Q: one reminder this long after the link, if it is still unpaid [CONFIRM] the delay
+export const TRIGGER_Q_DELAY_MS = Number(process.env.TRIGGER_Q_DELAY_HOURS || 4) * 60 * 60 * 1000;
+
+// A reply after the activation link (plan 12.5). Short messages only: a longer one is a question for Claude.
+export function paymentReplyKind(text: string): "done" | "failed" | "not_now" | null {
+  const t = (text || "").toLowerCase().replace(/[^\p{L}\p{M}\p{N}\s']/gu, " ").replace(/\s+/g, " ").trim();
+  if (!t || t.split(" ").length > 8) return null;
+  if (
+    /\b(payment|transaction|txn|paisa|paise|payment ho)\b.*\b(failed|fail|declined|not (gone|going|working)|nahi hua|nahi gaya|atak)\b/.test(t) ||
+    /\b(failed|declined)\b.*\b(payment|transaction)\b/.test(t) ||
+    /पेमेंट (फेल|नहीं हुआ)/.test(t)
+  )
+    return "failed";
+  if (
+    /^(done|paid|payment done|paid done|completed|payment completed|i have paid|i paid|ho gaya|ho gya|kar diya|payment ho gaya|payment kar diya|हो गया|पेमेंट हो गया|कर दिया)( (it|now|already|ji|sir|madam))?$/.test(
+      t,
+    )
+  )
+    return "done";
+  if (/^(not now|later|maybe later|baad mein|baad me|abhi nahi|abhi nahin|बाद में|अभी नहीं)( please| ji)?$/.test(t))
+    return "not_now";
+  return null;
+}
+
+// true when the plan's activation time ("5 to 10 working days") ends after the requested date
+export function activationAfter(preferredDate: string, activationTime: string, now = new Date()): boolean {
+  const nums = (activationTime.match(/\d+/g) || []).map(Number);
+  if (!nums.length) return false;
+  const n = Math.max(...nums);
+  const days = /working|business/i.test(activationTime) ? Math.ceil((n * 7) / 5) : n;
+  const date = new Date(`${preferredDate}T00:00:00+05:30`);
+  if (isNaN(date.getTime())) return false;
+  return date.getTime() < now.getTime() + days * 24 * 60 * 60 * 1000;
 }
 
 // Postgres unique_violation
@@ -84,6 +156,7 @@ export class ChatPipelineService {
     private readonly _Outbox: CrmOutboxService,
     private readonly _ConvRepo: ConversationRepository,
     @Optional() private readonly _Triggers?: TriggerEngineService,
+    @Optional() private readonly _Scheduler?: FollowUpSchedulerService,
   ) {}
 
   // Step 1: dedupe + save. Returns null for a duplicate wa_message_id.
@@ -110,7 +183,8 @@ export class ChatPipelineService {
       cust.first_name = m.profileName;
       await cust.save();
     }
-    const conv = (await this._ConvRepo.findOpenByCustomer(cust.id)) ?? (await this._ConvRepo.openNew(cust.id));
+    const conv =
+      (await this._ConvRepo.findOpenByCustomer(cust.id)) ?? (await this._ConvRepo.openNew(cust.id));
     conv.last_customer_message_at = new Date();
     // update only this column: a full save() could overwrite the state the repository just wrote
     await conversation.update(conv.id, { last_customer_message_at: conv.last_customer_message_at });
@@ -136,16 +210,41 @@ export class ChatPipelineService {
     return { customer: cust, conversation: conv, message: saved };
   }
 
+  // true when a later inbound message in this conversation already has a reply
+  async isStale(s: Saved): Promise<boolean> {
+    const m = s.message;
+    if (!m?.id) return false;
+    // compared inside SQL: created_on has no time zone, so a JS Date parameter would shift by 5:30
+    const newer = await message
+      .createQueryBuilder("o")
+      .where("o.conversation_id = :cid", { cid: m.conversation_id })
+      .andWhere("o.direction = 'in'")
+      .andWhere("o.id <> :id", { id: m.id })
+      .andWhere(`o.created_on > (SELECT x.created_on FROM "message" x WHERE x.id = :id)`, { id: m.id })
+      .andWhere(
+        `EXISTS (SELECT 1 FROM "message" r WHERE r.direction = 'out' AND r.reply_to_wa_message_id = o.wa_message_id)`,
+      )
+      .getCount();
+    return newer > 0;
+  }
+
   private async alreadyReplied(inboundWamid: string): Promise<boolean> {
     if (!inboundWamid) return false;
-    return !!(await message.findOne({ where: { direction: "out", reply_to_wa_message_id: inboundWamid } }));
+    return !!(await message.findOne({
+      where: { direction: "out", reply_to_wa_message_id: inboundWamid },
+    }));
   }
 
   // WhatsappClient.send() checks the rules, sends and saves the outbound row (tagged with the inbound wamid).
   // If a reply to this inbound message already exists, nothing is sent.
-  private async sendAndSave(customerId: string, content: string | OutboundMessage, replyTo: string) {
+  private async sendAndSave(
+    customerId: string,
+    content: string | OutboundMessage,
+    replyTo: string,
+  ) {
     if (await this.alreadyReplied(replyTo)) return;
-    const msg: OutboundMessage = typeof content === "string" ? { kind: "text", body: content } : content;
+    const msg: OutboundMessage =
+      typeof content === "string" ? { kind: "text", body: content } : content;
     try {
       await this._Wa.send(customerId, msg, "reply", replyTo);
     } catch (e) {
@@ -155,15 +254,22 @@ export class ChatPipelineService {
 
   // Change state only through ConversationRepository. A change the state machine does not allow
   // is logged (ids and state names only) and skipped, never forced.
+  // `path` is the route to the target, e.g. [ROUTING, PLAN_FIT, ACTIVATION]. Steps the conversation is
+  // already past are skipped, so the same path works from DISCOVERY, PLAN_FIT or BOOKING_RECORDED.
   private async setState(s: Saved, path: ConversationState[]): Promise<void> {
     if (s.conversation.state === path[path.length - 1]) return;
-    for (const to of path) {
+    for (let i = 0; i < path.length; i++) {
+      const to = path[i];
+      const isLast = i === path.length - 1;
+      if (!isLast && !canTransition(s.conversation.state, to)) continue;
       try {
         const updated = await this._ConvRepo.transition(s.conversation.id, to);
         s.conversation.state = updated.state;
       } catch (e) {
         if (e instanceof InvalidTransitionError) {
-          this.logger.warn(`conversation ${s.conversation.id}: state change ${e.from} -> ${e.to} not allowed, skipped`);
+          this.logger.warn(
+            `conversation ${s.conversation.id}: state change ${e.from} -> ${e.to} not allowed, skipped`,
+          );
           return;
         }
         throw e;
@@ -171,7 +277,13 @@ export class ChatPipelineService {
     }
   }
 
-  private async createTask(type: TaskType, priority: TaskPriority, s: Saved, summary: string) {
+  private async createTask(
+    type: TaskType,
+    priority: TaskPriority,
+    s: Saved,
+    summary: string,
+    opts: { sendToCrm?: boolean } = {},
+  ) {
     const row = await this._DataSource.transaction(async (mg) => {
       const t = await mg.save(
         mg.create(task, {
@@ -183,6 +295,7 @@ export class ChatPipelineService {
           summary,
         } as any),
       );
+      if (opts.sendToCrm === false) return null;
       return await this._Outbox.enqueue(mg, CrmAction.CreateTask, s.customer.id, {
         task_id: (t as any).id,
         type,
@@ -234,15 +347,21 @@ export class ChatPipelineService {
       c.marketing_consent = false;
       await mg.save(c);
       try {
-        const updated = await this._ConvRepo.transition(s.conversation.id, ConversationState.OptedOut, {
-          reason: "stop",
-          manager: mg,
-        });
+        const updated = await this._ConvRepo.transition(
+          s.conversation.id,
+          ConversationState.OptedOut,
+          {
+            reason: "stop",
+            manager: mg,
+          },
+        );
         s.conversation.state = updated.state;
       } catch (e) {
         // STOP must always work: the opt-out is saved even if the state change is refused
         if (!(e instanceof InvalidTransitionError)) throw e;
-        this.logger.warn(`conversation ${s.conversation.id}: state change ${e.from} -> ${e.to} not allowed, skipped`);
+        this.logger.warn(
+          `conversation ${s.conversation.id}: state change ${e.from} -> ${e.to} not allowed, skipped`,
+        );
       }
       return await this._Outbox.enqueue(mg, CrmAction.SetOptOut, s.customer.id, {
         customer_id: s.customer.id,
@@ -250,6 +369,8 @@ export class ChatPipelineService {
       });
     });
     await this._Outbox.dispatch(row);
+    // every scheduled follow-up stops at once (plan 12.7)
+    await this._Scheduler?.cancelAll(s.customer.id, "opt_out");
   }
 
   // Fixed replies, no Claude. Each branch: task first (once per wamid), then state, then the reply
@@ -295,21 +416,37 @@ export class ChatPipelineService {
         c.privacy_request_at = new Date();
         c.marketing_consent = false;
       });
-      await this.createTaskOnce(TaskType.PrivacyRequest, TaskPriority.High, s, `${ref} privacy / deletion request`);
+      await this._Scheduler?.cancelAll(s.customer.id, "privacy_request");
+      await this.createTaskOnce(
+        TaskType.PrivacyRequest,
+        TaskPriority.High,
+        s,
+        `${ref} privacy / deletion request`,
+      );
       await this.setState(s, [ConversationState.Pause]);
       await this.sendAndSave(s.customer.id, fixedReply("privacy", lang), m.waMessageId);
       return;
     }
 
     if (hit.kind === "complaint") {
-      await this.createTaskOnce(TaskType.Escalation, TaskPriority.Urgent, s, `${ref} complaint or payment dispute`);
+      await this.createTaskOnce(
+        TaskType.Escalation,
+        TaskPriority.Urgent,
+        s,
+        `${ref} complaint or payment dispute`,
+      );
       await this.setState(s, [ConversationState.Escalated]);
       await this.sendAndSave(s.customer.id, fixedReply("complaint", lang), m.waMessageId);
       return;
     }
 
     // talk to a person
-    await this.createTaskOnce(TaskType.Escalation, TaskPriority.Normal, s, `${ref} customer asked for a person`);
+    await this.createTaskOnce(
+      TaskType.Escalation,
+      TaskPriority.Normal,
+      s,
+      `${ref} customer asked for a person`,
+    );
     await this.setState(s, [ConversationState.Escalated]);
     await this.sendAndSave(s.customer.id, fixedReply("escalation", lang), m.waMessageId);
   }
@@ -317,7 +454,12 @@ export class ChatPipelineService {
   // DPDP consent step. Ends the turn. No Claude call, no health question, no other text than the fixed replies.
   //  none     -> send the notice (nothing else in this turn), then remember it was sent
   //  awaiting -> read this message as the answer: YES / NO saved first, then the reply; unclear -> ask again
-  private async handleConsentStep(status: "none" | "awaiting", m: Inbound, s: Saved, cons: consent | null) {
+  private async handleConsentStep(
+    status: "none" | "awaiting",
+    m: Inbound,
+    s: Saved,
+    cons: consent | null,
+  ) {
     const lang = s.customer.language;
     const customerId = s.customer.id;
 
@@ -347,7 +489,11 @@ export class ChatPipelineService {
         await this.sendAndSave(customerId, openingList(lang, ack), m.waMessageId);
         await this.setState(s, [ConversationState.IntentMenu]);
       } else {
-        await this.sendAndSave(customerId, `${ack} ${WELCOME[lang === "hi" || lang === "hinglish" ? lang : "en"]}`, m.waMessageId);
+        await this.sendAndSave(
+          customerId,
+          `${ack} ${WELCOME[lang === "hi" || lang === "hinglish" ? lang : "en"]}`,
+          m.waMessageId,
+        );
       }
     } else if (answer === "no") {
       await this.saveConsentRow(customerId, cons, (c) => {
@@ -364,7 +510,11 @@ export class ChatPipelineService {
   }
 
   // One transaction; throws when it cannot save (fail closed)
-  private async saveConsentRow(customerId: string, cons: consent | null, change: (c: consent) => void) {
+  private async saveConsentRow(
+    customerId: string,
+    cons: consent | null,
+    change: (c: consent) => void,
+  ) {
     await this._DataSource.transaction(async (mg) => {
       const c = cons ?? mg.create(consent, { customer_id: customerId });
       change(c);
@@ -382,12 +532,32 @@ export class ChatPipelineService {
     // 1. Guardrails run first: before Claude, before any context is loaded, and even for an
     // opted-out customer (a safety reply must still go out). A hit ends the turn.
     const hit = this._Guardrail.check(m.text);
+    // the customer's response to the last trigger (Trigger layer 13: trigger-to-response KPIs)
+    await this.markTriggerResponse(
+      s.conversation.id,
+      hit?.kind === "stop" || hit?.also_stop
+        ? "opted_out"
+        : hit && hit.kind !== "emergency" && hit.kind !== "self_harm"
+          ? "escalated"
+          : "replied",
+    );
     if (hit) {
       await this.handleGuardrail(hit, m, s, cons);
       return;
     }
 
     if (cons?.opt_out_at) return; // opted out: no messages at all
+
+    // 1a. Strict order (plan 12.10). A retried or recovered job can reach us after a NEWER message from
+    // the same customer was already answered. Running it now would read an old "yes" or "hi" as the
+    // answer to today's question, so it is skipped (safety and STOP were already handled above).
+    if (await this.isStale(s)) {
+      await message.update(s.message!.id, { message_status: "stale" });
+      this.logger.warn(
+        `conversation ${s.conversation.id}: message ${s.message!.id} skipped, a newer message was already answered`,
+      );
+      return;
+    }
 
     if (
       s.conversation.state === ConversationState.Pause ||
@@ -423,6 +593,13 @@ export class ChatPipelineService {
       }
     }
 
+    // 1d. Answers the system is waiting for, and questions with an approved fixed answer (no Claude)
+    if (await this.handleCmbGate(m, s)) return;
+    if (await this.handleActivationAnswer(m, s)) return;
+    if (await this.handleSoftActivationAnswer(m, s)) return;
+    if (await this.handlePaymentReply(m, s)) return;
+    if (await this.handleInsurance(m, s)) return;
+
     // the first message of a conversation starts the discovery
     await this.setState(s, [ConversationState.Discovery]);
 
@@ -440,7 +617,8 @@ export class ChatPipelineService {
     while (history.length && history[0].role !== "user") history.shift();
     if (!history.length) history.push({ role: "user", content: m.text });
     // the current message must be the last (user) turn
-    if (history[history.length - 1].role !== "user") history.push({ role: "user", content: m.text });
+    if (history[history.length - 1].role !== "user")
+      history.push({ role: "user", content: m.text });
 
     const context = this.describe(s.customer, cons, !healthBlocked);
 
@@ -463,7 +641,9 @@ export class ChatPipelineService {
         else {
           feedback = v.reasons.join("; ") || "empty reply";
           // the reasons only (never the draft text) go to the log
-          this.logger.warn(`conversation ${s.conversation.id}: draft rejected (attempt ${attempt + 1}): ${feedback}`);
+          this.logger.warn(
+            `conversation ${s.conversation.id}: draft rejected (attempt ${attempt + 1}): ${feedback}`,
+          );
         }
       } catch (e: any) {
         this.logger.error(`Claude call failed: ${e.message}`);
@@ -471,7 +651,9 @@ export class ChatPipelineService {
       }
     }
     if (!result) {
-      this.logger.warn(`conversation ${s.conversation.id}: draft replaced by the fixed holding message: ${feedback ?? "n/a"}`);
+      this.logger.warn(
+        `conversation ${s.conversation.id}: draft replaced by the fixed holding message: ${feedback ?? "n/a"}`,
+      );
       await this.createTask(
         TaskType.HoldingMessage,
         TaskPriority.High,
@@ -493,11 +675,27 @@ export class ChatPipelineService {
       };
     }
     const extras = await this.applyResult(result, s, m);
-    if (this._Triggers) {
-      const trig = this._Triggers.inferCandidate(result.intent, s.conversation.selected_product, result.needs_human);
-      await this._Triggers.recordIfAllowed(s.customer.id, s.conversation, trig, result.intent);
+    // while the Cut Medi Bills gate is open no trigger fires; Trigger I is recorded when it passes
+    if (this._Triggers && !s.conversation.pending_action?.startsWith("cmb_gate:")) {
+      const trig = this._Triggers.inferCandidate(
+        result.intent,
+        s.conversation.selected_product,
+        result.needs_human,
+      );
+      await this._Triggers.recordIfAllowed(
+        s.customer.id,
+        s.conversation,
+        trig,
+        result.intent,
+        s.customer.active_product,
+      );
     }
-    const finalText = [result.reply_text, ...extras].join("\n\n");
+    // a question interrupted the Cut Medi Bills gate: answer it, then ask the same question again (12.2)
+    const openGate = s.conversation.pending_action?.startsWith("cmb_gate:")
+      ? (s.conversation.pending_action.split(":")[1] as GateStep)
+      : null;
+    const back = openGate && !extras.length && GATE_QUESTION[openGate] ? [GATE_QUESTION[openGate]] : [];
+    const finalText = [result.reply_text, ...extras, ...back].join("\n\n");
 
     if (result.needs_human) {
       await this.createTask(
@@ -533,16 +731,22 @@ export class ChatPipelineService {
     if (["en", "hi", "hinglish"].includes(f.language)) c.language = f.language;
     if (Number.isFinite(Number(f.age)) && Number(f.age) > 0) c.age = Number(f.age);
 
-    // rule: one active product per customer
+    // rule: one active product per customer. Cut Medi Bills is set only after its eligibility gate
+    // passes (plan 12.3 / 8.2), never straight from Claude.
+    let wantsCmb = false;
     if (f.selected_product && Object.values(ProductType).includes(f.selected_product)) {
       if (c.active_product && c.active_product !== f.selected_product) {
         extras.push(
           "You already have an active product with us, so I can help only with that one.",
         );
+      } else if (f.selected_product === ProductType.CutMediBills) {
+        wantsCmb = conv.selected_product !== ProductType.CutMediBills;
       } else {
         conv.selected_product = f.selected_product;
       }
     }
+    if (asksForCmb(m.text) && !c.active_product && conv.selected_product !== ProductType.CutMediBills)
+      wantsCmb = true;
     await c.save();
 
     // consent
@@ -565,9 +769,14 @@ export class ChatPipelineService {
       "expected_bill",
       "annual_medical_spend",
       "insurance_status",
+      "urgency",
+      "postcode",
+      "condition_if_voluntary",
     ];
     const needData: any = {};
     for (const k of needKeys) if (f[k] != null && f[k] !== "") needData[k] = f[k];
+    if (["ongoing", "single_expense"].includes(f.need_pattern)) needData.need_pattern = f.need_pattern;
+    if (typeof f.pre_existing === "boolean") needData.pre_existing = f.pre_existing;
     let n = await need.findOne({ where: { conversation_id: conv.id } });
     if (Object.keys(needData).length) {
       if (!n) n = need.create({ conversation_id: conv.id } as any);
@@ -575,31 +784,78 @@ export class ChatPipelineService {
       await n.save();
     }
 
-    // intent actions
-    if (r.intent === "recommend" && n?.annual_medical_spend) {
-      const product = conv.selected_product || ProductType.Oxxy;
-      const pick = await this._ValueCheck.recommend(
-        Number(n.annual_medical_spend),
-        c.age ?? null,
-        product,
-      );
-      if (pick) {
-        conv.recommended_plan = pick.plan;
-        await this.setState(s, [
-          ConversationState.Routing,
-          product === ProductType.CutMediBills ? ConversationState.CutMediBillsFit : ConversationState.PlanFit,
-        ]);
-        const gst = 0.18;
-        extras.push(
-          `Suggested plan: ${pick.plan.toUpperCase()} - \u20b9${pick.price} per year + GST ` +
-            `(\u20b9${Math.round(pick.price * (1 + gst))} incl. 18% GST).`,
-        );
-        // never a saving promise: the neutral line goes with every plan suggestion
-        extras.push(NEUTRAL_SAVINGS_LINE[c.language === "hi" || c.language === "hinglish" ? c.language : "en"]);
+    // Routing (plan 12.3): an explicit ask, or one known upcoming expense whose 30% saving beats the
+    // monthly price + GST, goes to Cut Medi Bills, but only through the eligibility gate.
+    let routedToCmb = false;
+    const gateOpen = !!conv.pending_action?.startsWith("cmb_gate:");
+    if (!gateOpen && !c.active_product && conv.selected_product !== ProductType.CutMediBills) {
+      const single =
+        r.intent === "recommend" &&
+        n?.need_pattern === "single_expense" &&
+        !!n?.expected_bill &&
+        !n?.annual_medical_spend &&
+        (await this.cmbValue(Number(n.expected_bill)))?.ok === true;
+      if (wantsCmb || single) {
+        const gate = await this.latestGate(conv.id);
+        const named = f.centre_name ? String(f.centre_name).trim() : null;
+        const otherCentre =
+          !!named && named.toLowerCase() !== (gate?.centre_name || "").trim().toLowerCase();
+        if (!gate || (!gateFailed(gate) && !gateComplete(gate)) || (gateFailed(gate) && otherCentre)) {
+          extras.push(await this.startCmbGate(s, n, named));
+          routedToCmb = true;
+        } else if (gateFailed(gate) && wantsCmb) {
+          extras.push(
+            "As we checked earlier, Cut Medi Bills cannot be used for that expense because something was already booked, registered, started or billed at that centre. If it is for a different centre, tell me its name.",
+          );
+          routedToCmb = true;
+        }
       }
     }
 
-    if (r.intent === "find_centre") {
+    // intent actions
+    // Oxxy plan choice (12.3): age first, then by need, then the value check; an honest answer when no
+    // plan pays for itself. Prices and the saving figure come from plan_catalog, never from Claude.
+    if (
+      !routedToCmb &&
+      r.intent === "recommend" &&
+      n?.annual_medical_spend &&
+      (conv.selected_product || ProductType.Oxxy) === ProductType.Oxxy
+    ) {
+      const spend = Number(n.annual_medical_spend);
+      const pick = await this._ValueCheck.recommend(
+        spend,
+        c.age ?? null,
+        n.healthcare_need,
+        ProductType.Oxxy,
+      );
+      if (pick?.status === "ask_age") {
+        extras.push(ASK_AGE);
+      } else if (pick) {
+        const prices = await this._ValueCheck.prices(ProductType.Oxxy, pick.plan);
+        conv.selected_product = ProductType.Oxxy;
+        conv.recommended_plan = pick.plan;
+        // Routing group (Playbook 17)
+        conv.recommendation_reason = PLAN_REASON[pick.plan] ?? null;
+        conv.value_check_passed = pick.status === "recommend";
+        conv.alternate_product_suppressed = true;
+        await this.setState(s, [ConversationState.Routing, ConversationState.PlanFit]);
+        extras.push(
+          pick.status === "recommend"
+            ? recommendText(
+                pick.plan,
+                prices.yearly ?? pick.price,
+                prices.monthly,
+                spend,
+                pick.saving,
+              )
+            : honestText(pick.plan, prices.yearly ?? pick.price, prices.monthly, spend),
+        );
+      }
+    }
+
+    if (r.intent === "find_centre" && !m.location && !n?.city) {
+      extras.push(ASK_CITY); // never list centres from another city
+    } else if (r.intent === "find_centre") {
       const list = await this._CentreSearch.search({
         latitude: m.location?.latitude,
         longitude: m.location?.longitude,
@@ -607,6 +863,11 @@ export class ChatPipelineService {
         specialisation: n?.specialisation,
         city: n?.city,
       });
+      if (n) {
+        // Provider group: exactly the directory ids shown, in order (never names the model wrote)
+        n.suggested_centre_ids = list.map((x) => x.id);
+        await n.save();
+      }
       if (list.length) {
         extras.push(
           "Centres near you:\n" +
@@ -615,8 +876,11 @@ export class ChatPipelineService {
                 (x, i) =>
                   `${i + 1}. ${x.name}${x.branch ? ", " + x.branch : ""} (${x.locality || x.city})`,
               )
-              .join("\n"),
+              .join("\n") +
+            "\n\nReply with 1-5, or send the name of another centre you prefer.",
         );
+      } else {
+        extras.push(NO_CENTRE);
       }
     }
 
@@ -640,55 +904,63 @@ export class ChatPipelineService {
               preferred_date: String(f.preferred_date),
               preferred_time: f.preferred_time ? String(f.preferred_time) : undefined,
             });
+            // the CRM creates the sales team's "confirm booking" task from create_booking_request,
+            // so this local row is the console's mirror only (no second create_task call)
             await this.createTask(
               TaskType.BookingConfirm,
               TaskPriority.Normal,
               s,
               `Booking request at ${ctr.name} on ${f.preferred_date}`,
+              { sendToCrm: false },
             );
-            await this.setState(s, [ConversationState.BookingCapture, ConversationState.BookingRecorded]);
+            await this.setState(s, [
+              ConversationState.BookingCapture,
+              ConversationState.BookingRecorded,
+            ]);
             extras.push(
-              "Your booking request has been received. Our team will confirm it with you shortly.",
+              "Your booking request has been received. It is pending confirmation: our team will confirm it with you shortly.",
             );
+            await this.recordTrigger(s, "H", "booking request saved");
+            conv.outcome = "booking_requested";
+            if (n) {
+              n.preferred_centre_id = ctr.id;
+              await n.save();
+            }
+            const soft = await this.softActivationOffer(s, String(f.preferred_date));
+            if (soft) extras.push(soft);
           } else {
-            extras.push(
-              "I couldn't match that centre name—please pick one of the listed centres and share your preferred date.",
+            // never reject a centre just because we did not suggest it: the team checks it (plan 12.4)
+            const name = String(f.centre_name).trim().slice(0, 80);
+            await this.createTaskOnce(
+              TaskType.DirectoryVerification,
+              TaskPriority.Normal,
+              s,
+              `Check centre named by the customer: ${name}`,
             );
+            extras.push(unknownCentreText(name));
           }
         }
       }
     }
 
-    if (r.intent === "activate" && conv.recommended_plan && !c.active_product) {
-      const product = conv.selected_product || ProductType.Oxxy;
-      const cat = await plan_catalog.findOne({
-        where: { product, plan: conv.recommended_plan, billing: BillingCycle.Yearly, status: true },
-      });
+    // Activation (12.5): price, GST and renewal first, then ask; the link goes only after a YES
+    // (handleActivationAnswer). One product per customer.
+    if (r.intent === "activate" && !c.active_product && !routedToCmb && !gateOpen) {
+      const billing = f.billing || (/\bmonthly\b|\bmahina|\bmonth\b/i.test(m.text) ? "monthly" : undefined);
+      const cat = await this.activationRow(conv, billing);
       if (cat?.activation_link) {
-        const actRow = await this._DataSource.transaction(async (mg) => {
-          const a = await mg.save(
-            mg.create(activation, {
-              customer_id: c.id,
-              catalog_id: cat.id,
-              product: cat.product,
-              plan: cat.plan,
-              billing: cat.billing,
-              link_sent_at: new Date(),
-              payment_status: PaymentStatus.Pending,
-              activation_status: ActivationStatus.LinkSent,
-            } as any),
-          );
-          return await this._Outbox.enqueue(mg, CrmAction.CreateActivation, c.id, {
-            activation_id: (a as any).id,
-            product: cat.product,
-            plan: cat.plan,
-            billing: cat.billing,
-          });
-        });
-        await this._Outbox.dispatch(actRow);
-        await this.setState(s, [ConversationState.Activation]);
-        extras.push(`Activation link: ${cat.activation_link}`);
-      } else {
+        conv.pending_action = `send_activation_link:${cat.id}`;
+        await this.setState(s, this.activationPath(cat.product));
+        extras.push(
+          disclosureText(
+            this.productLabel(cat),
+            Number(cat.price),
+            cat.billing,
+            cat.renewal_terms,
+            cat.activation_time,
+          ),
+        );
+      } else if (conv.selected_product || conv.recommended_plan) {
         await this.createTask(
           TaskType.Activation,
           TaskPriority.Normal,
@@ -701,8 +973,488 @@ export class ChatPipelineService {
     await conversation.update(conv.id, {
       selected_product: conv.selected_product,
       recommended_plan: conv.recommended_plan,
+      pending_action: conv.pending_action ?? null,
+      // Routing + Engagement groups (Playbook 17)
+      recommendation_reason: conv.recommendation_reason ?? null,
+      value_check_passed: conv.value_check_passed ?? null,
+      alternate_product_suppressed: !!conv.alternate_product_suppressed || !!conv.selected_product,
+      last_intent: r.intent,
+      outcome: conv.outcome ?? null,
     });
     return extras;
+  }
+
+  // ---- Cut Medi Bills gate (plan 8.2, 12.3). pending_action = "cmb_gate:<step>:<eligibility id>" ----
+
+  private async latestGate(conversationId: string): Promise<eligibility | null> {
+    return await eligibility.findOne({
+      where: { conversation_id: conversationId },
+      order: { created_on: "DESC" } as any,
+    });
+  }
+
+  private async cmbPrices(): Promise<{ monthly: plan_catalog | null; yearly: plan_catalog | null }> {
+    const rows = await plan_catalog.find({
+      where: { product: ProductType.CutMediBills, status: true },
+    });
+    return {
+      monthly: rows.find((r) => r.billing === BillingCycle.Monthly) ?? null,
+      yearly: rows.find((r) => r.billing === BillingCycle.Yearly) ?? null,
+    };
+  }
+
+  // value check on the one bill against the monthly price + GST; null when the catalogue has no price
+  private async cmbValue(bill: number): Promise<{ ok: boolean; saving: number } | null> {
+    const { monthly } = await this.cmbPrices();
+    if (!monthly || !bill) return null;
+    return cmbWorthIt(
+      bill,
+      Number(monthly.price),
+      Number((monthly as any).illustration_pct ?? monthly.max_saving_pct ?? 30),
+      Number(monthly.gst_rate) || 0.18,
+    );
+  }
+
+  // Opens the gate and returns the first question. The answers are kept per centre in `eligibility`.
+  private async startCmbGate(s: Saved, n: need | null, centreName: string | null): Promise<string> {
+    const name = (centreName || "").trim().slice(0, 80) || null;
+    const ctr = name ? await this.findVerifiedCentre(name) : null;
+    const row = await eligibility.save(
+      eligibility.create({
+        customer_id: s.customer.id,
+        conversation_id: s.conversation.id,
+        centre_id: ctr?.id ?? null,
+        centre_name: name,
+        booking_state: "unknown",
+        registration_state: "unknown",
+        treatment_state: "unknown",
+        bill_state: "unknown",
+      } as any),
+    );
+    const step: GateStep = name ? "booking" : "centre";
+    s.conversation.pending_action = `cmb_gate:${step}:${(row as any).id}`;
+    await this.setState(s, [ConversationState.Routing, ConversationState.CutMediBillsFit]);
+    return (
+      "Cut Medi Bills can be used only before anything is booked, registered, started or billed at the centre, " +
+      "so I will check that first.\n\n" +
+      GATE_QUESTION[step]
+    );
+  }
+
+  private async setPending(s: Saved, value: string | null) {
+    await conversation.update(s.conversation.id, { pending_action: value });
+    s.conversation.pending_action = value;
+  }
+
+  // One gate answer per turn. Returns true when this message was handled.
+  private async handleCmbGate(m: Inbound, s: Saved): Promise<boolean> {
+    const pending = s.conversation.pending_action;
+    if (!pending?.startsWith("cmb_gate:")) return false;
+    const [, step, id] = pending.split(":") as [string, GateStep, string];
+    const row = await eligibility.findOne({ where: { id } });
+    if (!row) {
+      await this.setPending(s, null);
+      return false;
+    }
+    const reply = (text: string) => this.sendAndSave(s.customer.id, text, m.waMessageId);
+    const isQuestion = /\?\s*$/.test(m.text.trim());
+
+    if (step === "centre") {
+      if (isQuestion || !m.text.trim()) return false; // answered normally, then the same question again
+      const name = m.text.trim().slice(0, 80);
+      const ctr = await this.findVerifiedCentre(name);
+      row.centre_name = name;
+      row.centre_id = ctr?.id ?? null;
+      await row.save();
+      await this.setPending(s, `cmb_gate:booking:${id}`);
+      await reply(GATE_QUESTION.booking);
+      return true;
+    }
+
+    if (step === "bill_amount") {
+      const amount = parseAmount(m.text);
+      if (!amount) {
+        if (isQuestion) return false;
+        await reply(`${GATE_QUESTION.bill_amount} A rough amount is fine, for example 80,000.`);
+        return true;
+      }
+      let n = await need.findOne({ where: { conversation_id: s.conversation.id } });
+      if (!n) n = need.create({ conversation_id: s.conversation.id } as any);
+      n.expected_bill = amount;
+      n.need_pattern = "single_expense";
+      await n.save();
+      await this.setPending(s, null);
+      await reply(await this.cmbOutcome(s, amount));
+      return true;
+    }
+
+    const gateStep = step as (typeof GATE_STEPS)[number];
+    if (!GATE_STEPS.includes(gateStep)) {
+      await this.setPending(s, null);
+      return false;
+    }
+    const answer = parseConsentAnswer(m.text);
+    if (answer === "unclear") {
+      if (isQuestion) return false;
+      await reply(GATE_QUESTION[gateStep]);
+      return true;
+    }
+    (row as any)[columnFor(gateStep)] =
+      answer === "yes" ? (gateStep === "bill" ? "generated" : "done") : "none";
+    await row.save();
+
+    if (answer === "yes") {
+      // not eligible at this centre: never offer Cut Medi Bills for it; Oxxy stays possible
+      await this.setPending(s, null);
+      await reply(notEligibleText(gateStep));
+      return true;
+    }
+    const next = GATE_STEPS[GATE_STEPS.indexOf(gateStep) + 1];
+    if (next) {
+      await this.setPending(s, `cmb_gate:${next}:${id}`);
+      await reply(GATE_QUESTION[next]);
+      return true;
+    }
+    // all four answered NO: eligible. The value check needs the expected bill.
+    const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
+    if (!n?.expected_bill) {
+      await this.setPending(s, `cmb_gate:bill_amount:${id}`);
+      await reply(GATE_QUESTION.bill_amount);
+      return true;
+    }
+    await this.setPending(s, null);
+    await reply(await this.cmbOutcome(s, Number(n.expected_bill)));
+    return true;
+  }
+
+  // Eligible: run the value check, then offer Cut Medi Bills (Trigger I) or give the honest answer.
+  private async cmbOutcome(s: Saved, bill: number): Promise<string> {
+    const { monthly, yearly } = await this.cmbPrices();
+    const value = await this.cmbValue(bill);
+    if (!value) {
+      await this.createTask(TaskType.Activation, TaskPriority.Normal, s, "Cut Medi Bills price missing in plan_catalog");
+      return HOLDING_MESSAGE;
+    }
+    if (!value.ok) {
+      await conversation.update(s.conversation.id, { value_check_passed: false });
+      return cmbNotWorthText(bill, monthly ? Number(monthly.price) : null);
+    }
+    await conversation.update(s.conversation.id, {
+      selected_product: ProductType.CutMediBills,
+      recommended_plan: null,
+      // Routing group (Playbook 17)
+      recommendation_reason: "one known upcoming expense, nothing done yet at the centre",
+      value_check_passed: true,
+      alternate_product_suppressed: true,
+    });
+    s.conversation.selected_product = ProductType.CutMediBills;
+    s.conversation.recommended_plan = null;
+    await this.recordTrigger(s, "I", "one upcoming expense, eligible");
+    return cmbOfferText(
+      bill,
+      value.saving,
+      monthly ? Number(monthly.price) : null,
+      yearly ? Number(yearly.price) : null,
+      monthly?.activation_time ?? yearly?.activation_time ?? null,
+    );
+  }
+
+  private productLabel(cat: plan_catalog): string {
+    if (cat.product === ProductType.CutMediBills)
+      return `Cut Medi Bills (${cat.billing === "monthly" ? "monthly" : "annual"})`;
+    return `Oxxy ${cat.plan.charAt(0).toUpperCase()}${cat.plan.slice(1)} plan`;
+  }
+
+  // The catalog row for the selected product: the recommended Oxxy plan (yearly unless the customer asked
+  // for monthly), or Cut Medi Bills monthly / yearly.
+  private async activationRow(
+    conv: conversation,
+    billingWanted?: string,
+  ): Promise<plan_catalog | null> {
+    const product = conv.selected_product || (conv.recommended_plan ? ProductType.Oxxy : null);
+    if (!product) return null;
+    const billing =
+      billingWanted === BillingCycle.Monthly ? BillingCycle.Monthly : BillingCycle.Yearly;
+    if (product === ProductType.Oxxy) {
+      if (!conv.recommended_plan) return null;
+      return await plan_catalog.findOne({
+        where: { product, plan: conv.recommended_plan, billing, status: true },
+      });
+    }
+    return await plan_catalog.findOne({ where: { product, billing, status: true } });
+  }
+
+  // The customer's answer to "Shall I send the official secure activation link?"
+  // Returns true when this message was that answer (the turn is then finished).
+  private async handleActivationAnswer(m: Inbound, s: Saved): Promise<boolean> {
+    const pending = s.conversation.pending_action;
+    if (!pending?.startsWith("send_activation_link:")) return false;
+    const answer = parseConsentAnswer(m.text);
+    if (answer === "unclear") {
+      await conversation.update(s.conversation.id, { pending_action: null }); // a question etc.: Claude answers it
+      s.conversation.pending_action = null;
+      return false;
+    }
+    await conversation.update(s.conversation.id, { pending_action: null });
+    s.conversation.pending_action = null;
+    if (answer === "no") {
+      await this.markTriggerResponse(s.conversation.id, "declined", { triggerId: "E", force: true });
+      await conversation.update(s.conversation.id, { outcome: "activation_declined" });
+      await this.sendAndSave(s.customer.id, LINK_DECLINED, m.waMessageId);
+      return true;
+    }
+    await this.markTriggerResponse(s.conversation.id, "clicked", { triggerId: "E", force: true });
+    const cat = await plan_catalog.findOne({ where: { id: pending.split(":")[1], status: true } });
+    if (!cat?.activation_link || s.customer.active_product) {
+      await this.createTask(
+        TaskType.Activation,
+        TaskPriority.Normal,
+        s,
+        "Activation link could not be sent",
+      );
+      await this.sendAndSave(s.customer.id, HOLDING_MESSAGE, m.waMessageId);
+      return true;
+    }
+    const actRow = await this._DataSource.transaction(async (mg) => {
+      // switching before payment: the earlier unpaid link is cancelled, only the new product stays
+      await mg.update(
+        activation,
+        {
+          customer_id: s.customer.id,
+          activation_status: In([ActivationStatus.Pending, ActivationStatus.LinkSent]),
+        },
+        { activation_status: ActivationStatus.Failed, payment_status: "cancelled" },
+      );
+      const a = await mg.save(
+        mg.create(activation, {
+          customer_id: s.customer.id,
+          catalog_id: cat.id,
+          product: cat.product,
+          plan: cat.plan,
+          billing: cat.billing,
+          link_sent_at: new Date(),
+          link_version: cat.version,
+          // what the customer was shown (Playbook 17 Activation group): the disclosure always comes first
+          price: cat.price,
+          gst_rate: cat.gst_rate,
+          renewal_terms_shown: true,
+          payment_status: PaymentStatus.Pending,
+          activation_status: ActivationStatus.LinkSent,
+        } as any),
+      );
+      return await this._Outbox.enqueue(mg, CrmAction.CreateActivation, s.customer.id, {
+        activation_id: (a as any).id,
+        product: cat.product,
+        plan: cat.plan,
+        billing: cat.billing,
+      });
+    });
+    await this._Outbox.dispatch(actRow);
+    await this.setState(s, [ConversationState.AwaitingPayment]);
+    await this.sendAndSave(s.customer.id, linkText(cat.activation_link), m.waMessageId);
+    // Trigger Q: one reminder if the link is still unpaid (the scheduler re-checks everything at send time)
+    await this._Scheduler?.create({
+      customerId: s.customer.id,
+      conversationId: s.conversation.id,
+      kind: "trigger_q",
+      scheduledFor: new Date(Date.now() + TRIGGER_Q_DELAY_MS),
+      templateName: "activation_reminder",
+      reason: "link sent, payment not completed",
+      selectedProduct: cat.product,
+      source: "whatsapp_inbound",
+    });
+    return true;
+  }
+
+  private activationPath(product: string): ConversationState[] {
+    return [
+      ConversationState.Routing,
+      product === ProductType.CutMediBills
+        ? ConversationState.CutMediBillsFit
+        : ConversationState.PlanFit,
+      ConversationState.Activation,
+    ];
+  }
+
+  // After a booking request (plan 12.4): the timing caution and ONE soft activation suggestion per
+  // journey, never when a product is already active. Returns the text to add, or null.
+  private async softActivationOffer(s: Saved, preferredDate: string): Promise<string | null> {
+    if (s.customer.active_product) return null;
+    const offered = await trigger_event.findOne({
+      where: { conversation_id: s.conversation.id, trigger_id: "E", reason: "soft_activation" },
+    });
+    if (offered) return null;
+    const product = s.conversation.selected_product || ProductType.Oxxy;
+    const cat = await plan_catalog.findOne({
+      where:
+        product === ProductType.Oxxy && s.conversation.recommended_plan
+          ? { product, plan: s.conversation.recommended_plan, status: true }
+          : { product, status: true },
+    });
+    const caution =
+      cat?.activation_time && activationAfter(preferredDate, cat.activation_time)
+        ? timingCaution(cat.activation_time)
+        : null;
+    await trigger_event.save(
+      trigger_event.create({
+        customer_id: s.customer.id,
+        conversation_id: s.conversation.id,
+        trigger_id: "E",
+        reason: "soft_activation",
+      } as any),
+    );
+    s.conversation.pending_action = "soft_activation";
+    const label =
+      product === ProductType.CutMediBills
+        ? "Cut Medi Bills"
+        : s.conversation.recommended_plan
+          ? `the Oxxy ${s.conversation.recommended_plan.charAt(0).toUpperCase()}${s.conversation.recommended_plan.slice(1)} plan`
+          : "an Oxxy plan";
+    return softActivationText(label, caution);
+  }
+
+  // The answer to the soft activation suggestion. YES = disclosure (12.5), NO = booking stays recorded.
+  private async handleSoftActivationAnswer(m: Inbound, s: Saved): Promise<boolean> {
+    if (s.conversation.pending_action !== "soft_activation") return false;
+    const answer = parseConsentAnswer(m.text);
+    await conversation.update(s.conversation.id, { pending_action: null });
+    s.conversation.pending_action = null;
+    if (answer === "unclear") return false; // a question: answered normally
+    if (answer === "no") {
+      await this.sendAndSave(s.customer.id, SOFT_ACTIVATION_DECLINED, m.waMessageId);
+      return true;
+    }
+    const cat = await this.activationRow(s.conversation);
+    if (!cat?.activation_link) {
+      // no plan picked yet: the value check needs the yearly spend first
+      await this.sendAndSave(
+        s.customer.id,
+        "Happy to help. To suggest the right plan, roughly how much does your family spend on healthcare in a year?",
+        m.waMessageId,
+      );
+      return true;
+    }
+    await conversation.update(s.conversation.id, {
+      pending_action: `send_activation_link:${cat.id}`,
+    });
+    s.conversation.pending_action = `send_activation_link:${cat.id}`;
+    await this.setState(s, this.activationPath(cat.product));
+    await this.sendAndSave(
+      s.customer.id,
+      disclosureText(
+        this.productLabel(cat),
+        Number(cat.price),
+        cat.billing,
+        cat.renewal_terms,
+        cat.activation_time,
+      ),
+      m.waMessageId,
+    );
+    return true;
+  }
+
+  // Replies after the activation link (plan 12.5, AWAITING_PAYMENT). Charged twice is a complaint and
+  // is handled by the guardrail before this. A question returns false and is answered normally.
+  private async handlePaymentReply(m: Inbound, s: Saved): Promise<boolean> {
+    const kind = paymentReplyKind(m.text);
+    if (!kind) return false;
+    const open = await activation.findOne({
+      where: {
+        customer_id: s.customer.id,
+        payment_status: PaymentStatus.Pending,
+        activation_status: ActivationStatus.LinkSent,
+      },
+      order: { created_on: "DESC" } as any,
+    });
+    if (!open) return false;
+
+    if (kind === "done") {
+      await this.createTaskOnce(
+        TaskType.VerifyActivation,
+        TaskPriority.High,
+        s,
+        `Customer says payment is done (activation ${(open as any).id})`,
+      );
+      await this.recordTrigger(s, "P", "customer said done");
+      await this.setState(s, [ConversationState.FollowUp]);
+      await this.sendAndSave(s.customer.id, PAYMENT_DONE, m.waMessageId);
+      return true;
+    }
+    if (kind === "failed") {
+      await this.createTaskOnce(
+        TaskType.PaymentIssue,
+        TaskPriority.High,
+        s,
+        `Payment failed (activation ${(open as any).id})`,
+      );
+      await this.setState(s, [ConversationState.Escalated]);
+      await this.sendAndSave(s.customer.id, PAYMENT_FAILED, m.waMessageId);
+      return true;
+    }
+    await this.setState(s, [ConversationState.FollowUp]);
+    await this.sendAndSave(s.customer.id, PAYMENT_NOT_NOW, m.waMessageId);
+    return true;
+  }
+
+  // Sets customer_response on the latest trigger of this journey that has none yet (or, with force,
+  // overrides it: e.g. YES to the activation link = clicked). Ignored = still empty after 24 hours.
+  private async markTriggerResponse(
+    conversationId: string,
+    response: "replied" | "clicked" | "declined" | "opted_out" | "escalated",
+    opts: { triggerId?: string; force?: boolean } = {},
+  ) {
+    try {
+      const qb = trigger_event
+        .createQueryBuilder("t")
+        .addSelect("t.created_on") // not selected by default (BaseTable)
+        .where("t.conversation_id = :c", { c: conversationId });
+      if (opts.triggerId) qb.andWhere("t.trigger_id = :id", { id: opts.triggerId });
+      const last = await qb.orderBy("t.created_on", "DESC").getOne();
+      if (!last || (last.response && !opts.force)) return;
+      if (Date.now() - new Date(last.created_on).getTime() > 24 * 60 * 60 * 1000 && !opts.force) return;
+      await trigger_event.update(last.id, { response });
+    } catch (e) {
+      this.logger.debug(`trigger response not saved: ${(e as Error).message}`);
+    }
+  }
+
+  private async recordTrigger(s: Saved, id: string, reason: string) {
+    try {
+      await trigger_event.save(
+        trigger_event.create({
+          customer_id: s.customer.id,
+          conversation_id: s.conversation.id,
+          trigger_id: id,
+          reason,
+          conversation_source: "whatsapp_inbound",
+          next_state: s.conversation.state,
+        } as any),
+      );
+    } catch (e) {
+      this.logger.debug(`trigger ${id} not recorded: ${(e as Error).message}`);
+    }
+  }
+
+  // Trigger B / J: insurance questions get the approved fixed answer (Claude never words this)
+  private async handleInsurance(m: Inbound, s: Saved): Promise<boolean> {
+    const t = (m.text || "").toLowerCase();
+    if (!/insurance|\bbima\b|बीमा|इंश्योरेंस/.test(t)) return false;
+    const has =
+      /\b(i|we|my|mother|father|family)\b[^.?!]{0,30}\b(have|has|got|covered)\b[^.?!]{0,20}(insurance|bima)|my (health )?insurance|insurance (will|can) (pay|cover)/.test(
+        t,
+      );
+    if (has) {
+      let n = await need.findOne({ where: { conversation_id: s.conversation.id } });
+      if (!n) n = need.create({ conversation_id: s.conversation.id } as any);
+      n.insurance_status = "has_insurance";
+      await n.save();
+    }
+    await this.sendAndSave(
+      s.customer.id,
+      has ? INSURANCE_COORDINATION : INSURANCE_ANSWER,
+      m.waMessageId,
+    );
+    return true;
   }
 
   /** Match a centre by full text or stripped base name (e.g. "Sample Dental Clinic, Adyar (Adyar)"). */

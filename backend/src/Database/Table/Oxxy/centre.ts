@@ -38,4 +38,10 @@ export class centre extends BaseTable {
 
   @Column({ default: true })
   active: boolean;
+
+  @Column({ type: "text", nullable: true }) // who verified it (site visit, phone call, registry ...)
+  verification_source: string | null;
+
+  @Column({ type: "varchar", nullable: true })
+  postcode: string | null;
 }

@@ -82,6 +82,7 @@ export class WhatsappClient implements OnModuleInit {
     msg: OutboundMessage,
     purpose: SendPurpose,
     replyToWaMessageId?: string,
+    opts: { sender?: "bot" | "agent" | "system"; actorId?: string } = {},
   ): Promise<string> {
     const cust = await customer.findOne({ where: { id: customerId } });
     if (!cust) throw new InvalidMessageError("customer not found");
@@ -100,7 +101,8 @@ export class WhatsappClient implements OnModuleInit {
       message.create({
         conversation_id: conv.id,
         direction: "out",
-        sender: "bot",
+        sender: opts.sender ?? "bot",
+        created_by_id: opts.actorId ?? null,
         wa_message_id: wamid,
         type: msg.kind,
         body: msg.kind === "template" ? null : msg.body,

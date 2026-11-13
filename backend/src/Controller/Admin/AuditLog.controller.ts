@@ -1,12 +1,11 @@
+import { Permission } from "@Helper/Permissions";
 import { Body, Controller, Get, Post } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { AuditLogService } from "@Service/Admin/AuditLog.service";
 import { JWTAuthController } from "@Controller/JWTAuth.controller";
-import { Roles } from "@Helper/Roles.decorator";
-import { RoleEnum } from "@Helper/Enum/RoleEnum";
 import { AuditLogLazyLoadModel } from "@Model/Admin/AuditLog.model";
 
-@Roles(RoleEnum.SuperAdmin)
+@Permission("audit.read")
 @Controller({ path: "AuditLog", version: "1" })
 @ApiTags("Audit Log")
 export class AuditLogController extends JWTAuthController {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Alert, Button, Card, Form, Input, Space, Spin, Switch, Tag, Typography, message } from "antd";
+import { Button, Form, Input, Spin, Switch, message } from "antd";
+import { Panel, Pill, usePageTitle } from "../components/ui";
 import { getSettings, updateSettings, type SettingItem } from "../api/settings.api";
 
 const GROUP_TITLES: Record<SettingItem["group"], string> = {
@@ -9,6 +10,7 @@ const GROUP_TITLES: Record<SettingItem["group"], string> = {
 };
 
 export default function Settings() {
+  usePageTitle("Configuration", "Admin");
   const [form] = Form.useForm();
   const [items, setItems] = useState<SettingItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,15 +24,18 @@ export default function Settings() {
       const initial: Record<string, string | boolean> = {};
       for (const it of list) initial[it.key] = it.value;
       form.setFieldsValue(initial);
-    } catch (e: any) {
-      message.error(e?.message || "Failed to load settings");
+    } catch (e) {
+      message.error((e as Error)?.message || "Failed to load settings");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    load();
+    // load once on open (async: the state is set after the request, not during the effect)
+    const t = setTimeout(load, 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onSave = async (values: Record<string, string | boolean>) => {
@@ -42,8 +47,8 @@ export default function Settings() {
       for (const it of res.items) next[it.key] = it.value;
       form.setFieldsValue(next);
       message.success("Settings saved and applied immediately");
-    } catch (e: any) {
-      message.error(e?.message || "Failed to save settings");
+    } catch (e) {
+      message.error((e as Error)?.message || "Failed to save settings");
     } finally {
       setSaving(false);
     }
@@ -52,42 +57,66 @@ export default function Settings() {
   const groups: SettingItem["group"][] = ["whatsapp", "ai", "crm"];
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%", maxWidth: 860 }}>
-      <Typography.Title level={3} style={{ margin: 0 }}>
-        Settings &amp; API Configuration
-      </Typography.Title>
-      <Alert
-        type="info"
-        showIcon
-        message="Database-backed runtime configuration"
-        description="Values saved here are stored in PostgreSQL and applied immediately without editing .env or restarting the server. Existing secrets appear masked (••••xxxx); leave them as-is to keep the saved secret."
-      />
+    <>
+      <div className="grid g2">
+        <Panel title="Booking window" note="Enforced in code and by a database trigger">
+          <dl className="kv">
+            <dt>Earliest</dt>
+            <dd>Today + 3 calendar days (Asia/Kolkata)</dd>
+            <dt>Latest</dt>
+            <dd>Same date 6 months later; the month's last day if that date does not exist</dd>
+            <dt>Status</dt>
+            <dd>Always pending until the sales team confirms in the CRM</dd>
+          </dl>
+        </Panel>
+        <Panel title="Fixed rules" note="Not editable">
+          <dl className="kv">
+            <dt>Emergency</dt>
+            <dd>
+              <span className="mono">112</span> / <span className="mono">108</span>, checked before
+              Claude
+            </dd>
+            <dt>Self-harm</dt>
+            <dd>
+              Tele-MANAS <span className="mono">14416</span>
+            </dd>
+            <dt>Quiet hours</dt>
+            <dd>Proactive messages only 09:00–21:00 IST</dd>
+            <dt>AI model</dt>
+            <dd className="mono small">claude-opus-5-5</dd>
+            <dt>Order</dt>
+            <dd>Guardrails → Claude draft → rule validator → send</dd>
+          </dl>
+        </Panel>
+      </div>
+      <div className="panel">
+        <div className="panel-b small">
+          Values saved here are stored in the database and used at once, without a restart. Saved
+          secrets are shown masked (••••xxxx); leave them as they are to keep them. For production,
+          prefer the cloud secret manager for keys.
+        </div>
+      </div>
       {loading ? (
         <Spin />
       ) : (
-        <Form form={form} layout="vertical" onFinish={onSave}>
-          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-            {groups.map((grp) => {
-              const groupItems = items.filter((i) => i.group === grp);
-              return (
-                <Card key={grp} title={GROUP_TITLES[grp]}>
-                  {groupItems.map((item) => (
+        <Form form={form} layout="vertical" onFinish={onSave} requiredMark={false}>
+          <div className="grid" style={{ gap: 14 }}>
+            {groups.map((grp) => (
+              <Panel key={grp} title={GROUP_TITLES[grp]}>
+                {items
+                  .filter((i) => i.group === grp)
+                  .map((item) => (
                     <Form.Item
                       key={item.key}
                       name={item.key}
                       valuePropName={item.type === "boolean" ? "checked" : "value"}
                       label={
-                        <Space>
+                        <span className="row" style={{ gap: 8 }}>
                           <span>{item.label}</span>
-                          <Typography.Text type="secondary" code>
-                            {item.key}
-                          </Typography.Text>
-                          {item.type !== "boolean" && (
-                            <Tag color={item.isSet ? "green" : "default"}>
-                              {item.isSet ? "Configured" : "Not set"}
-                            </Tag>
-                          )}
-                        </Space>
+                          <span className="mono small muted">{item.key}</span>
+                          {item.type !== "boolean" &&
+                            (item.isSet ? <Pill tone="ok">Set</Pill> : <Pill>Not set</Pill>)}
+                        </span>
                       }
                     >
                       {item.type === "boolean" ? (
@@ -99,16 +128,16 @@ export default function Settings() {
                       )}
                     </Form.Item>
                   ))}
-                </Card>
-              );
-            })}
-            <Button type="primary" htmlType="submit" loading={saving} size="large">
-              Save Settings
-            </Button>
-          </Space>
+              </Panel>
+            ))}
+            <div className="row">
+              <Button type="primary" htmlType="submit" loading={saving}>
+                Save changes
+              </Button>
+            </div>
+          </div>
         </Form>
       )}
-    </Space>
+    </>
   );
 }
-

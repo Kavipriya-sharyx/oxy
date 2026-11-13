@@ -6,6 +6,7 @@ import { DataSource } from "typeorm";
 import { user } from "@Database/Table/Admin/user";
 import { CrmOutboxService } from "@Service/Crm/CrmOutbox.service";
 import { CrmAction } from "@Helper/Enum/CrmAction";
+import { WhatsappClient } from "./WhatsappClient.service";
 
 export interface CreateBooking {
   customer_id: string;
@@ -22,6 +23,7 @@ export class BookingService {
     private readonly _DateWindow: DateWindowService,
     private readonly _DataSource: DataSource,
     private readonly _Outbox: CrmOutboxService,
+    private readonly _Wa: WhatsappClient,
   ) {}
 
   // Bot path: always saved as pending_confirmation
@@ -35,7 +37,10 @@ export class BookingService {
     // booking + CRM outbox row in one transaction
     const { b, ob } = await this._DataSource.transaction(async (m) => {
       const saved = await m.save(
-        m.create(booking_request, { ...data, booking_status: BookingStatus.PendingConfirmation } as any),
+        m.create(booking_request, {
+          ...data,
+          booking_status: BookingStatus.PendingConfirmation,
+        } as any),
       );
       const row = await this._Outbox.enqueue(m, CrmAction.CreateBookingRequest, data.customer_id, {
         booking_id: (saved as any).id,
@@ -48,8 +53,14 @@ export class BookingService {
   }
 
   // Human path: only called from the JWT-protected controller
+  // Full Plan 12.9: the sales team confirms bookings in the CRM. Console confirmation is only for a
+  // deployment without the CRM (CRM_ENABLED=false); then the customer is told on WhatsApp here.
   async confirm(id: string, userId: string) {
-    const b = await booking_request.findOne({ where: { id } });
+    if (this._Outbox.enabled)
+      throw new BadRequestException(
+        "Bookings are confirmed in the CRM. The CRM webhook updates this list.",
+      );
+    const b = await booking_request.findOne({ where: { id }, relations: ["centre"] });
     if (!b) throw new NotFoundException("Booking not found");
     if (b.booking_status !== BookingStatus.PendingConfirmation)
       throw new BadRequestException("Booking is not pending");
@@ -67,7 +78,37 @@ export class BookingService {
       });
     });
     await this._Outbox.dispatch(ob);
+    try {
+      await this._Wa.send(
+        b.customer_id,
+        {
+          kind: "template",
+          name: "booking_confirmed",
+          languageCode: "en",
+          params: [b.centre?.name ?? "the centre", b.preferred_date],
+        },
+        "proactive",
+      );
+    } catch {
+      /* quiet hours or template not approved yet: the booking stays confirmed; the team can message later */
+    }
     return b;
+  }
+
+  async list(status?: string) {
+    return await booking_request
+      .createQueryBuilder("b")
+      .addSelect("b.created_on")
+      .leftJoinAndSelect("b.customer", "customer")
+      .leftJoinAndSelect("b.centre", "centre")
+      .where(status ? "b.booking_status = :status" : "1=1", { status })
+      .orderBy("b.created_on", "DESC")
+      .take(300)
+      .getMany();
+  }
+
+  get confirmsInConsole(): boolean {
+    return !this._Outbox.enabled;
   }
 
   async listPending() {

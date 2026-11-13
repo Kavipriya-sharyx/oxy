@@ -47,4 +47,17 @@ export class task extends BaseTable {
 
   @Column({ type: "text", nullable: true, unique: true })
   crm_task_id: string;
+
+  // ---- Escalation (Playbook 17.1 create_escalation) ----
+  @Column({ type: "text", nullable: true })
+  reason: string | null;
+
+  @Column({ type: "timestamp", nullable: true })
+  callback_from: Date | null;
+
+  @Column({ type: "timestamp", nullable: true })
+  callback_to: Date | null;
+
+  @Column({ type: "text", nullable: true })
+  outcome: string | null;
 }

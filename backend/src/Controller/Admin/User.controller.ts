@@ -1,15 +1,14 @@
-import { Body, Controller, Get, Param, Patch, Post, Put } from "@nestjs/common";
+import { Permission } from "@Helper/Permissions";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put } from "@nestjs/common";
 import { CurrentUser } from "@Helper/Common.helper";
 import { ApiTags } from "@nestjs/swagger";
 import { UserService } from "@Service/Admin/User.service";
 import { ResponseEnum } from "@Helper/Enum/ResponseEnum";
 import { ChangePasswordModel, UserModel } from "@Model/Admin/User.model";
 import { JWTAuthController } from "@Controller/JWTAuth.controller";
-import { Roles } from "@Helper/Roles.decorator";
-import { RoleEnum } from "@Helper/Enum/RoleEnum";
 import { Req } from "@nestjs/common";
 
-@Roles(RoleEnum.SuperAdmin, RoleEnum.Admin)
+@Permission("users.manage")
 @Controller({ path: "User", version: "1" })
 @ApiTags("User")
 export class UserController extends JWTAuthController {
@@ -48,6 +47,13 @@ export class UserController extends JWTAuthController {
     return this.SendResponse(ResponseEnum.Success, ResponseEnum.Updated);
   }
 
+  @Delete("Delete/:Id")
+  async Delete(@Param("Id") Id: string, @CurrentUser() UserId: string, @Req() req: any) {
+    await this._UserService.AssertCanManage(req.user.user_role_name, undefined, Id);
+    await this._UserService.Delete(Id, UserId);
+    return this.SendResponse(ResponseEnum.Success, ResponseEnum.Deleted);
+  }
+
   @Patch("SuspendOrActivate/:Id")
   async SuspendOrActivate(@Param("Id") id: string, @CurrentUser() UserId: string, @Req() req: any) {
     await this._UserService.AssertCanManage(req.user.user_role_name, undefined, id);
@@ -59,7 +65,7 @@ export class UserController extends JWTAuthController {
     }
   }
 
-  @Roles(RoleEnum.SuperAdmin, RoleEnum.Admin, RoleEnum.User)
+  @Permission()
   @Post("ChangePassword")
   async ChangePassword(
     @Body() ChangePasswordData: ChangePasswordModel,

@@ -12,6 +12,15 @@ export function validCrmSignature(raw: Buffer | undefined, header: string | unde
   return expected.length === given.length && timingSafeEqual(expected, given);
 }
 
+// header: X-CRM-Timestamp = unix seconds (or ISO). Anything older (or newer) than 5 minutes is refused (plan 3.3).
+export const MAX_WEBHOOK_AGE_MS = 5 * 60 * 1000;
+export function freshTimestamp(header: string | undefined, now = Date.now()): boolean {
+  if (!header) return false;
+  const n = Number(header);
+  const ms = Number.isFinite(n) ? (n < 1e12 ? n * 1000 : n) : Date.parse(header);
+  return Number.isFinite(ms) && Math.abs(now - ms) <= MAX_WEBHOOK_AGE_MS;
+}
+
 @Controller({ path: "Crm/Webhook", version: "1" })
 @ApiTags("CRM Webhook")
 export class CrmWebhookController {
@@ -26,6 +35,7 @@ export class CrmWebhookController {
     @Req() req: any,
     @Res({ passthrough: true }) res: any,
     @Headers("x-crm-signature") signature: string,
+    @Headers("x-crm-timestamp") timestamp: string,
     @Body() body: any,
   ) {
     if (this._Config.get("Crm.Enabled") !== true) {
@@ -35,6 +45,10 @@ export class CrmWebhookController {
     if (!validCrmSignature(req.rawBody, signature, this._Config.get("Crm.WebhookSecret"))) {
       res.status(401); // real status (the global filter would turn a thrown error into HTTP 200)
       return { status: "invalid signature" };
+    }
+    if (!freshTimestamp(timestamp)) {
+      res.status(401);
+      return { status: "stale or missing timestamp" };
     }
     const result = await this._Webhook.handle(body);
     if (result === "invalid") res.status(400);

@@ -29,16 +29,33 @@ export async function getReports(): Promise<Record<string, number>> {
   return res.data;
 }
 
+export interface TriggerEvent {
+  id: string;
+  trigger_id: string;
+  customer_id: string;
+  reason: string | null;
+  suppression_reason: string | null;
+  customer?: { wa_number: string; first_name: string | null };
+}
+
+export interface PrivacyRow {
+  id?: string;
+  customer_id: string;
+  privacy_request_at: string | null;
+  health_data_consent: boolean;
+  marketing_consent: boolean;
+  customer?: { wa_number: string; first_name: string | null };
+}
+
 export async function getTriggers(): Promise<{
   catalog: { id: string; name: string; when: string }[];
-  events: any[];
+  events: TriggerEvent[];
 }> {
   const res = await client.get("/Console/Triggers");
   return res.data;
 }
 
-export async function listPrivacyRequests(): Promise<any[]> {
-  const res = await client.get<any[]>("/Console/PrivacyRequests");
+export async function listPrivacyRequests(): Promise<PrivacyRow[]> {
+  const res = await client.get<PrivacyRow[]>("/Console/PrivacyRequests");
   return res.data;
 }
-

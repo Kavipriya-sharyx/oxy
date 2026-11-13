@@ -45,3 +45,7 @@ export async function updateUser(id: string, v: UserInput): Promise<ApiEnvelope>
 export async function toggleUser(id: string): Promise<ApiEnvelope> {
   return (await client.patch<ApiEnvelope>(`/User/SuspendOrActivate/${id}`)).data;
 }
+
+export async function deleteUser(id: string): Promise<ApiEnvelope> {
+  return (await client.delete<ApiEnvelope>(`/User/Delete/${id}`)).data;
+}

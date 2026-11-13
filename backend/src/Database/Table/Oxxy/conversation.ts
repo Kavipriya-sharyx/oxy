@@ -34,6 +34,36 @@ export class conversation extends BaseTable {
   @Column({ type: "int", default: 0 })
   rescue_count: number;
 
+  // a yes/no the bot is waiting for, e.g. "send_activation_link" after the price disclosure
+  @Column({ type: "varchar", nullable: true })
+  pending_action: string | null;
+
   @Column({ type: "timestamp", nullable: true })
   closed_at: Date;
+
+  // ---- Routing (Playbook 17) ----
+  @Column({ type: "text", nullable: true })
+  recommendation_reason: string | null;
+
+  @Column({ type: "boolean", default: false })
+  alternate_product_suppressed: boolean;
+
+  @Column({ type: "boolean", nullable: true })
+  value_check_passed: boolean | null;
+
+  // ---- Engagement (Playbook 17) ----
+  @Column({ type: "varchar", nullable: true })
+  last_intent: string | null;
+
+  @Column({ type: "text", nullable: true })
+  objection: string | null;
+
+  @Column({ type: "timestamp", nullable: true })
+  follow_up_at: Date | null;
+
+  @Column({ type: "text", nullable: true })
+  escalation_reason: string | null;
+
+  @Column({ type: "varchar", nullable: true }) // booked | activated | declined | closed | opted_out ...
+  outcome: string | null;
 }

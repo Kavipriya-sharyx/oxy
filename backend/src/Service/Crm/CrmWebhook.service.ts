@@ -1,6 +1,10 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { RoleEnum } from "@Helper/Enum/RoleEnum";
+import { Injectable, Logger, Optional } from "@nestjs/common";
+import { AnalyticsService } from "./Analytics.service";
+import { FollowUpSchedulerService } from "@Service/Oxxy/FollowUpScheduler.service";
+import { conversation } from "@Database/Table/Oxxy/conversation";
 import { randomBytes } from "crypto";
-import { DataSource } from "typeorm";
+import { DataSource, IsNull } from "typeorm";
 import { crm_webhook_event } from "@Database/Table/Crm/crm_webhook_event";
 import { booking_request } from "@Database/Table/Oxxy/booking_request";
 import { activation } from "@Database/Table/Oxxy/activation";
@@ -33,10 +37,16 @@ export class CrmWebhookService {
     private readonly _DataSource: DataSource,
     private readonly _ConvRepo: ConversationRepository,
     private readonly _DateWindow: DateWindowService,
+    @Optional() private readonly _Analytics?: AnalyticsService,
+    @Optional() private readonly _Scheduler?: FollowUpSchedulerService,
   ) {}
 
   // Store first, then process. A resend of the same event_id is ignored.
-  async handle(body: { event_id?: string; event_type?: string; data?: Data }): Promise<"ok" | "duplicate" | "invalid"> {
+  async handle(body: {
+    event_id?: string;
+    event_type?: string;
+    data?: Data;
+  }): Promise<"ok" | "duplicate" | "invalid"> {
     const eventId = str(body?.event_id);
     const type = str(body?.event_type);
     if (!eventId || !type) return "invalid";
@@ -45,7 +55,11 @@ export class CrmWebhookService {
     let ev: crm_webhook_event;
     try {
       ev = await crm_webhook_event.save(
-        crm_webhook_event.create({ event_id: eventId, event_type: type, payload: (body.data ?? {}) as Data }),
+        crm_webhook_event.create({
+          event_id: eventId,
+          event_type: type,
+          payload: (body.data ?? {}) as Data,
+        }),
       );
     } catch {
       return "duplicate"; // two requests raced on the primary key
@@ -113,7 +127,9 @@ export class CrmWebhookService {
         "proactive",
       );
     } catch (e) {
-      this.logger.warn(`CRM webhook WhatsApp send (${templateName}) failed: ${(e as Error).message}`);
+      this.logger.warn(
+        `CRM webhook WhatsApp send (${templateName}) failed: ${(e as Error).message}`,
+      );
     }
   }
 
@@ -152,7 +168,7 @@ export class CrmWebhookService {
     b.updated_on = new Date();
     if (crmId && !b.crm_booking_id) b.crm_booking_id = crmId;
     await b.save();
-    await this.sendBookingTemplate(b, "booking_confirmed");
+    await this.sendBookingTemplate(b, "booking_rescheduled");
   }
 
   private async activationPaid(d: Data) {
@@ -169,6 +185,25 @@ export class CrmWebhookService {
       active_product: a.product,
       active_plan: a.plan,
     });
+    // conversion attribution (Trigger layer 13); no more reminders for this product
+    await this._Analytics?.attributeConversion(a.id);
+    await this._Scheduler?.cancelAll(a.customer_id, "product_active");
+    await conversation.update({ customer_id: a.customer_id, closed_at: IsNull() }, { outcome: "activated" });
+    // Trigger P (plan 3.3): tell the customer the activation is verified
+    try {
+      await this._Wa.send(
+        a.customer_id,
+        {
+          kind: "template",
+          name: "activation_confirmed",
+          languageCode: "en",
+          params: [a.product === "cut_medi_bills" ? "Cut Medi Bills" : `Oxxy ${a.plan ?? ""}`.trim()],
+        },
+        "proactive",
+      );
+    } catch (e) {
+      this.logger.warn(`CRM webhook WhatsApp send (activation_confirmed) failed: ${(e as Error).message}`);
+    }
   }
 
   private async activationFailed(d: Data) {
@@ -220,6 +255,17 @@ export class CrmWebhookService {
         }
       }
     });
+    await this._Scheduler?.cancelAll(c.id, "opt_out");
+  }
+
+  // The same changes the CRM webhooks make, for a deployment WITHOUT the CRM, where a person does
+  // them in the console. With the CRM on, only the signed webhooks may make these changes.
+  async completeTaskFromConsole(taskId: string) {
+    await this.taskCompleted({ task_id: taskId });
+  }
+  async markActivationFromConsole(activationId: string, paid: boolean) {
+    if (paid) await this.activationPaid({ activation_id: activationId });
+    else await this.activationFailed({ activation_id: activationId });
   }
 
   private async taskCompleted(d: Data) {
@@ -266,7 +312,9 @@ export class CrmWebhookService {
     const crmId = str(d.crm_user_id);
     const email = str(d.email);
     if (!crmId || !email) throw new Error("bad user.upserted payload");
-    let u = (await user.findOne({ where: { crm_user_id: crmId } })) ?? (await user.findOne({ where: { email } }));
+    let u =
+      (await user.findOne({ where: { crm_user_id: crmId } })) ??
+      (await user.findOne({ where: { email } }));
     if (u) {
       u.crm_user_id = crmId;
       u.first_name = str(d.first_name) ?? u.first_name;
@@ -276,9 +324,9 @@ export class CrmWebhookService {
       return;
     }
     const role =
-      (await user_role.findOne({ where: { name: str(d.role) ?? "agent" } })) ??
-      (await user_role.findOne({ where: { name: "agent" } }));
-    if (!role) throw new Error("no agent role");
+      (await user_role.findOne({ where: { name: str(d.role) ?? RoleEnum.User } })) ??
+      (await user_role.findOne({ where: { name: RoleEnum.User } }));
+    if (!role) throw new Error("no User role");
     u = user.create({
       email,
       crm_user_id: crmId,

@@ -1,21 +1,20 @@
-import { Button, Result } from "antd";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { landingFor } from "../auth/roles";
+import { usePermissions } from "../hooks/usePermissions";
+import { usePageTitle } from "../components/ui";
 
 export default function NoAccess() {
+  usePageTitle("No access");
   const navigate = useNavigate();
   const { role } = useAuth();
+  const { perms } = usePermissions();
   return (
-    <Result
-      status="403"
-      title="No access"
-      subTitle="Your role does not have permission to open this page."
-      extra={
-        <Button type="primary" onClick={() => navigate(landingFor(role), { replace: true })}>
-          Go to my home page
-        </Button>
-      }
-    />
+    <div className="panel empty">
+      <p>The {role ?? "current"} role cannot open this screen. Ask an Admin if you need it.</p>
+      <button className="btn pri" onClick={() => navigate(landingFor(perms), { replace: true })}>
+        Go to my home page
+      </button>
+    </div>
   );
 }

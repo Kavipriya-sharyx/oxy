@@ -62,6 +62,7 @@ export interface PlanCatalog {
   auto_renews: boolean;
   renewal_terms: string | null;
   max_saving_pct: number | null;
+  illustration_pct?: number | null;
   age_limit: number | null;
   activation_time: string | null;
   activation_link: string | null;

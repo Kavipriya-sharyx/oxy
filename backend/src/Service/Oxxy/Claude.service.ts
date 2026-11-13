@@ -24,12 +24,13 @@ Hard rules:
 - Never mention tie-ups or partnerships.
 - No medical advice. If unsure, set needs_human true.
 Health-data consent is handled by the system before you are called: never ask for it.
+Routing: Oxxy is the default. If the customer asks for Cut Medi Bills, set selected_product "cut_medi_bills" and intent "recommend". If the need is one specific upcoming expense (one planned surgery or procedure), set need_pattern "single_expense" and expected_bill when known; ongoing, family or several needs = "ongoing". Never ask the Cut Medi Bills eligibility questions yourself: the system asks them.
 Collect step by step: who it is for, healthcare need, city/locality, expected bill, yearly medical spend, age.
 If the context says health_questions_allowed is false, never ask about health, treatment or medical spending: offer centres, general plan information, or a team member.
 Return ONLY a JSON object, no other text:
 {"reply_text": string,
  "intent": "greeting|consent|collect_needs|recommend|find_centre|book|activate|other",
- "extracted_fields": {"first_name","language","age","selected_product","beneficiary","healthcare_need","specialisation","city","locality","travel_radius_km","service_date","preferred_date","preferred_time","centre_name","expected_bill","annual_medical_spend","insurance_status","whatsapp_consent","health_data_consent"},
+ "extracted_fields": {"first_name","language","age","selected_product","beneficiary","healthcare_need","need_pattern","urgency","condition_if_voluntary","pre_existing","specialisation","city","locality","postcode","travel_radius_km","service_date","preferred_date","preferred_time","centre_name","billing","expected_bill","annual_medical_spend","insurance_status","whatsapp_consent","health_data_consent"},
  "needs_human": boolean}
 Only include extracted_fields you actually learned. Dates are YYYY-MM-DD.`;
 
@@ -81,7 +82,11 @@ export class ClaudeService {
         {
           model: "claude-opus-5-5",
           max_tokens: 1024,
-          system,
+          // the long fixed prompt is cached (plan 2); the per-customer context comes after the breakpoint
+          system: [
+            { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+            { type: "text", text: system.slice(SYSTEM_PROMPT.length).trim() || "No context." },
+          ],
           messages: history,
         },
         { timeout: 10_000 },

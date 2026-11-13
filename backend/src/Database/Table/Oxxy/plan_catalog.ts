@@ -27,6 +27,11 @@ export class plan_catalog extends BaseTable {
   @Column({ type: "int", nullable: true })
   max_saving_pct: number;
 
+  // rate used for the "easy illustration" and the value check (Full Plan 1.1):
+  // Everyday 20, Vital 25, Thrive 30, Infinity 30 (Infinity saves "up to 40", but illustrates at 30)
+  @Column({ type: "int", nullable: true })
+  illustration_pct: number;
+
   @Column({ type: "int", nullable: true })
   age_limit: number;
 

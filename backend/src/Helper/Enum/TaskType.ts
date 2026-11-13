@@ -9,4 +9,6 @@ export enum TaskType {
   OptOutOpenCase = "opt_out_open_case",
   PrivacyRequest = "privacy_request",
   VerifyActivation = "verify_activation",
+  PaymentIssue = "payment_issue",
+  DirectoryVerification = "directory_verification",
 }

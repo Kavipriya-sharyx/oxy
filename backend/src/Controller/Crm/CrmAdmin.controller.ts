@@ -1,15 +1,14 @@
+import { Permission } from "@Helper/Permissions";
 import { Controller, Get, Param, Put } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { JWTAuthController } from "@Controller/JWTAuth.controller";
-import { Roles } from "@Helper/Roles.decorator";
-import { RoleEnum } from "@Helper/Enum/RoleEnum";
 import { crm_outbox } from "@Database/Table/Crm/crm_outbox";
 import { crm_webhook_event } from "@Database/Table/Crm/crm_webhook_event";
 import { CrmOutboxService } from "@Service/Crm/CrmOutbox.service";
 import { ResponseEnum } from "@Helper/Enum/ResponseEnum";
 
 // Logged-in users only: see CRM calls, webhook logs, and retry failed ones.
-@Roles(RoleEnum.SuperAdmin, RoleEnum.Admin)
+@Permission("crm.manage")
 @Controller({ path: "CrmAdmin", version: "1" })
 @ApiTags("CRM Admin")
 export class CrmAdminController extends JWTAuthController {

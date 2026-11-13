@@ -123,4 +123,8 @@ export const HEALTH_FIELDS: string[] = [
   "annual_medical_spend",
   "expected_bill",
   "insurance_status",
+  "condition_if_voluntary",
+  "pre_existing",
+  "urgency",
+  "need_pattern",
 ];

@@ -6,7 +6,7 @@ import { EmailService } from "../Email.service";
 import { EncryptionService } from "../Encryption.service";
 import { AuditLogService } from "./AuditLog.service";
 import { LogActionEnum } from "@Helper/Enum/AuditLogEnum";
-import { RoleEnum, RoleRank } from "@Helper/Enum/RoleEnum";
+import { RoleEnum } from "@Helper/Enum/RoleEnum";
 import { user_role } from "@Database/Table/Admin/user_role";
 import { ForbiddenException } from "@nestjs/common";
 @Injectable()
@@ -18,33 +18,41 @@ export class UserService {
   ) {}
 
   /**
-   * Super Admin may manage anyone. Admin may only manage plain Users: they cannot
-   * create/edit/suspend Admins or Super Admins, nor promote anyone to those roles.
+   * Anyone with users.manage may manage users, except Super Admins: only a Super Admin may create,
+   * edit, suspend or delete a Super Admin, or give someone that role.
    */
   async AssertCanManage(actorRole: string, targetRoleId?: string, targetUserId?: string) {
     if (actorRole === RoleEnum.SuperAdmin) return;
-    const limit = RoleRank[RoleEnum.User];
     if (targetRoleId) {
       const role = await user_role.findOne({ where: { id: targetRoleId } });
-      if (!role || (RoleRank[role.name] ?? 99) > limit) {
-        throw new ForbiddenException("You cannot assign this role");
-      }
+      if (!role || role.name === RoleEnum.SuperAdmin) throw new ForbiddenException("You cannot assign this role");
     }
     if (targetUserId) {
       const target = await user.findOne({ where: { id: targetUserId }, relations: ["user_role"] });
-      if (target && (RoleRank[target.user_role?.name] ?? 99) > limit) {
-        throw new ForbiddenException("You cannot modify this user");
-      }
+      if (target?.user_role?.name === RoleEnum.SuperAdmin) throw new ForbiddenException("You cannot modify this user");
     }
   }
 
-  /** Super Admin sees everyone; Admin only sees plain Users. */
+  /** Super Admin sees everyone; others do not see Super Admins. */
   async GetAllForRole(actorRole: string) {
     const rows = await user.find({ relations: ["user_role"], order: { created_on: "DESC" } as any });
     const visible =
-      actorRole === RoleEnum.SuperAdmin ? rows : rows.filter((u) => u.user_role?.name === RoleEnum.User);
+      actorRole === RoleEnum.SuperAdmin ? rows : rows.filter((u) => u.user_role?.name !== RoleEnum.SuperAdmin);
     // never send password hashes or reset OTPs to the client
     return visible.map(({ password: _p, reset_otp: _o, ...safe }) => safe);
+  }
+
+  /** Hard delete. A user who already confirmed bookings or owns tasks cannot be deleted: suspend them. */
+  async Delete(Id: string, actorId: string) {
+    if (Id === actorId) throw new ForbiddenException("You cannot delete your own account");
+    try {
+      const res = await user.delete(Id);
+      if (!res.affected) throw new Error("User not found");
+    } catch (e) {
+      if ((e as { code?: string; driverError?: { code?: string } })?.driverError?.code === "23503" || (e as { code?: string }).code === "23503")
+        throw new Error("This user has records (bookings, tasks). Suspend the user instead.");
+      throw e;
+    }
   }
 
   async GetById(UserId: string) {

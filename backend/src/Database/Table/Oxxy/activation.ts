@@ -45,4 +45,17 @@ export class activation extends BaseTable {
 
   @Column({ type: "text", nullable: true, unique: true })
   crm_activation_id: string;
+
+  // ---- Activation (Playbook 17): what was shown when the link was sent ----
+  @Column({ type: "numeric", precision: 10, scale: 2, nullable: true })
+  price: number | null;
+
+  @Column({ type: "numeric", precision: 5, scale: 4, nullable: true })
+  gst_rate: number | null;
+
+  @Column({ type: "boolean", default: false })
+  renewal_terms_shown: boolean;
+
+  @Column({ type: "text", nullable: true }) // triggers before payment, e.g. "A>D>G>H>E" (conversion attribution)
+  trigger_path: string | null;
 }

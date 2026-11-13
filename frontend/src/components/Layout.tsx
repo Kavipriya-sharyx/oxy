@@ -1,70 +1,176 @@
-import { Button, Layout as AntLayout, Menu, Tag, Typography } from "antd";
-import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../hooks/useAuth";
-import { ROUTE_ROLES } from "../auth/roles";
+import { usePermissions } from "../hooks/usePermissions";
+import { Icon, initials, TitleProvider, usePageTitleValue } from "./ui";
+import { getPendingBookings } from "../api/bookings.api";
 
-const { Sider, Header, Content } = AntLayout;
-
-const ALL_ITEMS = [
-  { key: "/live-chat", label: "Live chat" },
-  { key: "/bookings", label: "Bookings" },
-  { key: "/centres", label: "Centres" },
-  { key: "/plan-catalog", label: "Plan catalogue" },
-  { key: "/reports", label: "Reports" },
-  { key: "/triggers", label: "Triggers A–R" },
-  { key: "/crm-sync", label: "CRM sync" },
-  { key: "/users", label: "Users" },
-  { key: "/privacy", label: "Privacy requests" },
-  { key: "/audit-log", label: "Audit log" },
-  { key: "/settings", label: "Settings" },
+// Same groups and order as the approved prototype
+const NAV: [string, [string, string, string][]][] = [
+  [
+    "Work",
+    [
+      ["/dashboard", "Dashboard", "dash"],
+      ["/live-chat", "Conversations", "chat"],
+      ["/bookings", "Booking requests", "cal"],
+      ["/activations", "Activations", "card"],
+      ["/escalations", "Escalations", "task"],
+    ],
+  ],
+  ["Directory", [["/centres", "Centres", "pin"]]],
+  ["Flows", [["/flows", "All flows", "flow"]]],
+  [
+    "Control",
+    [
+      ["/plan-catalog", "Plans and prices", "tag"],
+      ["/triggers", "Triggers A–R", "zap"],
+      ["/reports", "Reports", "chart"],
+    ],
+  ],
+  [
+    "Admin",
+    [
+      ["/users", "Users", "users"],
+      ["/roles", "Roles and permissions", "key"],
+      ["/crm-sync", "CRM sync", "sync"],
+      ["/content", "Approved content", "doc"],
+      ["/privacy", "Data requests", "lock"],
+      ["/audit-log", "Audit log", "log"],
+      ["/settings", "Configuration", "gear"],
+    ],
+  ],
 ];
 
-export default function Layout() {
+function readMini(): boolean {
+  try {
+    return localStorage.getItem("oxxy-mini") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function Shell() {
   const navigate = useNavigate();
   const location = useLocation();
   const { email, role, logout } = useAuth();
-  const items = ALL_ITEMS.filter((i) => !!role && ROUTE_ROLES[i.key]?.includes(role));
+  const { title, sub } = usePageTitleValue();
+  const [mini, setMini] = useState(readMini);
+  const [open, setOpen] = useState(false);
+  const { canOpen } = usePermissions();
+  const allowed = (path: string) => !!role && canOpen(path);
+  const pending = useQuery({
+    queryKey: ["bookings", "pending"],
+    queryFn: getPendingBookings,
+    enabled: allowed("/bookings"),
+    refetchInterval: 60_000,
+  });
+  const counts: Record<string, number> = { "/bookings": pending.data?.length ?? 0 };
 
+  const toggle = () => {
+    if (window.innerWidth <= 860) return setOpen((o) => !o);
+    setMini((m) => {
+      try {
+        localStorage.setItem("oxxy-mini", m ? "0" : "1");
+      } catch {
+        /* private window */
+      }
+      return !m;
+    });
+  };
   const onLogout = () => {
     logout();
     navigate("/login", { replace: true });
   };
+  const search = (q: string) => {
+    if (q.trim()) navigate(`/live-chat?q=${encodeURIComponent(q.trim())}`);
+  };
 
   return (
-    <AntLayout style={{ minHeight: "100vh" }}>
-      <Sider breakpoint="lg" collapsedWidth={0} style={{ minHeight: "100vh" }}>
-        <Typography.Title
-          level={4}
-          style={{ color: "#fff", textAlign: "center", margin: "16px 0" }}
-        >
-          Oxxy
-        </Typography.Title>
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[location.pathname]}
-          items={items}
-          onClick={({ key }) => navigate(key)}
-        />
-      </Sider>
-      <AntLayout>
-        <Header
-          style={{
-            background: "#fff",
-            display: "flex",
-            justifyContent: "flex-end",
-            alignItems: "center",
-            gap: 12,
-          }}
-        >
-          {role && <Tag color="blue">{role}</Tag>}
-          {email && <Typography.Text>{email}</Typography.Text>}
-          <Button onClick={onLogout}>Logout</Button>
-        </Header>
-        <Content style={{ margin: 24, flex: 1 }}>
+    <div className={`app ${mini ? "mini" : ""} ${open ? "navopen" : ""}`}>
+      <div className="navscrim" onClick={() => setOpen(false)} />
+      <aside className="rail" aria-label="Main navigation">
+        <div className="brand">
+          <div className="mark">O</div>
+          <div>
+            <b>Oxxy</b>
+            <span>Sales and bot console</span>
+          </div>
+        </div>
+        {NAV.map(([group, items]) => {
+          const visible = items.filter(([p]) => allowed(p));
+          if (!visible.length) return null;
+          return (
+            <div key={group}>
+              <div className="navgroup eyebrow">{group}</div>
+              <nav className="nav">
+                {visible.map(([path, label, icon]) => (
+                  <NavLink
+                    key={path}
+                    to={path}
+                    title={label}
+                    className={({ isActive }) => (isActive ? "on" : "")}
+                    onClick={() => setOpen(false)}
+                  >
+                    <Icon name={icon} />
+                    <span>{label}</span>
+                    {counts[path] ? <span className="count">{counts[path]}</span> : null}
+                  </NavLink>
+                ))}
+              </nav>
+            </div>
+          );
+        })}
+        <div className="me">
+          <div className="avatar">{initials(email?.split("@")[0]?.replace(/[._]/g, " "))}</div>
+          <div style={{ minWidth: 0 }}>
+            <b
+              style={{
+                fontSize: 13,
+                display: "block",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {email}
+            </b>
+            <div className="small muted">{role}</div>
+          </div>
+          <button className="btn sm" style={{ marginLeft: "auto" }} onClick={onLogout}>
+            Sign out
+          </button>
+        </div>
+      </aside>
+      <main className="main">
+        <div className="topbar">
+          <button className="menubtn" onClick={toggle} aria-label="Show or hide the sidebar">
+            <Icon name="menu" />
+          </button>
+          <div style={{ minWidth: 0 }}>
+            {sub && <div className="eyebrow">{sub}</div>}
+            <h1>{title}</h1>
+          </div>
+          <label className="search">
+            <span className="muted small">Search</span>
+            <input
+              key={location.pathname}
+              placeholder="Name or WhatsApp number"
+              onKeyDown={(e) => e.key === "Enter" && search((e.target as HTMLInputElement).value)}
+            />
+          </label>
+        </div>
+        <div className="content">
           <Outlet />
-        </Content>
-      </AntLayout>
-    </AntLayout>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default function Layout() {
+  return (
+    <TitleProvider>
+      <Shell />
+    </TitleProvider>
   );
 }

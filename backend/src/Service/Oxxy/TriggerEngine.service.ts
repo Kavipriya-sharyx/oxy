@@ -43,7 +43,7 @@ export class TriggerEngineService {
       case "find_centre":
         return "D";
       case "book":
-        return "H";
+        return "G"; // H (booking saved) is recorded by the pipeline only when the request is saved
       case "recommend":
         return product === "cut_medi_bills" ? "I" : "E";
       case "activate":
@@ -58,15 +58,20 @@ export class TriggerEngineService {
     conv: conversation,
     candidate: TriggerId | null,
     reason: string,
+    activeProduct?: string | null,
   ): Promise<TriggerId | null> {
     if (!candidate) return null;
     const cons = await consent.findOne({ where: { customer_id: customerId } });
     let suppression: string | null = null;
     if (cons?.opt_out_at || cons?.privacy_request_at) suppression = "opt_out";
     else if (conv.state === ConversationState.Pause) suppression = "emergency";
+    else if (conv.state === ConversationState.Escalated && (candidate === "E" || candidate === "Q"))
+      suppression = "active_complaint"; // open complaint / payment / callback case (plan 12.6)
+    else if (activeProduct && (candidate === "E" || candidate === "I")) suppression = "active_product";
 
+    // dedupe per decision journey (this conversation), not for life
     const existing = await trigger_event.findOne({
-      where: { customer_id: customerId, trigger_id: candidate },
+      where: { conversation_id: conv.id, trigger_id: candidate },
     });
     if (existing) return null;
 
@@ -81,6 +86,8 @@ export class TriggerEngineService {
           trigger_id: ordered,
           reason,
           suppression_reason: suppression,
+          conversation_source: "whatsapp_inbound",
+          next_state: conv.state,
         } as any),
       );
       return suppression ? null : ordered;

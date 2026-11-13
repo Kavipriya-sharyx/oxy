@@ -1,11 +1,12 @@
-﻿import { Column, Entity, Index, JoinColumn, ManyToOne } from "typeorm";
+import { Column, Entity, Index, JoinColumn, ManyToOne } from "typeorm";
 import { BaseTable } from "../BaseTable";
 import { customer } from "./customer";
 import { conversation } from "./conversation";
 
-// One row per trigger fired to a customer. Unique (customer, trigger) = dedupe + analytics.
+// One row per trigger fired (analytics + dedupe). Dedupe is per decision journey (= conversation),
+// not for life, so the index is not unique (plan 6.1: trigger_events_dedupe).
 @Entity()
-@Index(["customer_id", "trigger_id"], { unique: true })
+@Index(["conversation_id", "trigger_id"])
 export class trigger_event extends BaseTable {
   @Column()
   trigger_id: string;
@@ -39,5 +40,13 @@ export class trigger_event extends BaseTable {
 
   @Column({ type: "text", nullable: true })
   suppression_reason: string;
-}
 
+  @Column({ type: "varchar", default: "whatsapp_inbound" }) // voice_ai | whatsapp_inbound | whatsapp_outbound | human_agent
+  conversation_source: string;
+
+  @Column({ type: "varchar", nullable: true })
+  next_state: string | null;
+
+  @Column({ type: "varchar", nullable: true }) // last_touch | assisted (set when a payment is verified)
+  conversion_attribution: string | null;
+}

@@ -5,8 +5,8 @@ export enum RoleEnum {
 }
 
 export const RoleLandingPage: Record<RoleEnum, string> = {
-  [RoleEnum.SuperAdmin]: "/reports",
-  [RoleEnum.Admin]: "/bookings",
+  [RoleEnum.SuperAdmin]: "/dashboard",
+  [RoleEnum.Admin]: "/dashboard",
   [RoleEnum.User]: "/live-chat",
 };
 

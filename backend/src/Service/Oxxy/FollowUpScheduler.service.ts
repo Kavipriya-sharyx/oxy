@@ -5,15 +5,36 @@ import { conversation } from "@Database/Table/Oxxy/conversation";
 import { ConversationState } from "@Helper/Enum/ConversationState";
 import { queuePrefix, redisConnection } from "@Root/Config/Redis";
 import { WhatsappClient } from "./WhatsappClient.service";
-import { isQuietHours } from "./WhatsappRules";
+import { isQuietHours, nextAllowedAt } from "./WhatsappRules";
+import { activation } from "@Database/Table/Oxxy/activation";
+import { trigger_event } from "@Database/Table/Oxxy/trigger_event";
+import { customer } from "@Database/Table/Oxxy/customer";
+import { follow_up } from "@Database/Table/Oxxy/follow_up";
+import { ActivationStatus } from "@Helper/Enum/ActivationStatus";
+import { PaymentStatus } from "@Helper/Enum/PaymentStatus";
 
 const QUEUE = "scheduled";
+
+export type FollowUpKind = "agreed_follow_up" | "rescue" | "trigger_q" | "booking_update";
 
 export interface FollowUpJob {
   customerId: string;
   conversationId: string;
-  kind: "agreed_follow_up" | "rescue" | "trigger_q";
+  kind: FollowUpKind;
   templateName: string;
+  params?: string[];
+  followUpId?: string; // the follow_up row (the record); the job is only the alarm clock
+}
+
+export interface NewFollowUp {
+  customerId: string;
+  conversationId: string | null;
+  kind: FollowUpKind;
+  scheduledFor: Date;
+  templateName: string;
+  reason?: string | null;
+  selectedProduct?: string | null;
+  source?: string | null;
   params?: string[];
 }
 
@@ -54,21 +75,98 @@ export class FollowUpSchedulerService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async execute(job: FollowUpJob): Promise<void> {
-    const cons = await consent.findOne({ where: { customer_id: job.customerId } });
-    if (cons?.opt_out_at || cons?.privacy_request_at) return;
+  /** Saves the follow_up row (the record) and sets the alarm. Returns the row. */
+  async create(f: NewFollowUp): Promise<follow_up> {
+    const row = await follow_up.save(
+      follow_up.create({
+        customer_id: f.customerId,
+        conversation_id: f.conversationId,
+        kind: f.kind,
+        scheduled_for: f.scheduledFor,
+        template_name: f.templateName,
+        reason: f.reason ?? null,
+        selected_product: f.selectedProduct ?? null,
+        source: f.source ?? null,
+        follow_up_status: "scheduled",
+      } as any),
+    );
+    await this.schedule(
+      {
+        customerId: f.customerId,
+        conversationId: f.conversationId ?? "",
+        kind: f.kind,
+        templateName: f.templateName,
+        params: f.params,
+        followUpId: row.id,
+      },
+      f.scheduledFor.getTime() - Date.now(),
+    );
+    return row;
+  }
 
-    const conv = await conversation.findOne({ where: { id: job.conversationId } });
-    if (!conv || conv.closed_at) return;
+  /** Cancels every scheduled follow-up of a customer (STOP, privacy request, product active) */
+  async cancelAll(customerId: string, reason: string): Promise<number> {
+    const res = await follow_up.update(
+      { customer_id: customerId, follow_up_status: "scheduled" },
+      { follow_up_status: "cancelled", skip_reason: reason, updated_on: new Date() } as any,
+    );
+    return res.affected ?? 0;
+  }
+
+  private async finish(job: FollowUpJob, status: "sent" | "skipped" | "cancelled", reason?: string) {
+    if (!job.followUpId) return;
+    await follow_up.update(job.followUpId, {
+      follow_up_status: status,
+      skip_reason: reason ?? null,
+      updated_on: new Date(),
+    } as any);
+  }
+
+  // Everything is checked again at send time, not when the job was made (plan 12.8)
+  async execute(job: FollowUpJob): Promise<void> {
+    if (job.followUpId) {
+      const row = await follow_up.findOne({ where: { id: job.followUpId } });
+      if (!row || row.follow_up_status !== "scheduled") return; // cancelled meanwhile
+    }
+    const cons = await consent.findOne({ where: { customer_id: job.customerId } });
+    if (cons?.opt_out_at || cons?.privacy_request_at) return this.finish(job, "cancelled", "opt_out");
+
+    const conv = job.conversationId
+      ? await conversation.findOne({ where: { id: job.conversationId } })
+      : null;
+    if (job.conversationId && (!conv || conv.closed_at)) return this.finish(job, "skipped", "closed");
     if (
-      conv.state === ConversationState.Pause ||
-      conv.state === ConversationState.Escalated ||
-      conv.state === ConversationState.OptedOut
+      conv &&
+      (conv.state === ConversationState.Pause ||
+        conv.state === ConversationState.Escalated ||
+        conv.state === ConversationState.OptedOut)
     ) {
+      return this.finish(job, "skipped", conv.state === ConversationState.Pause ? "emergency" : "active_complaint");
+    }
+    if (job.kind === "rescue" && conv && conv.rescue_count >= 2) return this.finish(job, "skipped", "frequency_cap");
+    if (job.kind === "trigger_q") {
+      // only while the link is still unpaid, no product is active, and only once per journey
+      const cust = await customer.findOne({ where: { id: job.customerId } });
+      if (cust?.active_product) return this.finish(job, "skipped", "active_product");
+      const unpaid = await activation.findOne({
+        where: {
+          customer_id: job.customerId,
+          activation_status: ActivationStatus.LinkSent,
+          payment_status: PaymentStatus.Pending,
+        },
+      });
+      if (!unpaid) return this.finish(job, "skipped", "paid_or_cancelled");
+      if (conv && (await trigger_event.findOne({ where: { conversation_id: conv.id, trigger_id: "Q" } })))
+        return this.finish(job, "skipped", "duplicate");
+      // the customer already said DONE (Trigger P): the team is verifying, no reminder
+      if (conv && (await trigger_event.findOne({ where: { conversation_id: conv.id, trigger_id: "P" } })))
+        return this.finish(job, "skipped", "payment_reported");
+    }
+    if (isQuietHours(new Date())) {
+      // never dropped: moved to 09:00 IST next morning (plan 12.8); everything is checked again then
+      await this.schedule(job, nextAllowedAt(new Date()).getTime() - Date.now());
       return;
     }
-    if (job.kind === "rescue" && conv.rescue_count >= 2) return;
-    if (isQuietHours(new Date())) return;
 
     try {
       await this._Wa.send(
@@ -76,12 +174,25 @@ export class FollowUpSchedulerService implements OnModuleInit, OnModuleDestroy {
         { kind: "template", name: job.templateName, languageCode: "en", params: job.params },
         "proactive",
       );
-      if (job.kind === "rescue") {
+      if (job.kind === "rescue" && conv) {
         await conversation.update(conv.id, { rescue_count: conv.rescue_count + 1 });
       }
+      if (job.kind === "trigger_q" && conv) {
+        await trigger_event.save(
+          trigger_event.create({
+            customer_id: job.customerId,
+            conversation_id: conv.id,
+            trigger_id: "Q",
+            reason: "link sent, payment not completed",
+            conversation_source: "whatsapp_outbound",
+            next_state: conv.state,
+          } as any),
+        );
+      }
+      await this.finish(job, "sent");
     } catch (e) {
       this.logger.warn(`scheduled follow-up skipped (${job.kind}): ${(e as Error).message}`);
+      await this.finish(job, "skipped", String((e as Error).name || "send_failed").slice(0, 60));
     }
   }
 }
-

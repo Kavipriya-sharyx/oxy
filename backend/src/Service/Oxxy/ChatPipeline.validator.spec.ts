@@ -4,7 +4,7 @@ import { GuardrailService } from "./Guardrail.service";
 import { ReplyValidatorService } from "./ReplyValidator.service";
 import { assertTransition } from "./ConversationStateMachine";
 import { ConversationState as S } from "@Helper/Enum/ConversationState";
-import { NEUTRAL_SAVINGS_LINE, NOTICE_VERSION } from "@Helper/FixedReplies";
+import { NOTICE_VERSION } from "@Helper/FixedReplies";
 import { message } from "@Database/Table/Oxxy/message";
 import { consent } from "@Database/Table/Oxxy/consent";
 import { conversation } from "@Database/Table/Oxxy/conversation";
@@ -31,7 +31,10 @@ const draft = (reply_text: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-function setup(drafts: unknown[], opts: { activeProduct?: string | null; recommend?: boolean } = {}) {
+function setup(
+  drafts: unknown[],
+  opts: { activeProduct?: string | null; recommend?: boolean } = {},
+) {
   const cons = {
     opt_out_at: null,
     health_data_consent: true,
@@ -42,7 +45,11 @@ function setup(drafts: unknown[], opts: { activeProduct?: string | null; recomme
   const out: Record<string, unknown>[] = [];
   const tasks: Record<string, unknown>[] = [];
   const send = jest.fn(async (...a: unknown[]) => {
-    out.push({ direction: "out", reply_to_wa_message_id: a[3], text: (a[1] as { body: string }).body });
+    out.push({
+      direction: "out",
+      reply_to_wa_message_id: a[3],
+      text: (a[1] as { body: string }).body,
+    });
     return "wamid.OUT";
   });
   const generate = jest.fn();
@@ -72,14 +79,22 @@ function setup(drafts: unknown[], opts: { activeProduct?: string | null; recomme
   stub(activation, "findOne", async () => null);
   stub(plan_catalog, "find", async () => catalog);
   jest.spyOn(need, "findOne").mockResolvedValue(null as never);
-  jest.spyOn(need, "create").mockImplementation(((v: object) => ({ ...v, save: async () => undefined })) as never);
+  jest
+    .spyOn(need, "create")
+    .mockImplementation(((v: object) => ({ ...v, save: async () => undefined })) as never);
 
   const pipeline = new ChatPipelineService(
     new GuardrailService(),
     { generate } as never,
     new ReplyValidatorService(), // the real validator
     { send } as never,
-    { recommend: async () => (opts.recommend ? { plan: "vital", price: 1999 } : null) } as never,
+    {
+      recommend: async () =>
+        opts.recommend
+          ? { status: "recommend", plan: "vital", saving: 22500, price: 20000, rate: 25 }
+          : null,
+      prices: async () => ({ monthly: 1999, yearly: 20000 }),
+    } as never,
     {} as never,
     {} as never,
     {} as never,
@@ -88,7 +103,13 @@ function setup(drafts: unknown[], opts: { activeProduct?: string | null; recomme
     { transition } as never,
   );
   const saved = {
-    customer: { id: "c1", language: "en", active_product: opts.activeProduct ?? null, age: 40, save: async () => undefined },
+    customer: {
+      id: "c1",
+      language: "en",
+      active_product: opts.activeProduct ?? null,
+      age: 40,
+      save: async () => undefined,
+    },
     conversation: conv,
   } as never;
   const run = (text = "tell me about plans") =>
@@ -107,22 +128,28 @@ describe("a failed draft is replaced by the fixed template and logged", () => {
     ["a second product", "Cut Medi Bills is also available.", "oxxy"],
   ];
 
-  it.each(badDrafts)("%s: nothing is sent but the holding message, a task is opened, the reason is logged", async (_n, text, active) => {
-    const warn = jest.spyOn(Logger.prototype, "warn");
-    const t = setup([draft(text), draft(text)], { activeProduct: active });
-    await t.run();
-    expect(t.out.map((o) => o.text)).toEqual([HOLDING_MESSAGE]);
-    expect(t.generate).toHaveBeenCalledTimes(2); // one retry with the reasons, then the fixed template
-    expect(t.tasks.map((x) => x.type)).toContain("holding_message");
-    const logged = JSON.stringify(warn.mock.calls);
-    expect(logged).toMatch(/draft rejected/);
-    expect(logged).toMatch(/replaced by the fixed holding message/);
-    expect(logged).not.toContain(text); // the reasons are logged, never the draft text
-  });
+  it.each(badDrafts)(
+    "%s: nothing is sent but the holding message, a task is opened, the reason is logged",
+    async (_n, text, active) => {
+      const warn = jest.spyOn(Logger.prototype, "warn");
+      const t = setup([draft(text), draft(text)], { activeProduct: active });
+      await t.run();
+      expect(t.out.map((o) => o.text)).toEqual([HOLDING_MESSAGE]);
+      expect(t.generate).toHaveBeenCalledTimes(2); // one retry with the reasons, then the fixed template
+      expect(t.tasks.map((x) => x.type)).toContain("holding_message");
+      const logged = JSON.stringify(warn.mock.calls);
+      expect(logged).toMatch(/draft rejected/);
+      expect(logged).toMatch(/replaced by the fixed holding message/);
+      expect(logged).not.toContain(text); // the reasons are logged, never the draft text
+    },
+  );
 
   it("a bad first draft that is fixed on the retry is sent (and the first one is logged)", async () => {
     const warn = jest.spyOn(Logger.prototype, "warn");
-    const t = setup([draft("The Platinum plan is perfect."), draft("The Vital plan is a good fit.")]);
+    const t = setup([
+      draft("The Platinum plan is perfect."),
+      draft("The Vital plan is a good fit."),
+    ]);
     await t.run();
     expect(t.out.map((o) => o.text)).toEqual(["The Vital plan is a good fit."]);
     expect(JSON.stringify(warn.mock.calls)).toMatch(/plan name not in catalog: platinum/);
@@ -131,18 +158,27 @@ describe("a failed draft is replaced by the fixed template and logged", () => {
   it("a clean draft goes out unchanged", async () => {
     const t = setup([draft("The Vital plan is a good fit. Which city are you in?")]);
     await t.run();
-    expect(t.out.map((o) => o.text)).toEqual(["The Vital plan is a good fit. Which city are you in?"]);
+    expect(t.out.map((o) => o.text)).toEqual([
+      "The Vital plan is a good fit. Which city are you in?",
+    ]);
   });
 
-  it("a plan suggestion carries the system's price and the neutral savings line, never a promise", async () => {
+  it("a plan suggestion carries the system's prices and the approved illustration", async () => {
     const t = setup(
-      [draft("Based on what you shared, here is a suggestion.", { intent: "recommend", extracted_fields: { annual_medical_spend: 90000 } })],
+      [
+        draft("Based on what you shared, here is a suggestion.", {
+          intent: "recommend",
+          extracted_fields: { annual_medical_spend: 90000 },
+        }),
+      ],
       { recommend: true },
     );
     await t.run("recommend a plan");
     const text = String(t.out[0].text);
-    expect(text).toContain("VITAL");
-    expect(text).toContain("1999");
-    expect(text).toContain(NEUTRAL_SAVINGS_LINE.en);
+    expect(text).toContain("Vital plan");
+    expect(text).toContain("₹1,999 monthly or ₹20,000 yearly plus applicable GST");
+    expect(text).toContain("As an easy illustration");
+    expect(text).toContain("₹22,500 a year");
+    expect(text).toContain("Actual saving depends on the services and providers used");
   });
 });

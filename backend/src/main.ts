@@ -15,7 +15,14 @@ import { json } from "express";
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true,
-    cors: { origin: "*", exposedHeaders: "*" },
+    // CORS_ORIGINS = comma-separated console URLs (e.g. https://console.oxxy.in). Default: local dev only.
+    cors: {
+      origin: (process.env.CORS_ORIGINS || "http://localhost:5173,http://localhost:8080")
+        .split(",")
+        .map((o) => o.trim())
+        .filter(Boolean),
+      exposedHeaders: "*",
+    },
   });
   app.setGlobalPrefix("api");
   app.enableVersioning({
@@ -23,10 +30,10 @@ async function bootstrap() {
   });
   app.use(compression());
   app.use(errorHandler());
-  app.use(urlencoded({ limit: "500mb", extended: true }));
+  app.use(urlencoded({ limit: "2mb", extended: true }));
   app.use(
     json({
-      limit: "500mb",
+      limit: "2mb", // WhatsApp and CRM webhooks are small; a large body is refused
       verify: (req: any, _res, buf) => {
         req.rawBody = buf;
       },
@@ -46,10 +53,16 @@ async function bootstrap() {
     .setContact("BoilerPlate", "https://Demo", "Demo@Demo")
     .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup("swagger", app, document, {
-    swaggerOptions: { tagsSorter: "alpha", enableSearch: true },
-  });
+  // API docs: on in development, off in production unless SWAGGER=true
+  const swaggerOn = process.env.SWAGGER
+    ? process.env.SWAGGER === "true"
+    : process.env.NODE_ENV !== "production";
+  if (swaggerOn) {
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup("swagger", app, document, {
+      swaggerOptions: { tagsSorter: "alpha", enableSearch: true },
+    });
+  }
   const _ConfigService = app.get(ConfigService);
   await app.listen(_ConfigService.get<number>("Port") || 8000);
   if (_ConfigService.get("Database.Seed") == "true") {

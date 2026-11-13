@@ -22,7 +22,7 @@ export interface CentreQuery {
 export class CentreSearchService {
   // up to 5 verified, active centres. With lat/long: within radius, nearest first. Else: by city.
   async search(q: CentreQuery): Promise<(centre & { distance_km?: number })[]> {
-    const where: any = { verified: true, active: true, status: true };
+    const where: any = { verified: true, active: true, status: true, is_private: true }; // plan 6.1: verified private only
     if (q.latitude == null && q.city) where.city = ILike(q.city);
     let list = await centre.find({ where });
     if (q.specialisation) {

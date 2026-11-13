@@ -4,31 +4,34 @@ export const ROLE = {
   User: "User",
 } as const;
 
-export const ALL_ROLES: string[] = [ROLE.SuperAdmin, ROLE.Admin, ROLE.User];
-export const ADMIN_UP: string[] = [ROLE.SuperAdmin, ROLE.Admin];
-export const SUPER_ONLY: string[] = [ROLE.SuperAdmin];
-
-export const LANDING: Record<string, string> = {
-  [ROLE.SuperAdmin]: "/reports",
-  [ROLE.Admin]: "/bookings",
-  [ROLE.User]: "/live-chat",
+/** Route -> the permission it needs (null = any signed-in user). Same keys as the backend. */
+export const ROUTE_PERMS: Record<string, string | null> = {
+  "/dashboard": "dashboard.view",
+  "/flows": null,
+  "/live-chat": "conversations.read",
+  "/escalations": "tasks.work",
+  "/activations": "activations.read",
+  "/bookings": "bookings.read",
+  "/reports": "dashboard.view",
+  "/centres": "centres.read",
+  "/plan-catalog": "plans.read",
+  "/triggers": "triggers.read",
+  "/crm-sync": "crm.manage",
+  "/users": "users.manage",
+  "/roles": "roles.manage",
+  "/privacy": "privacy.handle",
+  "/audit-log": "audit.read",
+  "/settings": "settings.manage",
+  "/content": "settings.manage",
 };
 
-/** Route -> allowed roles. Single source of truth for routes and the sidebar. */
-export const ROUTE_ROLES: Record<string, string[]> = {
-  "/live-chat": ALL_ROLES,
-  "/bookings": ALL_ROLES,
-  "/reports": ALL_ROLES,
-  "/centres": ADMIN_UP,
-  "/plan-catalog": ADMIN_UP,
-  "/triggers": ADMIN_UP,
-  "/crm-sync": ADMIN_UP,
-  "/users": ADMIN_UP,
-  "/privacy": SUPER_ONLY,
-  "/audit-log": SUPER_ONLY,
-  "/settings": SUPER_ONLY,
-};
+const LANDING_ORDER = ["/dashboard", "/live-chat", "/bookings", "/centres", "/flows"];
 
-export function landingFor(role: string | null): string {
-  return (role && LANDING[role]) || "/live-chat";
+/** The first page this user may open */
+export function landingFor(perms: string[] | null | undefined): string {
+  const has = (p: string) => {
+    const need = ROUTE_PERMS[p];
+    return need === null || !!perms?.includes(need);
+  };
+  return LANDING_ORDER.find(has) ?? "/flows";
 }

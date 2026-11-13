@@ -56,6 +56,11 @@ import { ConsoleController } from "./Controller/Oxxy/Console.controller";
 import { TriggerEngineService } from "./Service/Oxxy/TriggerEngine.service";
 import { FollowUpSchedulerService } from "./Service/Oxxy/FollowUpScheduler.service";
 import { SystemConfigService } from "./Service/Admin/SystemConfig.service";
+import { BotActionsService } from "./Service/Crm/BotActions.service";
+import { CustomerRecordService } from "./Service/Crm/CustomerRecord.service";
+import { AnalyticsService } from "./Service/Crm/Analytics.service";
+import { ActionsApiKeyGuard, ActionsController } from "./Controller/Crm/Actions.controller";
+import { InsightsController } from "./Controller/Crm/Insights.controller";
 
 @Module({
   imports: [
@@ -80,6 +85,11 @@ import { SystemConfigService } from "./Service/Admin/SystemConfig.service";
         keepConnectionAlive: true,
         // forward slashes only: a Windows path with backslashes matches no entity files
         entities: [(__dirname + "/Database/Table/**/*.{ts,js}").replace(/\\/g, "/")],
+        // ONE schema: the entities, created by the migrations. They run at start-up unless
+        // DB_SYNC=true (local experiments only) or DB_MIGRATE=false.
+        migrations: [(__dirname + "/Database/Migrations/*.{ts,js}").replace(/\\/g, "/")],
+        migrationsTableName: "typeorm_migrations",
+        migrationsRun: !_ConfigService.get("Database.Sync") && process.env.DB_MIGRATE !== "false",
         logger: "advanced-console",
         logging: _ConfigService.get("Database.LOG"),
         bigNumberStrings: false,
@@ -116,6 +126,8 @@ import { SystemConfigService } from "./Service/Admin/SystemConfig.service";
     CrmWebhookController,
     CrmAdminController,
     ConsoleController,
+    ActionsController,
+    InsightsController,
   ],
   providers: [
     AuthService,
@@ -153,6 +165,10 @@ import { SystemConfigService } from "./Service/Admin/SystemConfig.service";
     TriggerEngineService,
     FollowUpSchedulerService,
     SystemConfigService,
+    BotActionsService,
+    CustomerRecordService,
+    AnalyticsService,
+    ActionsApiKeyGuard,
     CacheService,
     {
       provide: "REDIS_CLIENT",

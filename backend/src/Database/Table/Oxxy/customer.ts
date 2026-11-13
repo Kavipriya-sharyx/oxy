@@ -23,4 +23,11 @@ export class customer extends BaseTable {
 
   @Column({ type: "text", nullable: true, unique: true })
   crm_customer_id: string;
+
+  // ---- Identity (Playbook 17) ----
+  @Column({ type: "text", nullable: true }) // lead id from the lead form / voice AI / CRM
+  lead_id: string | null;
+
+  @Column({ default: "Asia/Kolkata" })
+  timezone: string;
 }

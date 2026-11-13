@@ -54,7 +54,11 @@ export default () => ({
     BaseUrl: process.env.CRM_BASE_URL,
     ApiKey: process.env.CRM_API_KEY,
     WebhookSecret: process.env.CRM_WEBHOOK_SECRET,
-    MaxAttempts: Number(process.env.CRM_MAX_ATTEMPTS || 8),
+    MaxAttempts: Number(process.env.CRM_MAX_ATTEMPTS || 0), // 0 = retry for 24 hours (Full Plan 3.4)
+  },
+  Actions: {
+    // X-Api-Key for /api/v1/Actions (Playbook 17.1). Unset = the Actions API answers 503.
+    ApiKey: process.env.ACTIONS_API_KEY,
   },
   AuditLog: {
     Enable: process.env.AUDIT_LOG == "true",

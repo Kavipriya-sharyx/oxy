@@ -113,7 +113,12 @@ export class CrmOutboxService implements OnModuleInit, OnModuleDestroy {
       const err = e as Error;
       row.attempts += 1;
       row.last_error = String(err.message).slice(0, 1000);
-      row.sync_status = failureState(row.attempts, Number(this._Config.get("Crm.MaxAttempts")));
+      const status: number | undefined = (e as any)?.response?.status;
+      row.sync_status = failureState(
+        row.attempts,
+        Number(this._Config.get("Crm.MaxAttempts")),
+        status,
+      );
       row.next_attempt_at = new Date(Date.now() + backoffMs(row.attempts));
       await row.save();
       if (row.sync_status === CrmSyncStatus.Dead) {

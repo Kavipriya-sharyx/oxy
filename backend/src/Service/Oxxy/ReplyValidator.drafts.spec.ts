@@ -31,7 +31,9 @@ describe("a Claude draft is rejected when it breaks a rule", () => {
     );
 
     it("names the offending plan in the reason", () => {
-      expect(rejected("The Platinum plan suits you.")).toContain("plan name not in catalog: platinum");
+      expect(rejected("The Platinum plan suits you.")).toContain(
+        "plan name not in catalog: platinum",
+      );
     });
 
     it.each([
@@ -53,8 +55,9 @@ describe("a Claude draft is rejected when it breaks a rule", () => {
       "rejects a price that is not in the catalog: %p",
       (t) => expect(rejected(t).some((r) => r.startsWith("price not in catalog"))).toBe(true),
     );
-    it.each(["Vital is ₹1,999 a year.", "₹2,359 with GST", "Rs. 4999"])("accepts catalog prices: %p", (t) =>
-      expect(check(t).ok).toBe(true),
+    it.each(["Vital is ₹1,999 a year.", "₹2,359 with GST", "Rs. 4999"])(
+      "accepts catalog prices: %p",
+      (t) => expect(check(t).ok).toBe(true),
     );
   });
 
@@ -69,9 +72,12 @@ describe("a Claude draft is rejected when it breaks a rule", () => {
       "Yeh bima jaisa hai",
     ])("rejects: %p", (t) => expect(rejected(t)).toContain("mentions insurance"));
 
-    it.each(["Mujhe bimari ke baare mein batayein", "आपको कौन सी बीमारी है", "Do you need a centre?"])(
-      "does not flag an unrelated word: %p",
-      (t) => expect(rejected(t)).not.toContain("mentions insurance"),
+    it.each([
+      "Mujhe bimari ke baare mein batayein",
+      "आपको कौन सी बीमारी है",
+      "Do you need a centre?",
+    ])("does not flag an unrelated word: %p", (t) =>
+      expect(rejected(t)).not.toContain("mentions insurance"),
     );
   });
 
@@ -80,18 +86,28 @@ describe("a Claude draft is rejected when it breaks a rule", () => {
       expect(rejected("Choose Oxxy or Cut Medi Bills.")).toContain("offers both products");
     });
     it("a customer on Oxxy hears nothing about Cut Medi Bills", () => {
-      expect(rejected("Cut Medi Bills could also work for you.", { plans, lockedProduct: "oxxy" })).toContain(
-        "offers a second product",
-      );
+      expect(
+        rejected("Cut Medi Bills could also work for you.", { plans, lockedProduct: "oxxy" }),
+      ).toContain("offers a second product");
     });
     it("a customer on Cut Medi Bills hears nothing about the Oxxy plans", () => {
-      for (const t of ["The Vital plan is nice.", "Our Oxxy plans start small.", "Thrive plan gives more."]) {
-        expect(rejected(t, { plans, lockedProduct: "cut_medi_bills" })).toContain("offers a second product");
+      for (const t of [
+        "The Vital plan is nice.",
+        "Our Oxxy plans start small.",
+        "Thrive plan gives more.",
+      ]) {
+        expect(rejected(t, { plans, lockedProduct: "cut_medi_bills" })).toContain(
+          "offers a second product",
+        );
       }
     });
     it("the customer's own product is fine", () => {
-      expect(check("The Vital plan is a good fit.", { plans, lockedProduct: "oxxy" }).ok).toBe(true);
-      expect(check("Cut Medi Bills works monthly.", { plans, lockedProduct: "cut_medi_bills" }).ok).toBe(true);
+      expect(check("The Vital plan is a good fit.", { plans, lockedProduct: "oxxy" }).ok).toBe(
+        true,
+      );
+      expect(
+        check("Cut Medi Bills works monthly.", { plans, lockedProduct: "cut_medi_bills" }).ok,
+      ).toBe(true);
     });
   });
 
@@ -102,20 +118,29 @@ describe("a Claude draft is rejected when it breaks a rule", () => {
       "We offer a discount.",
       "Enjoy cashback on every bill.",
       "Guaranteed savings every month.",
-    ])("rejects saving or discount talk: %p", (t) => expect(rejected(t)).toContain("promises savings or discounts"));
+    ])("rejects saving or discount talk: %p", (t) =>
+      expect(rejected(t)).toContain("promises savings or discounts"),
+    );
 
-    it.each(Object.entries(NEUTRAL_SAVINGS_LINE))("lets the neutral line through word for word (%s)", (_l, line) => {
-      expect(check(line).ok).toBe(true);
-      expect(check(`Here is the plan. ${line}`).ok).toBe(true);
-    });
+    it.each(Object.entries(NEUTRAL_SAVINGS_LINE))(
+      "lets the neutral line through word for word (%s)",
+      (_l, line) => {
+        expect(check(line).ok).toBe(true);
+        expect(check(`Here is the plan. ${line}`).ok).toBe(true);
+      },
+    );
 
     it("the neutral line does not cover other savings wording next to it", () => {
       const line = NEUTRAL_SAVINGS_LINE.en;
-      expect(rejected(`${line} You will save 30% though.`)).toContain("promises savings or discounts");
+      expect(rejected(`${line} You will save 30% though.`)).toContain(
+        "promises savings or discounts",
+      );
     });
 
     it("a reworded line is not the neutral line", () => {
-      expect(rejected("Any illustrated saving is guaranteed for you.")).toContain("promises savings or discounts");
+      expect(rejected("Any illustrated saving is guaranteed for you.")).toContain(
+        "promises savings or discounts",
+      );
     });
   });
 
@@ -137,7 +162,11 @@ describe("button and list limits", () => {
     body: "Pick one",
     buttons: Array.from({ length: n }, (_, i) => ({ id: `b${i}`, title })),
   });
-  const list = (rows: number, rowTitle = "Row", extra: Partial<{ buttonLabel: string; body: string }> = {}): OutboundMessage => ({
+  const list = (
+    rows: number,
+    rowTitle = "Row",
+    extra: Partial<{ buttonLabel: string; body: string }> = {},
+  ): OutboundMessage => ({
     kind: "list",
     body: extra.body ?? "Pick one",
     buttonLabel: extra.buttonLabel ?? "Choose",
@@ -166,4 +195,21 @@ describe("button and list limits", () => {
     ["the opening list (all languages)", openingList("en")],
     ["the Hindi opening list", openingList("hi")],
   ])("accepts %s", (_n, msg) => expect(checkMessageLimits(msg).ok).toBe(true));
+});
+
+describe("approved wording from the Full Development Plan is not blocked", () => {
+  const ok = (t: string) => validateReply(t, [10000, 11800, 4999, 5899]);
+  it.each([
+    "Cut Medi Bills is Oxxy’s quick medical-savings service for an upcoming requirement.",
+    "Your booking request is recorded. It is pending confirmation.",
+    "The team will confirm the slot with the centre.",
+    "Any illustrated saving depends on your own medical spend and is not guaranteed.",
+  ])("%s", (t) => {
+    expect(ok(t).reasons.filter((r) => r !== "promises savings or discounts")).toEqual([]);
+  });
+  it("still rejects a claim that the booking is confirmed", () => {
+    expect(ok("Great news, your booking is confirmed for Friday.").reasons).toContain(
+      "says a booking is confirmed",
+    );
+  });
 });

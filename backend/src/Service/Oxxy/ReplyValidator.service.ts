@@ -35,7 +35,8 @@ const NOT_A_PLAN_NAME = new Set(
 );
 
 // Words that only make sense as a (made-up) plan tier. Always checked, with or without the word "plan".
-const TIER_WORDS = /\b(platinum|gold|silver|bronze|diamond|premium|elite|ultimate|starter|essentials?|lite|super)\b/gi;
+const TIER_WORDS =
+  /\b(platinum|gold|silver|bronze|diamond|premium|elite|ultimate|starter|essentials?|lite|super)\b/gi;
 
 function planCandidates(t: string): string[] {
   const out: string[] = [];
@@ -46,8 +47,12 @@ function planCandidates(t: string): string[] {
   return out.filter((w) => !NOT_A_PLAN_NAME.has(w));
 }
 
-const OXXY_RE = /\boxxy\b/i;
 const CMB_RE = /cut\s*medi\s*bills/i;
+const OXXY_PLAN_RE = /\b(everyday|vital|thrive|infinity)\b|\boxxy\s+(plans?|membership)\b/i;
+const BOTH_RE =
+  /\boxxy\b\s*(or|and|\/|,|&)\s*cut\s*medi|cut\s*medi\s*bills\s*(or|and|\/|,|&)\s*(the\s+)?oxxy\b|\bboth\b/i;
+const CONFIRMED_CLAIM_RE =
+  /\b(booking|appointment|slot|visit|request)\b[^.!?\n]{0,40}\b(is|has been|have been|are|now)\s+(now\s+)?confirmed\b|\bconfirmed\s+(your|the)\s+(booking|appointment|slot|visit)\b|^\s*confirmed\b/i;
 
 // Pure check. allowedPrices = every price a reply may show (catalog price and price incl. GST).
 export function validateReply(
@@ -67,12 +72,16 @@ export function validateReply(
 
   if ([...t].length > LIMITS.textBody) reasons.push(`reply is over ${LIMITS.textBody} characters`);
   // "insurance" in English, Hindi (Devanagari) and Hinglish. "बीमारी" (illness) must not match.
-  if (/insurance|(?<![\p{L}\p{M}])(इंश्योरेंस|बीमा)(?![\p{L}\p{M}])|\bbima\b/iu.test(t)) reasons.push("mentions insurance");
+  if (/insurance|(?<![\p{L}\p{M}])(इंश्योरेंस|बीमा)(?![\p{L}\p{M}])|\bbima\b/iu.test(t))
+    reasons.push("mentions insurance");
   if (/\b(sav(e|es|ed|ing|ings)|discounts?|cashback|\d+\s*%\s*off)\b/i.test(forSavings))
     reasons.push("promises savings or discounts");
-  if (/confirmed/i.test(t)) reasons.push("says a booking is confirmed");
+  // only a claim that a booking IS confirmed; "will be confirmed separately" / "pending confirmation" are fine
+  if (CONFIRMED_CLAIM_RE.test(t)) reasons.push("says a booking is confirmed");
   if (/tie[\s-]?ups?|tied up|partner(ed|ship|ships)?/i.test(t)) reasons.push("mentions tie-ups");
-  if (OXXY_RE.test(t) && CMB_RE.test(t)) reasons.push("offers both products");
+  // offering both = Cut Medi Bills next to an Oxxy plan ("Cut Medi Bills is Oxxy's service" is one product)
+  if (CMB_RE.test(t) && (OXXY_PLAN_RE.test(t) || BOTH_RE.test(t)))
+    reasons.push("offers both products");
 
   const priceRe = /(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)/gi;
   let m: RegExpExecArray | null;
@@ -92,9 +101,13 @@ export function validateReply(
   // one product per customer: nothing about the other product
   if (ctx.lockedProduct) {
     const other = ctx.lockedProduct === "oxxy" ? "cut_medi_bills" : "oxxy";
-    const mentionsOtherName = other === "oxxy" ? /\boxxy\s+(plans?|membership)\b/i.test(t) : CMB_RE.test(t);
+    const mentionsOtherName =
+      other === "oxxy" ? /\boxxy\s+(plans?|membership)\b/i.test(t) : CMB_RE.test(t);
     const mentionsOtherPlan = (ctx.plans ?? []).some(
-      (p) => p.product === other && p.product !== ctx.lockedProduct && new RegExp(`\\b${planKey(p.name)}\\s+plans?\\b`, "i").test(t),
+      (p) =>
+        p.product === other &&
+        p.product !== ctx.lockedProduct &&
+        new RegExp(`\\b${planKey(p.name)}\\s+plans?\\b`, "i").test(t),
     );
     if (mentionsOtherName || mentionsOtherPlan) reasons.push("offers a second product");
   }
@@ -129,7 +142,10 @@ export class ReplyValidatorService {
   }
 
   // Prices and plan names come from plan_catalog only, never from the draft itself
-  async validate(text: string, ctx: Pick<ValidationContext, "lockedProduct"> = {}): Promise<ValidationResult> {
+  async validate(
+    text: string,
+    ctx: Pick<ValidationContext, "lockedProduct"> = {},
+  ): Promise<ValidationResult> {
     const { prices, plans } = await this.catalog();
     return validateReply(text, prices, { plans, lockedProduct: ctx.lockedProduct });
   }
