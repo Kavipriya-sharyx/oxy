@@ -35,8 +35,9 @@ function logout(): void {
 }
 
 // VITE_API_URL has no trailing slash; the backend is versioned under /api/v1
+// Defaults to empty string so relative URLs (/api/v1) work automatically on any host
 const client = axios.create({
-  baseURL: `${import.meta.env.VITE_API_URL}/api/v1`,
+  baseURL: `${import.meta.env.VITE_API_URL || ""}/api/v1`,
 });
 
 client.interceptors.request.use((config) => {
