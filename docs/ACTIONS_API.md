@@ -204,8 +204,8 @@ consent, open cases and quiet hours again at send time.
   "kind": "agreed_follow_up", "selected_product": "oxxy", "status": "scheduled" }
 ```
 
-The conversation moves to FOLLOW_UP and Trigger N is logged. STOP, a privacy request or a verified payment
-cancels scheduled follow-ups automatically. Errors: `400 invalid_time | time_in_past | time_too_far |
+The conversation moves to FOLLOW_UP and Trigger N is logged. The customer writing on WhatsApp before that time,
+STOP, a privacy request or a verified payment cancels scheduled follow-ups automatically. Errors: `400 invalid_time | time_in_past | time_too_far |
 quiet_hours | reason_required | invalid_product`, `403 opted_out | privacy_request_open`, `404 customer_not_found`.
 
 ### 4.5 get_official_plan — `GET /OfficialPlan`

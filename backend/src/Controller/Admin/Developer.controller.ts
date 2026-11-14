@@ -11,7 +11,7 @@ import {
 import { ApiTags } from "@nestjs/swagger";
 import { JWTAuthController } from "@Controller/JWTAuth.controller";
 import { Permission } from "@Helper/Permissions";
-import { buildPostmanCollection } from "@Helper/PostmanCollection";
+import { buildPostmanCollection, buildVoicePostmanCollection } from "@Helper/PostmanCollection";
 import { ApiKeyService } from "@Service/Admin/ApiKey.service";
 
 // Console > Admin > Developer: API keys for the client's CRM / voice AI, the CRM webhook secret and the
@@ -64,11 +64,13 @@ export class DeveloperController extends JWTAuthController {
 
   @Permission("developer.manage")
   @Post("Postman")
-  Postman(@Body("base_url") baseUrl?: string) {
+  Postman(@Body("base_url") baseUrl?: string, @Body("audience") audience?: string) {
     const clean =
       typeof baseUrl === "string" && /^https?:\/\/[^\s"]+$/.test(baseUrl)
         ? baseUrl.replace(/\/+$/, "")
         : undefined;
-    return this.SendResponseData(buildPostmanCollection(clean));
+    return this.SendResponseData(
+      audience === "voice" ? buildVoicePostmanCollection(clean) : buildPostmanCollection(clean),
+    );
   }
 }

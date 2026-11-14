@@ -14,7 +14,7 @@ export function newApiKey(env = process.env.NODE_ENV): string {
 }
 
 export const EXPIRY_DAYS = [30, 90, 180, 365] as const;
-const CACHE_MS = 30_000;
+const CACHE_MS = 10_000; // a key revoked on another server instance stops working within 10 s
 const TOUCH_MS = 60_000;
 
 export interface ApiKeyRow {

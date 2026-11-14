@@ -64,9 +64,9 @@ h1, h2, h3 { font-family: var(--font-head); color: var(--heading); }
 h1 { font-size: 28px; margin: 6px 0 4px; }
 `;
 
-const fill = (s: string, base: string) => s.split("{{BASE}}").join(base);
+export const fill = (s: string, base: string) => s.split("{{BASE}}").join(base);
 
-function Code({ text, interactive }: { text: string; interactive: boolean }) {
+export function Code({ text, interactive }: { text: string; interactive: boolean }) {
   const [done, setDone] = useState(false);
   return (
     <div className="codewrap">
@@ -92,7 +92,7 @@ function Code({ text, interactive }: { text: string; interactive: boolean }) {
   );
 }
 
-function Fields({ rows, title }: { rows: DocField[]; title: string }) {
+export function Fields({ rows, title }: { rows: DocField[]; title: string }) {
   return (
     <>
       <h4>{title}</h4>
@@ -124,7 +124,7 @@ function Fields({ rows, title }: { rows: DocField[]; title: string }) {
   );
 }
 
-function Table({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
+export function Table({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
   return (
     <div className="tblwrap">
       <table>
@@ -162,13 +162,21 @@ const SECTIONS: [string, string][] = [
   ["checklist", "Go-live checklist"],
 ];
 
-function Endpoints({ list, code }: { list: DocEndpoint[]; code: (t: string) => ReactNode }) {
+export function Endpoints({
+  list,
+  code,
+  prefix = "doc-",
+}: {
+  list: DocEndpoint[];
+  code: (t: string) => ReactNode;
+  prefix?: string;
+}) {
   return (
     <>
       <Table
         head={["Action", "Method and path", "Messages the customer?"]}
         rows={list.map((a) => [
-          <a key={a.id} href={`#doc-${a.id}`}>
+          <a key={a.id} href={`#${prefix}${a.id}`}>
             {a.action}
           </a>,
           <code key="p">
@@ -179,7 +187,7 @@ function Endpoints({ list, code }: { list: DocEndpoint[]; code: (t: string) => R
       />
       {list.map((a) => (
         <section className="ep" key={a.id}>
-          <h3 id={`doc-${a.id}`}>
+          <h3 id={`${prefix}${a.id}`}>
             <span className={`verb ${a.method}`}>{a.method}</span>
             <span className="path">{a.path}</span>
             <span className="meta">· {a.action}</span>

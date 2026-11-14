@@ -2,7 +2,7 @@ import { ServiceUnavailableException, UnauthorizedException } from "@nestjs/comm
 import { api_key } from "@Database/Table/Admin/api_key";
 import { ApiKeyService, hashKey, keyState, newApiKey } from "./ApiKey.service";
 import { ActionsApiKeyGuard } from "@Controller/Crm/Actions.controller";
-import { buildPostmanCollection } from "@Helper/PostmanCollection";
+import { buildPostmanCollection, buildVoicePostmanCollection } from "@Helper/PostmanCollection";
 
 const config = (values: Record<string, unknown> = {}) =>
   ({ get: (k: string) => values[k] }) as never;
@@ -168,5 +168,41 @@ describe("Postman collection", () => {
     expect(c.variable.find((v) => v.key === "api_key")?.value).toBe("");
     expect(c.variable.some((v) => v.key === "webhook_secret")).toBe(false);
     expect(c.variable.find((v) => v.key === "base_url")?.value).toBe("https://bot.example.com");
+  });
+});
+
+describe("Voice agent Postman collection", () => {
+  it("holds only the voice agent's calls, in call order, and no secrets", () => {
+    const v = buildVoicePostmanCollection("https://bot.example.com");
+    expect(v.info.name).toBe("Oxxy voice agent API");
+    expect((v.item as any[]).map((i) => i.name)).toEqual([
+      "lookup_customer",
+      "start_conversation",
+      "get_official_plan",
+      "search_centres",
+      "create_booking_request",
+      "create_follow_up",
+      "create_escalation",
+      "set_opt_out",
+    ]);
+    const start = (v.item as any[])[1];
+    expect(JSON.parse(start.request.body.raw)).toMatchObject({
+      consent_source: "voice_ai",
+      context: expect.any(Object),
+    });
+    expect(v.variable.find((x) => x.key === "api_key")?.value).toBe("");
+  });
+});
+
+describe("Voice agent Postman collection uses the phone number", () => {
+  it("never asks for the bot's customer_id", () => {
+    const v = buildVoicePostmanCollection();
+    const raw = JSON.stringify(v);
+    expect(raw).not.toContain("{{customer_id}}");
+    const opt = (v.item as any[]).find((i) => i.name === "set_opt_out");
+    expect(JSON.parse(opt.request.body.raw)).toEqual({
+      wa_number: "{{wa_number}}",
+      source: "voice_ai",
+    });
   });
 });

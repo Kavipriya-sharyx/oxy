@@ -1,0 +1,323 @@
+{
+  "info": {
+    "name": "Oxxy voice agent API",
+    "description": "For the voice agent that calls Oxxy customers (header X-Api-Key, the voice agent's own key). Look the customer up at the start of the call; when the customer agrees to WhatsApp, call start_conversation with the call's context. Set base_url and api_key. Full guide: Admin > Developer > Voice agent API docs.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://your-bot-host"
+    },
+    {
+      "key": "api_key",
+      "value": ""
+    },
+    {
+      "key": "wa_number",
+      "value": "919800000000"
+    }
+  ],
+  "item": [
+    {
+      "name": "lookup_customer",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Api-Key",
+            "value": "{{api_key}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/Actions/LookupCustomer?wa_number={{wa_number}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "Actions",
+            "LookupCustomer"
+          ],
+          "query": [
+            {
+              "key": "wa_number",
+              "value": "{{wa_number}}"
+            }
+          ]
+        },
+        "description": "Active product, consent, open bookings and cases. Call first; save customer_id."
+      }
+    },
+    {
+      "name": "start_conversation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Api-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/Actions/StartConversation",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "Actions",
+            "StartConversation"
+          ],
+          "query": []
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"wa_number\": \"{{wa_number}}\",\n  \"first_name\": \"Ravi\",\n  \"whatsapp_consent\": true,\n  \"consent_source\": \"voice_ai\",\n  \"language\": \"en\",\n  \"context\": {\n    \"summary\": \"Asked for Oxxy plan details on WhatsApp; mother needs regular dental care\",\n    \"need\": \"dental treatment for mother\",\n    \"beneficiary\": \"mother\",\n    \"city\": \"Chennai\",\n    \"specialisation\": \"dental\",\n    \"selected_product\": \"oxxy\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "After a call: first WhatsApp message with three buttons. context = what was said on the call. status: sent | queued (quiet hours, sent at 09:00 IST) | context_saved (chat in progress)."
+      }
+    },
+    {
+      "name": "get_official_plan",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Api-Key",
+            "value": "{{api_key}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/Actions/OfficialPlan?product=oxxy&plan=vital&billing=yearly",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "Actions",
+            "OfficialPlan"
+          ],
+          "query": [
+            {
+              "key": "product",
+              "value": "oxxy"
+            },
+            {
+              "key": "plan",
+              "value": "vital"
+            },
+            {
+              "key": "billing",
+              "value": "yearly"
+            }
+          ]
+        },
+        "description": "Price, GST, renewal terms, activation link. needs_confirmation=true: not final yet."
+      }
+    },
+    {
+      "name": "search_centres",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Api-Key",
+            "value": "{{api_key}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/Actions/SearchCentres?city=Chennai&specialisation=cardiology",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "Actions",
+            "SearchCentres"
+          ],
+          "query": [
+            {
+              "key": "city",
+              "value": "Chennai"
+            },
+            {
+              "key": "specialisation",
+              "value": "cardiology"
+            }
+          ]
+        },
+        "description": "Verified private centres only, at most 5. Or latitude + longitude + radius_km."
+      }
+    },
+    {
+      "name": "create_booking_request",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Api-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/Actions/BookingRequests",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "Actions",
+            "BookingRequests"
+          ],
+          "query": []
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"wa_number\": \"{{wa_number}}\",\n  \"centre\": {\n    \"centre_id\": \"<from search_centres>\"\n  },\n  \"specialisation\": \"cardiology\",\n  \"preferred_date\": \"YYYY-MM-DD\",\n  \"preferred_time\": \"10:30\",\n  \"source\": \"voice_ai\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Always pending_confirmation. preferred_date: today + 3 days .. + 6 months (Asia/Kolkata)."
+      }
+    },
+    {
+      "name": "create_follow_up",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Api-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/Actions/FollowUps",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "Actions",
+            "FollowUps"
+          ],
+          "query": []
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"wa_number\": \"{{wa_number}}\",\n  \"scheduled_for\": \"2026-12-01T11:00:00+05:30\",\n  \"reason\": \"talk after salary day\",\n  \"selected_product\": \"oxxy\",\n  \"source\": \"voice_ai\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Between 09:00 and 21:00 IST, within 90 days. Sent later as the approved template."
+      }
+    },
+    {
+      "name": "create_escalation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Api-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/Actions/Escalations",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "Actions",
+            "Escalations"
+          ],
+          "query": []
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"wa_number\": \"{{wa_number}}\",\n  \"reason\": \"Wants the exact discount at a centre\",\n  \"summary\": \"Asked about discount at the chosen centre (no health details)\",\n  \"priority\": \"high\",\n  \"source\": \"voice_ai\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "A task for a person. No health details in summary."
+      }
+    },
+    {
+      "name": "set_opt_out",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Api-Key",
+            "value": "{{api_key}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/Actions/OptOut",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "Actions",
+            "OptOut"
+          ],
+          "query": []
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"wa_number\": \"{{wa_number}}\",\n  \"source\": \"voice_ai\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Stops all WhatsApp automation for the customer. Safe to repeat."
+      }
+    }
+  ]
+}

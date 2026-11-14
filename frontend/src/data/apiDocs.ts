@@ -263,7 +263,7 @@ export const ACTIONS: DocEndpoint[] = [
     errors:
       "400 invalid_time, time_in_past, time_too_far, quiet_hours, reason_required, invalid_product · 403 opted_out, privacy_request_open · 404 customer_not_found",
     notes: [
-      "STOP, a privacy request or a verified payment cancels scheduled follow-ups automatically.",
+      "Cancelled automatically when the customer writes on WhatsApp before that time (they came back by themselves), on STOP, a privacy request or a verified payment. Everything is checked again at send time.",
     ],
   },
   {

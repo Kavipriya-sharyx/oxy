@@ -122,7 +122,9 @@ function setup(
     const w = ((o as { where?: Record<string, unknown> })?.where ?? {}) as Record<string, any>;
     const list = opts.centres ?? [];
     if (w.id) return list.find((c) => c.id === w.id) ?? null;
-    const v = String(w.name?._value ?? w.name?.value ?? "").replace(/%/g, "").toLowerCase();
+    const v = String(w.name?._value ?? w.name?.value ?? "")
+      .replace(/%/g, "")
+      .toLowerCase();
     return (v && list.find((c) => String(c.name).toLowerCase().includes(v))) || null;
   });
   stub(trigger_event, "findOne", async () => null);
@@ -132,7 +134,9 @@ function setup(
   // a reply to the current message exists once one was sent (afterTurn checks it); reset per run
   let replied = false;
   stub(message, "findOne", async (o: unknown) =>
-    replied && (o as { where?: { reply_to_wa_message_id?: string } })?.where?.reply_to_wa_message_id ? { id: "out" } : null,
+    replied && (o as { where?: { reply_to_wa_message_id?: string } })?.where?.reply_to_wa_message_id
+      ? { id: "out" }
+      : null,
   );
   stub(conversation, "findOne", async () => conv);
   stub(message, "find", async () => []);
@@ -144,7 +148,10 @@ function setup(
   stub(booking_request, "findOne", async () => null);
   stub(activation, "findOne", async () => null);
   stub(plan_catalog, "find", async (o: unknown) => {
-    const where = ((o as { where?: Record<string, unknown> })?.where ?? {}) as Record<string, unknown>;
+    const where = ((o as { where?: Record<string, unknown> })?.where ?? {}) as Record<
+      string,
+      unknown
+    >;
     return ((opts.catalog ?? []) as Record<string, unknown>[]).filter((r) =>
       Object.entries(where).every(([k, v]) => k === "status" || r[k] === v),
     );
@@ -202,7 +209,11 @@ function setup(
 afterEach(() => jest.restoreAllMocks());
 
 describe("plan choice (12.3)", () => {
-  const spendNeed = { annual_medical_spend: 60000, healthcare_need: "routine check-up", save: async () => undefined };
+  const spendNeed = {
+    annual_medical_spend: 60000,
+    healthcare_need: "routine check-up",
+    save: async () => undefined,
+  };
 
   it("asks the age before naming any plan", async () => {
     const t = setup([draft("Thanks for sharing.", { intent: "recommend" })], {
@@ -232,7 +243,11 @@ describe("plan choice (12.3)", () => {
   it("gives the honest answer when no plan pays for itself", async () => {
     const t = setup([draft("Thanks.", { intent: "recommend" })], {
       recommend: { status: "not_worth_it", plan: "everyday", price: 10000, spend: 15000 },
-      needRow: { annual_medical_spend: 15000, healthcare_need: "fever", save: async () => undefined },
+      needRow: {
+        annual_medical_spend: 15000,
+        healthcare_need: "fever",
+        save: async () => undefined,
+      },
     });
     await t.run("about 15000 a year");
     expect(t.out.join("\n\n")).toContain("may not pay for itself in savings alone");
@@ -244,10 +259,21 @@ describe("plan choice (12.3)", () => {
 // carried two questions, and "please hold on" was promised
 describe("one question, no repeat, no stalling", () => {
   it("'Monthly 20,000': the yearly spend (x 12) is saved and the value check answers in the same turn", async () => {
-    const needRow: Record<string, unknown> = { healthcare_need: "medicines", save: async () => undefined };
+    const needRow: Record<string, unknown> = {
+      healthcare_need: "medicines",
+      save: async () => undefined,
+    };
     const t = setup(
-      [draft("Thank you for sharing that your family spends around 20,000 monthly on healthcare. Would you like to explore an Oxxy plan for ongoing support with these expenses?", { intent: "collect_needs" })],
-      { recommend: { status: "recommend", plan: "thrive", saving: 72000, price: 30000, rate: 30 }, needRow },
+      [
+        draft(
+          "Thank you for sharing that your family spends around 20,000 monthly on healthcare. Would you like to explore an Oxxy plan for ongoing support with these expenses?",
+          { intent: "collect_needs" },
+        ),
+      ],
+      {
+        recommend: { status: "recommend", plan: "thrive", saving: 72000, price: 30000, rate: 30 },
+        needRow,
+      },
     );
     await t.run("Monthly 20,000");
     expect(needRow.annual_medical_spend).toBe(240000);
@@ -259,8 +285,17 @@ describe("one question, no repeat, no stalling", () => {
 
   it("the system asks the age: the draft's own question is removed (one question per message)", async () => {
     const t = setup(
-      [draft("Great choice! I can help you with an Oxxy plan. Please let me know your preferred date for activation?", { intent: "recommend" })],
-      { recommend: { status: "ask_age" }, needRow: { annual_medical_spend: 240000, save: async () => undefined }, age: null },
+      [
+        draft(
+          "Great choice! I can help you with an Oxxy plan. Please let me know your preferred date for activation?",
+          { intent: "recommend" },
+        ),
+      ],
+      {
+        recommend: { status: "ask_age" },
+        needRow: { annual_medical_spend: 240000, save: async () => undefined },
+        age: null,
+      },
     );
     await t.run("Yes");
     const text = t.out.join("\n\n");
@@ -270,10 +305,13 @@ describe("one question, no repeat, no stalling", () => {
   });
 
   it("naming a hospital is not asking for a booking: the offer comes first, then the landmark", async () => {
-    const t = setup([draft("Noted.", { intent: "book", extracted_fields: { centre_name: "PSG Hospital" } })], {
-      needRow: { specialisation: "gastro", save: async () => undefined },
-      centres: CENTRES,
-    });
+    const t = setup(
+      [draft("Noted.", { intent: "book", extracted_fields: { centre_name: "PSG Hospital" } })],
+      {
+        needRow: { specialisation: "gastro", save: async () => undefined },
+        centres: CENTRES,
+      },
+    );
     await t.run("We are consulting in psg hosiptal");
     expect(t.out.join("\n\n")).toContain("May I do your booking at PSG Hospital?");
     expect(t.out.join("\n\n")).not.toContain("not in our directory yet");
@@ -282,20 +320,29 @@ describe("one question, no repeat, no stalling", () => {
   });
 
   it("asked to book in so many words: no second asking", async () => {
-    const t = setup([draft("Sure.", { intent: "book", extracted_fields: { centre_name: "PSG Hospital" } })], {
-      needRow: { specialisation: "gastro", save: async () => undefined },
-      centres: CENTRES,
-    });
+    const t = setup(
+      [draft("Sure.", { intent: "book", extracted_fields: { centre_name: "PSG Hospital" } })],
+      {
+        needRow: { specialisation: "gastro", save: async () => undefined },
+        centres: CENTRES,
+      },
+    );
     await t.run("please book an appointment at PSG hospital");
     expect(t.out.join("\n\n")).toContain('"PSG Hospital" is not in our directory yet');
   });
 
   it("needs a person: the reason comes before the callback options, and the draft's question goes", async () => {
-    const t = setup([draft("I am not sure about that. Would you like anything else?", { needs_human: true })]);
+    const t = setup([
+      draft("I am not sure about that. Would you like anything else?", { needs_human: true }),
+    ]);
     await t.run("my uncle wants something special arranged");
     const text = t.out.join("\n\n");
-    expect(text).toContain("I want to give you a precise answer rather than guess. I will arrange an authorised callback.");
-    expect(text.indexOf("precise answer")).toBeLessThan(text.indexOf("Please choose a convenient time"));
+    expect(text).toContain(
+      "I want to give you a precise answer rather than guess. I will arrange an authorised callback.",
+    );
+    expect(text.indexOf("precise answer")).toBeLessThan(
+      text.indexOf("Please choose a convenient time"),
+    );
     expect(text).not.toContain("Would you like anything else?");
   });
 
@@ -303,17 +350,34 @@ describe("one question, no repeat, no stalling", () => {
   it("the LLM is told what is already stored (city, patient, need, spend, plan), so it does not ask again", async () => {
     const t = setup([draft("Sure.")], {
       recommended: "thrive",
-      needRow: { beneficiary: "mother", healthcare_need: "medicines", city: "Tiruppur", annual_medical_spend: 240000, condition_if_voluntary: "secret", save: async () => undefined },
+      needRow: {
+        beneficiary: "mother",
+        healthcare_need: "medicines",
+        city: "Tiruppur",
+        annual_medical_spend: 240000,
+        condition_if_voluntary: "secret",
+        save: async () => undefined,
+      },
     });
     await t.run("ok tell me more");
     const context = JSON.parse(String((t.generate.mock.calls[0] as unknown[])[1]));
-    expect(context.known).toMatchObject({ beneficiary: "mother", healthcare_need: "medicines", city: "Tiruppur", annual_medical_spend: 240000, recommended_plan: "thrive" });
+    expect(context.known).toMatchObject({
+      beneficiary: "mother",
+      healthcare_need: "medicines",
+      city: "Tiruppur",
+      annual_medical_spend: 240000,
+      recommended_plan: "thrive",
+    });
     expect(context.known.condition_if_voluntary).toBeUndefined(); // the free-text condition is never sent
     expect(context.conversation_state).toBeDefined();
   });
 
   it("'please hold on while I gather the information' is never sent", async () => {
-    const t = setup([draft("Thank you for specifying Peelamedu. I will check for healthcare centres in that area. Please hold on for a moment while I gather the information. Which service do you need?")]);
+    const t = setup([
+      draft(
+        "Thank you for specifying Peelamedu. I will check for healthcare centres in that area. Please hold on for a moment while I gather the information. Which service do you need?",
+      ),
+    ]);
     await t.run("Peelamedu");
     expect(t.out.join("\n\n")).not.toMatch(/hold on|I will check/);
     expect(t.out.join("\n\n")).toContain("Which service do you need?");
@@ -343,7 +407,13 @@ describe("insurance questions get the approved fixed answer, never a Claude draf
     const triggers = fakeTriggers();
     const t = setup([], { triggers });
     await t.run("I already have insurance");
-    expect(triggers.record).toHaveBeenCalledWith("c1", expect.anything(), { id: "B", suppression: null }, "has insurance", expect.anything());
+    expect(triggers.record).toHaveBeenCalledWith(
+      "c1",
+      expect.anything(),
+      { id: "B", suppression: null },
+      "has insurance",
+      expect.anything(),
+    );
     const t2 = setup([], { triggers: fakeTriggers(), product: "cut_medi_bills" });
     await t2.run("we have insurance for it");
     expect(t2.out).toEqual([INSURANCE_COORDINATION]);
@@ -362,16 +432,17 @@ function fakeTriggers() {
 }
 
 describe("centre discount question (Playbook 10)", () => {
-  it.each(["Do I get a discount at this hospital?", "Will I save money at Apollo hospital?", "is there any discount at that clinic"])(
-    "%s -> the neutral savings line, no Claude, no tie-up",
-    async (q) => {
-      const t = setup([]);
-      await t.run(q);
-      expect(t.out).toEqual([centreSavingReply("en")]);
-      expect(t.out.join("\n\n")).toContain("confirmed separately by the Oxxy team");
-      expect(t.generate).not.toHaveBeenCalled();
-    },
-  );
+  it.each([
+    "Do I get a discount at this hospital?",
+    "Will I save money at Apollo hospital?",
+    "is there any discount at that clinic",
+  ])("%s -> the neutral savings line, no Claude, no tie-up", async (q) => {
+    const t = setup([]);
+    await t.run(q);
+    expect(t.out).toEqual([centreSavingReply("en")]);
+    expect(t.out.join("\n\n")).toContain("confirmed separately by the Oxxy team");
+    expect(t.generate).not.toHaveBeenCalled();
+  });
   it("a plan saving question still goes to Claude", async () => {
     const t = setup([draft("Happy to explain.")]);
     await t.run("how does the plan work?");
@@ -403,7 +474,11 @@ describe("trigger recording", () => {
     const t = setup([draft("Thanks.", { intent: "recommend" })], {
       triggers,
       recommend: { status: "ask_age" },
-      needRow: { annual_medical_spend: 60000, healthcare_need: "check-up", save: async () => undefined },
+      needRow: {
+        annual_medical_spend: 60000,
+        healthcare_need: "check-up",
+        save: async () => undefined,
+      },
       age: null,
     });
     await t.run("we spend 60000 a year");
@@ -414,10 +489,20 @@ describe("trigger recording", () => {
     const t = setup([draft("Thanks.", { intent: "recommend" })], {
       triggers,
       recommend: { status: "recommend", plan: "everyday", saving: 12000, price: 10000, rate: 20 },
-      needRow: { annual_medical_spend: 60000, healthcare_need: "check-up", save: async () => undefined },
+      needRow: {
+        annual_medical_spend: 60000,
+        healthcare_need: "check-up",
+        save: async () => undefined,
+      },
     });
     await t.run("we spend 60000 a year");
-    expect(triggers.record).toHaveBeenCalledWith("c1", expect.anything(), { id: "E", suppression: null }, "recommend", expect.anything());
+    expect(triggers.record).toHaveBeenCalledWith(
+      "c1",
+      expect.anything(),
+      { id: "E", suppression: null },
+      "recommend",
+      expect.anything(),
+    );
   });
   it("a failed send records no trigger (the retried job can still fire it)", async () => {
     const triggers = fakeTriggers();
@@ -425,7 +510,11 @@ describe("trigger recording", () => {
       triggers,
       sendFails: true,
       recommend: { status: "recommend", plan: "everyday", saving: 12000, price: 10000, rate: 20 },
-      needRow: { annual_medical_spend: 60000, healthcare_need: "check-up", save: async () => undefined },
+      needRow: {
+        annual_medical_spend: 60000,
+        healthcare_need: "check-up",
+        save: async () => undefined,
+      },
     });
     await expect(t.run("we spend 60000 a year")).rejects.toThrow("WhatsApp down");
     expect(triggers.record).not.toHaveBeenCalled();
@@ -471,15 +560,28 @@ describe("activation (12.5): disclosure first, link only after YES", () => {
   });
 
   // go-live: a plan whose official link or terms are not in the catalogue yet is never quoted
-  const notReady = { ...everydayYearly, activation_link: null, renewal_terms: null, activation_time: null };
+  const notReady = {
+    ...everydayYearly,
+    activation_link: null,
+    renewal_terms: null,
+    activation_time: null,
+  };
 
   it("plan not ready (no official link / terms): no price disclosure, no link, a task for the team", async () => {
-    const t = setup([draft("Sure.", { intent: "activate" })], { state: S.PlanFit, recommended: "everyday", planRow: notReady });
+    const t = setup([draft("Sure.", { intent: "activate" })], {
+      state: S.PlanFit,
+      recommended: "everyday",
+      planRow: notReady,
+    });
     await t.run("I want to activate");
     expect(t.out.join("\n\n")).not.toContain("Shall I send the official secure activation link?");
     expect(t.out.join("\n\n")).not.toMatch(/https?:|CONFIRM|example/);
     expect(t.conv.pending_action).toBeNull();
-    expect(t.saved.some((r) => String(r.summary).startsWith("Plan not ready to sell, missing: official activation link"))).toBe(true);
+    expect(
+      t.saved.some((r) =>
+        String(r.summary).startsWith("Plan not ready to sell, missing: official activation link"),
+      ),
+    ).toBe(true);
   });
 
   it("YES after the row lost its link (or still holds an example link): holding message, never the link", async () => {
@@ -487,7 +589,10 @@ describe("activation (12.5): disclosure first, link only after YES", () => {
       state: S.Activation,
       recommended: "everyday",
       pending: "send_activation_link:cat-everyday-y",
-      planRow: { ...everydayYearly, activation_link: "https://example.com/oxxy/activate/everyday-yearly" },
+      planRow: {
+        ...everydayYearly,
+        activation_link: "https://example.com/oxxy/activate/everyday-yearly",
+      },
     });
     await t.run("yes");
     expect(t.out.join("\n\n")).not.toMatch(/https?:/);
@@ -544,7 +649,15 @@ describe("Trigger A: trust pack without Claude", () => {
     const triggers = fakeTriggers();
     const t = setup([], {
       triggers,
-      assets: [asset({ id: "a1", code: "a1", trigger_id: "A", title: "News article", url: "https://news.example/oxxy" })],
+      assets: [
+        asset({
+          id: "a1",
+          code: "a1",
+          trigger_id: "A",
+          title: "News article",
+          url: "https://news.example/oxxy",
+        }),
+      ],
     });
     await t.run("Is Oxxy genuine?");
     expect(t.generate).not.toHaveBeenCalled();
@@ -571,7 +684,9 @@ describe("Trigger A: trust pack without Claude", () => {
     expect(triggers.record).not.toHaveBeenCalled();
   });
   it("Claude read a trust doubt: the approved pack replaces its draft", async () => {
-    const t = setup([draft("Yes we are real.", { intent: "trust_doubt" })], { triggers: fakeTriggers() });
+    const t = setup([draft("Yes we are real.", { intent: "trust_doubt" })], {
+      triggers: fakeTriggers(),
+    });
     await t.run("hmm not sure about you people");
     expect(t.out.join("\n\n")).toMatch(/^It is sensible to verify/);
     expect(t.out.join("\n\n")).not.toContain("Yes we are real");
@@ -583,7 +698,9 @@ describe("Trigger C: why activate", () => {
     const t = setup([], { triggers: fakeTriggers(), needRow: { beneficiary: "my father" } });
     await t.run("why should I activate, nobody is sick");
     expect(t.generate).not.toHaveBeenCalled();
-    expect(t.out.join("\n\n")).toContain("Oxxy works best when it is active before the next planned healthcare expense");
+    expect(t.out.join("\n\n")).toContain(
+      "Oxxy works best when it is active before the next planned healthcare expense",
+    );
     expect(t.out.join("\n\n")).toContain("Infinity has no age limit");
   });
   it("not on the Cut Medi Bills route: Claude answers", async () => {
@@ -597,7 +714,12 @@ describe("Trigger C: why activate", () => {
 describe("Trigger E: comparison only when asked, one plan marked, no link", () => {
   it("compare plans with age and need known -> four plans, one recommended", async () => {
     const triggers = fakeTriggers();
-    const t = setup([], { triggers, catalog: CATALOG, age: 45, needRow: { healthcare_need: "routine check-up" } });
+    const t = setup([], {
+      triggers,
+      catalog: CATALOG,
+      age: 45,
+      needRow: { healthcare_need: "routine check-up" },
+    });
     await t.run("can you compare the plans?");
     expect(t.generate).not.toHaveBeenCalled();
     expect(t.out.join("\n\n")).toContain("Here are the four Oxxy plans");
@@ -631,14 +753,19 @@ describe("Trigger E: comparison only when asked, one plan marked, no link", () =
 describe("Trigger F: savings illustration", () => {
   it("₹1,00,000 expected bill -> about ₹30,000 with the variability statement", async () => {
     const triggers = fakeTriggers();
-    const t = setup([draft("Thanks for sharing.", { extracted_fields: { expected_bill: 100000 } })], { triggers });
+    const t = setup(
+      [draft("Thanks for sharing.", { extracted_fields: { expected_bill: 100000 } })],
+      { triggers },
+    );
     await t.run("my bill will be 1 lakh");
     expect(t.out.join("\n\n")).toContain("approximately 30% of ₹1,00,000 is ₹30,000");
     expect(t.out.join("\n\n")).toContain("will be confirmed");
     expect((triggers.record.mock.calls[0] as unknown[])[2]).toEqual({ id: "F", suppression: null });
   });
   it("Everyday recommended -> 20% (₹20,000), never above the plan cap", async () => {
-    const t = setup([draft("Thanks.", { extracted_fields: { expected_bill: 100000 } })], { recommended: "everyday" });
+    const t = setup([draft("Thanks.", { extracted_fields: { expected_bill: 100000 } })], {
+      recommended: "everyday",
+    });
     await t.run("the bill is 1 lakh");
     expect(t.out.join("\n\n")).toContain("approximately 20% of ₹1,00,000 is ₹20,000");
   });
@@ -655,7 +782,16 @@ describe("Trigger L: approved proof only", () => {
   it("wants reviews + an approved testimonial -> it is sent", async () => {
     const t = setup([draft("Happy to share.", { intent: "wants_proof" })], {
       triggers: fakeTriggers(),
-      assets: [asset({ id: "l1", code: "l1", trigger_id: "L", kind: "testimonial", title: "Member stories", url: "https://s.example" })],
+      assets: [
+        asset({
+          id: "l1",
+          code: "l1",
+          trigger_id: "L",
+          kind: "testimonial",
+          title: "Member stories",
+          url: "https://s.example",
+        }),
+      ],
     });
     await t.run("any reviews from other customers?");
     expect(t.out.join("\n\n")).toContain("Happy to share.");
@@ -684,12 +820,24 @@ const ddmmyyyy = (days: number) => {
 
 describe("booking request, one question per turn", () => {
   it("list pick -> offer -> specialisation -> date -> time -> H summary + one soft suggestion", async () => {
-    const row: Record<string, unknown> = { suggested_centre_ids: ["ctr1", "ctr2"], save: async () => undefined };
-    const t = setup([], { pending: "centre_pick", needRow: row, centres: CENTRES, triggers: fakeTriggers() });
+    const row: Record<string, unknown> = {
+      suggested_centre_ids: ["ctr1", "ctr2"],
+      save: async () => undefined,
+    };
+    const t = setup([], {
+      pending: "centre_pick",
+      needRow: row,
+      centres: CENTRES,
+      triggers: fakeTriggers(),
+    });
     await t.run("2");
-    expect(t.out[0]).toBe("May I do your booking at Apollo Eye, Adyar? Reply YES or NO, or send the name of another centre you prefer.");
+    expect(t.out[0]).toBe(
+      "May I do your booking at Apollo Eye, Adyar? Reply YES or NO, or send the name of another centre you prefer.",
+    );
     await t.run("yes");
-    expect(t.out[1]).toBe("Which doctor specialisation, test or healthcare service should I include in the request?");
+    expect(t.out[1]).toBe(
+      "Which doctor specialisation, test or healthcare service should I include in the request?",
+    );
     await t.run("eye check-up");
     expect(row.specialisation).toBe("eye check-up");
     expect(t.out[2]).toMatch(/^What date would you prefer\? It can be from /);
@@ -698,10 +846,19 @@ describe("booking request, one question per turn", () => {
     expect(t.out[3]).toBe("What time or time window would suit you?");
     await t.run("10 am");
     expect(t.bookings).toEqual([
-      expect.objectContaining({ centre_id: "ctr2", specialisation: "eye check-up", preferred_date: day.iso, preferred_time: "10 am" }),
+      expect.objectContaining({
+        centre_id: "ctr2",
+        specialisation: "eye check-up",
+        preferred_date: day.iso,
+        preferred_time: "10 am",
+      }),
     ]);
-    expect(t.out[4]).toContain("at 10 am at Apollo Eye, Adyar, for eye check-up. It is pending confirmation.");
-    expect(t.out[4]).toContain("Any saving at this centre is confirmed separately. There is no pressure");
+    expect(t.out[4]).toContain(
+      "at 10 am at Apollo Eye, Adyar, for eye check-up. It is pending confirmation.",
+    );
+    expect(t.out[4]).toContain(
+      "Any saving at this centre is confirmed separately. There is no pressure",
+    );
     expect(t.out[4]).not.toMatch(/\bconfirmed\b(?! separately)/);
     expect(t.conv.pending_action).toBe("soft_activation");
     expect(t.conv.state).toBe(S.BookingRecorded);
@@ -722,10 +879,18 @@ describe("booking request, one question per turn", () => {
 
   it("a centre not in the directory is never rejected: landmark, then a verification task, no booking row", async () => {
     const day = ddmmyyyy(12);
-    const t = setup([draft("Sure, which date?", { intent: "book", extracted_fields: { centre_name: "Kumar Nursing Home" } })], {
-      needRow: { specialisation: "ortho", save: async () => undefined },
-      centres: CENTRES,
-    });
+    const t = setup(
+      [
+        draft("Sure, which date?", {
+          intent: "book",
+          extracted_fields: { centre_name: "Kumar Nursing Home" },
+        }),
+      ],
+      {
+        needRow: { specialisation: "ortho", save: async () => undefined },
+        centres: CENTRES,
+      },
+    );
     await t.run("book at Kumar Nursing Home");
     expect(t.out.join("\n\n")).toContain('"Kumar Nursing Home" is not in our directory yet');
     expect(t.out.join("\n\n")).not.toContain("Sure, which date?"); // one question per turn
@@ -761,7 +926,10 @@ describe("booking request, one question per turn", () => {
   });
 
   it("a sentence that is not a centre name is not saved as one: answered, then the centre question again", async () => {
-    const t = setup([draft("Sure, I can help with that.")], { pending: 'booking:{"step":"centre","ok":true}', centres: CENTRES });
+    const t = setup([draft("Sure, I can help with that.")], {
+      pending: 'booking:{"step":"centre","ok":true}',
+      centres: CENTRES,
+    });
     await t.run("ok do it for me");
     expect(t.out.join("\n\n")).not.toContain("not in our directory");
     expect(t.out.join("\n\n")).toContain("Please share the centre and branch first");
@@ -769,27 +937,46 @@ describe("booking request, one question per turn", () => {
   });
 
   // ---- the LLM reads an unclear booking answer; the reply stays fixed text ----
-  const reads = (kind: string, value: string | null = null) => jest.fn(async () => ({ kind, value }));
+  const reads = (kind: string, value: string | null = null) =>
+    jest.fn(async () => ({ kind, value }));
 
   it("LLM reads a suggestion request the word rules miss ('edhavadhu nalla idam sollunga') -> centre search", async () => {
     const classify = reads("wants_suggestion");
-    const t = setup([], { pending: 'booking:{"step":"centre","ok":true}', centres: CENTRES, classify });
+    const t = setup([], {
+      pending: 'booking:{"step":"centre","ok":true}',
+      centres: CENTRES,
+      classify,
+    });
     await t.run("edhavadhu nalla idam sollunga");
-    expect(classify).toHaveBeenCalledWith("centre", expect.stringContaining("centre and branch"), "edhavadhu nalla idam sollunga", expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+    expect(classify).toHaveBeenCalledWith(
+      "centre",
+      expect.stringContaining("centre and branch"),
+      "edhavadhu nalla idam sollunga",
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    );
     expect(t.out[0]).toBe(ASK_CITY);
     expect(t.conv.pending_action).toBeNull();
   });
 
   it("LLM pulls the centre name out of a sentence; the name alone goes to the team", async () => {
     const classify = reads("answer", "Kumar Nursing Home, Villapuram");
-    const t = setup([], { pending: 'booking:{"step":"centre","ok":true}', centres: CENTRES, classify });
+    const t = setup([], {
+      pending: 'booking:{"step":"centre","ok":true}',
+      centres: CENTRES,
+      classify,
+    });
     await t.run("pls do it in kumar nursing home villapuram only");
     expect(t.out[0]).toContain('"Kumar Nursing Home, Villapuram" is not in our directory yet');
   });
 
   it("a centre from the directory needs no LLM call", async () => {
     const classify = reads("other");
-    const t = setup([], { pending: 'booking:{"step":"centre","ok":true}', needRow: { specialisation: "eye", save: async () => undefined }, centres: CENTRES, classify });
+    const t = setup([], {
+      pending: 'booking:{"step":"centre","ok":true}',
+      needRow: { specialisation: "eye", save: async () => undefined },
+      centres: CENTRES,
+      classify,
+    });
     await t.run("Apollo Eye");
     expect(classify).not.toHaveBeenCalled();
     expect(t.out[0]).toMatch(/^What date would you prefer/);
@@ -798,14 +985,24 @@ describe("booking request, one question per turn", () => {
   it("'Orthi' -> the LLM corrects it to Orthopaedics; a known word ('eye') is kept without a call", async () => {
     const needRow: Record<string, unknown> = { save: async () => undefined };
     const classify = reads("answer", "Orthopaedics");
-    const t = setup([], { pending: 'booking:{"step":"specialisation","c":"ctr1","cn":"City Multispeciality","ok":true}', needRow, centres: CENTRES, classify });
+    const t = setup([], {
+      pending: 'booking:{"step":"specialisation","c":"ctr1","cn":"City Multispeciality","ok":true}',
+      needRow,
+      centres: CENTRES,
+      classify,
+    });
     await t.run("Orthi.");
     expect(needRow.specialisation).toBe("Orthopaedics");
     expect(t.out[0]).toMatch(/^What date would you prefer/);
 
     const needRow2: Record<string, unknown> = { save: async () => undefined };
     const classify2 = reads("answer", "x");
-    const t2 = setup([], { pending: 'booking:{"step":"specialisation","c":"ctr1","cn":"City Multispeciality","ok":true}', needRow: needRow2, centres: CENTRES, classify: classify2 });
+    const t2 = setup([], {
+      pending: 'booking:{"step":"specialisation","c":"ctr1","cn":"City Multispeciality","ok":true}',
+      needRow: needRow2,
+      centres: CENTRES,
+      classify: classify2,
+    });
     await t2.run("eye check");
     expect(classify2).not.toHaveBeenCalled();
     expect(needRow2.specialisation).toBe("eye check");
@@ -814,7 +1011,12 @@ describe("booking request, one question per turn", () => {
   it("no LLM (or it fails): the answer is kept as the customer wrote it, the flow goes on", async () => {
     const needRow: Record<string, unknown> = { save: async () => undefined };
     const classify = jest.fn(async () => null);
-    const t = setup([], { pending: 'booking:{"step":"specialisation","c":"ctr1","cn":"City Multispeciality","ok":true}', needRow, centres: CENTRES, classify });
+    const t = setup([], {
+      pending: 'booking:{"step":"specialisation","c":"ctr1","cn":"City Multispeciality","ok":true}',
+      needRow,
+      centres: CENTRES,
+      classify,
+    });
     await t.run("Orthi.");
     expect(needRow.specialisation).toBe("Orthi.");
     expect(t.out[0]).toMatch(/^What date would you prefer/);
@@ -848,11 +1050,16 @@ describe("booking request, one question per turn", () => {
       centres: CENTRES,
     });
     await t.run("is there parking?");
-    expect(t.out.join("\n\n")).toMatch(/^Yes, most centres have parking\.\n\nWhat date would you prefer\?/);
+    expect(t.out.join("\n\n")).toMatch(
+      /^Yes, most centres have parking\.\n\nWhat date would you prefer\?/,
+    );
   });
 
   it("no to the offer ends the flow politely; no to the soft suggestion = activation declined", async () => {
-    const t = setup([], { pending: 'booking:{"step":"offer","c":"ctr2","cn":"Apollo Eye","ok":false}', centres: CENTRES });
+    const t = setup([], {
+      pending: 'booking:{"step":"offer","c":"ctr2","cn":"Apollo Eye","ok":false}',
+      centres: CENTRES,
+    });
     await t.run("no");
     expect(t.out.join("\n\n")).toMatch(/^No problem/);
     expect(t.conv.pending_action).toBeNull();
@@ -878,20 +1085,33 @@ describe("Trigger M + N: one objection, one resolution; follow-up only when agre
   it("I need to think -> 3-line summary + two times; picking one schedules the agreed follow-up", async () => {
     const scheduler = fakeScheduler();
     const triggers = fakeTriggers();
-    const t = setup([], { scheduler, triggers, recommended: "vital", needRow: { healthcare_need: "knee pain" } });
+    const t = setup([], {
+      scheduler,
+      triggers,
+      recommended: "vital",
+      needRow: { healthcare_need: "knee pain" },
+    });
     await t.run("I need to think");
     expect(t.generate).not.toHaveBeenCalled();
     expect(t.out.join("\n\n")).toContain("Your need: knee pain.");
     expect(t.out.join("\n\n")).toContain("Suggested: the Oxxy Vital plan");
-    expect(t.out.join("\n\n")).toMatch(/Would .* at 11 am or .* at 5 pm be better for a quick follow-up\?/);
+    expect(t.out.join("\n\n")).toMatch(
+      /Would .* at 11 am or .* at 5 pm be better for a quick follow-up\?/,
+    );
     expect(t.conv.pending_action).toBe("follow_up_time");
     expect((triggers.record.mock.calls[0] as unknown[])[2]).toEqual({ id: "M", suppression: null });
     // no follow-up yet: only after agreement
-    expect(scheduler.create).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "agreed_follow_up" }));
+    expect(scheduler.create).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "agreed_follow_up" }),
+    );
 
     await t.run("1");
     expect(scheduler.create).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "agreed_follow_up", templateName: "agreed_follow_up", source: "whatsapp_inbound" }),
+      expect.objectContaining({
+        kind: "agreed_follow_up",
+        templateName: "agreed_follow_up",
+        source: "whatsapp_inbound",
+      }),
     );
     expect(t.out[t.out.length - 1]).toMatch(/^Thank you\. I will follow up on .* at 11 am\./);
     expect(t.conv.state).toBe(S.FollowUp);
@@ -920,11 +1140,17 @@ describe("Trigger M + N: one objection, one resolution; follow-up only when agre
     const scheduler = fakeScheduler();
     const t = setup([], { scheduler });
     await t.run("not interested");
-    expect(t.out[0]).toBe("No problem. Would you prefer a concise summary or should I close the enquiry?");
+    expect(t.out[0]).toBe(
+      "No problem. Would you prefer a concise summary or should I close the enquiry?",
+    );
     await t.run("close it");
     expect(t.out[1]).toMatch(/^No problem\. I will close the enquiry here/);
     expect(t.conv.state).toBe(S.Closed);
-    expect(scheduler.cancelForConversation).toHaveBeenCalledWith("v1", ["rescue", "agreed_follow_up", "trigger_q"], "closed");
+    expect(scheduler.cancelForConversation).toHaveBeenCalledWith(
+      "v1",
+      ["rescue", "agreed_follow_up", "trigger_q"],
+      "closed",
+    );
   });
 
   it("not now after the disclosure offers two times; 'no need' ends it", async () => {
@@ -957,7 +1183,12 @@ describe("conversation rescue (Playbook 15)", () => {
     const scheduler = fakeScheduler();
     const t = setup([draft("Which city is the patient in?")], { scheduler });
     await t.run("I want to know more");
-    expect(scheduler.cancelForConversation).toHaveBeenCalledWith("v1", ["rescue"], "customer_replied");
+    // nothing that was waiting for the customer goes out once they write: rescue, agreed follow-up, queued first contact
+    expect(scheduler.cancelForConversation).toHaveBeenCalledWith(
+      "v1",
+      ["rescue", "agreed_follow_up", "lead_intro"],
+      "customer_replied",
+    );
     expect(scheduler.create).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "rescue", templateName: "conversation_rescue_1" }),
     );
@@ -997,7 +1228,15 @@ describe("the customer's language", () => {
       language: "hi",
       pending: "centre_pick",
       needRow: { suggested_centre_ids: ["ctr1"], save: async () => undefined },
-      centres: [{ id: "ctr1", name: "City Multispeciality", branch: "T Nagar", verified: true, active: true }],
+      centres: [
+        {
+          id: "ctr1",
+          name: "City Multispeciality",
+          branch: "T Nagar",
+          verified: true,
+          active: true,
+        },
+      ],
     });
     await t.run("1");
     expect(t.out[0]).toBe(

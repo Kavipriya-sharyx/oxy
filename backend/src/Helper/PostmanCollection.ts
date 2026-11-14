@@ -267,3 +267,42 @@ export function buildPostmanCollection(baseUrl = "https://your-bot-host") {
     ],
   };
 }
+
+// The voice agent's own collection: only the calls a voice agent makes, in the order of a call.
+const VOICE_CALLS = [
+  "lookup_customer",
+  "start_conversation",
+  "get_official_plan",
+  "search_centres",
+  "create_booking_request",
+  "create_follow_up",
+  "create_escalation",
+  "set_opt_out",
+];
+
+export function buildVoicePostmanCollection(baseUrl = "https://your-bot-host") {
+  const full = buildPostmanCollection(baseUrl);
+  const actions = (full.item[0] as { item: Item[] }).item;
+  return {
+    info: {
+      ...full.info,
+      name: "Oxxy voice agent API",
+      description:
+        "For the voice agent that calls Oxxy customers (header X-Api-Key, the voice agent's own key). Look the customer up " +
+        "at the start of the call; when the customer agrees to WhatsApp, call start_conversation with the call's context. " +
+        "Set base_url and api_key. Full guide: Admin > Developer > Voice agent API docs.",
+    },
+    variable: full.variable.filter((v) => ["base_url", "api_key", "wa_number"].includes(v.key)),
+    // a voice agent knows the phone number, not the bot's customer_id: same requests, by wa_number
+    item: VOICE_CALLS.map((name) => {
+      const it = actions.find((a) => a.name === name);
+      if (!it) throw new Error(`voice collection: no ${name}`);
+      const copy = JSON.parse(JSON.stringify(it)) as { request: { body?: { raw: string } } };
+      if (copy.request.body)
+        copy.request.body.raw = copy.request.body.raw
+          .replace(/"customer_id": "\{\{customer_id\}\}"/g, '"wa_number": "{{wa_number}}"')
+          .replace(/"source": "crm"/g, '"source": "voice_ai"');
+      return copy as Item;
+    }),
+  };
+}

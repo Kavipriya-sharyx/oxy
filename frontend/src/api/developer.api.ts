@@ -38,8 +38,8 @@ export const revokeApiKey = async (id: string) =>
   (await client.delete(`/Developer/ApiKeys/${id}`)).data;
 export const rotateWebhookSecret = async () =>
   (await client.post<{ secret: string }>("/Developer/WebhookSecret/Rotate")).data;
-export const getPostman = async (base_url: string) =>
-  (await client.post<unknown>("/Developer/Postman", { base_url })).data;
+export const getPostman = async (base_url: string, audience: "crm" | "voice" = "crm") =>
+  (await client.post<unknown>("/Developer/Postman", { base_url, audience })).data;
 
 /** Where the bot's API is reachable, as the client's developers should call it */
 export function apiOrigin(): string {

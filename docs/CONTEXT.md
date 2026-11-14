@@ -309,6 +309,34 @@ The client's voice AI shares details on WhatsApp after a call: `POST /Actions/St
 - Tests: `Service/Crm/StartConversation.spec.ts`. Not built: a template that sends plan details straight away
   (needs a new Meta template; today the customer taps "Just send details").
 
+## No message without a reason; caches (14 Nov audit)
+
+- Every scheduled message has a `follow_up` row; the BullMQ job is only the alarm clock. At send time
+  `FollowUpScheduler.execute` re-reads the row (cancelled or missing → nothing sent), consent (STOP / privacy),
+  conversation (closed, PAUSE, ESCALATED, OPTED_OUT), and per kind: rescue cap, Trigger Q unpaid / no product /
+  not already P, lead_intro chat not started. Quiet hours move it to 09:00 IST.
+- A customer message now cancels `CANCEL_ON_REPLY` = rescue, agreed_follow_up, lead_intro (it cancelled only the
+  rescue, so an "as agreed, following up" message could still go to someone who had already come back).
+- Redis on 14 Nov: 120 delayed rescue jobs for 37 customers, many from test runs against the dropped 5544 DB; all
+  carry followUpId, so they find no row (or a cancelled one) and send nothing. Old `oxxytest:*` keys are inert.
+- Rule: every environment needs its own `QUEUE_PREFIX` (or Redis DB). Two servers with different databases on the
+  same prefix take each other's jobs: the other server finds no row and the real message is silently dropped.
+- Caches: RolesGuard permissions 10 s in memory, cleared on role change; API keys 10 s (was 30 s), cleared on
+  revoke. `UserRoleService` no longer uses the boilerplate Redis cache (it mixed lists, stored keys it never read
+  back, and was never cleared by the Roles page); it was unused by the console anyway.
+
+## Voice agent docs, separate from the CRM docs (14 Nov)
+
+- Developer page tabs: Keys and setup · CRM API docs · Voice agent API docs. Each docs tab has its own
+  "Download guide (HTML)" and "Download Postman collection"; the setup tab has a "Documents for the client's
+  developers" panel with all four.
+- Voice guide: `components/VoiceAgentDocs.tsx`, content `frontend/src/data/voiceDocs.ts` (call flow, WhatsApp consent
+  lines [CONFIRM], call-context mapping, what to say for each StartConversation status, the 8 calls a voice agent
+  uses taken from the shared ACTIONS list, Node / Python example, rules, checklist). Anchors use the `voice-` prefix.
+- Postman: `buildVoicePostmanCollection()` (8 calls in call order), `POST /Developer/Postman { audience: "voice" }`,
+  `docs/oxxy-voice-agent-api.postman_collection.json` (`scripts/write-postman.ts` writes both).
+- One API key per system: the voice agent gets its own key, separate from the CRM's.
+
 ## Client API documentation (14 Nov)
 
 - `docs/CRM_API_REFERENCE.md` is the document for the client's CRM developers: the three connections (Actions API,

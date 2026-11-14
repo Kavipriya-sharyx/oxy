@@ -123,7 +123,7 @@ import {
   notEligibleText,
   parseAmount,
 } from "./CmbGate";
-import { FollowUpSchedulerService } from "./FollowUpScheduler.service";
+import { FollowUpSchedulerService, type FollowUpKind } from "./FollowUpScheduler.service";
 import { OutboundMessage } from "@Helper/WhatsappMessage";
 import {
   LEAD_ROWS,
@@ -360,6 +360,9 @@ export function isUniqueViolation(e: unknown): boolean {
 }
 
 // Open sales states in which a quiet customer gets a rescue (Playbook 15)
+/** Scheduled messages a customer message makes unnecessary (FollowUpScheduler kinds) */
+export const CANCEL_ON_REPLY: FollowUpKind[] = ["rescue", "agreed_follow_up", "lead_intro"];
+
 const RESCUE_STATES = new Set<ConversationState>([
   ConversationState.IntentMenu,
   ConversationState.NeedDiscovery,
@@ -1269,7 +1272,13 @@ export class ChatPipelineService {
     if (history[history.length - 1].role !== "user")
       history.push({ role: "user", content: m.text });
 
-    const context = this.describe(s.customer, cons, !healthBlocked, s.conversation, await this.knownFacts(s, !healthBlocked));
+    const context = this.describe(
+      s.customer,
+      cons,
+      !healthBlocked,
+      s.conversation,
+      await this.knownFacts(s, !healthBlocked),
+    );
 
     // 3. Claude + validator (retry once)
     let result: ClaudeResult | null = null;
@@ -1664,24 +1673,36 @@ export class ChatPipelineService {
       if (conv.objection) known.objection = conv.objection;
       if (conv.outcome) known.outcome = conv.outcome;
       const b = await booking_request.findOne({
-        where: { conversation_id: conv.id, booking_status: In([BookingStatus.PendingConfirmation, BookingStatus.Confirmed]) },
+        where: {
+          conversation_id: conv.id,
+          booking_status: In([BookingStatus.PendingConfirmation, BookingStatus.Confirmed]),
+        },
       });
-      if (b) known.booking_request = { status: (b as any).booking_status, preferred_date: (b as any).preferred_date };
+      if (b)
+        known.booking_request = {
+          status: (b as any).booking_status,
+          preferred_date: (b as any).preferred_date,
+        };
       if (Object.keys(known).length) out.known = known;
       out.conversation_state = conv.state;
       if (!n) {
         const earlier = await need
           .createQueryBuilder("n")
           .innerJoin(conversation, "c", "c.id = n.conversation_id")
-          .where("c.customer_id = :cid AND c.id <> :cur AND n.created_on > now() - interval '90 days'", {
-            cid: s.customer.id,
-            cur: conv.id,
-          })
+          .where(
+            "c.customer_id = :cid AND c.id <> :cur AND n.created_on > now() - interval '90 days'",
+            {
+              cid: s.customer.id,
+              cur: conv.id,
+            },
+          )
           .orderBy("n.created_on", "DESC")
           .getOne();
         // the last 90 days only: older answers (need, spend) are likely out of date
         const before = pick(earlier as any, EARLIER_NEED_FIELDS);
-        const prev = earlier ? await conversation.findOne({ where: { id: (earlier as any).conversation_id } }) : null;
+        const prev = earlier
+          ? await conversation.findOne({ where: { id: (earlier as any).conversation_id } })
+          : null;
         if (prev?.selected_product) before.selected_product = prev.selected_product;
         if (prev?.recommended_plan) before.recommended_plan = prev.recommended_plan;
         if (Object.keys(before).length) out.from_earlier_chat = before;
@@ -3232,12 +3253,14 @@ export class ChatPipelineService {
 
   // ---- Recovery: objections (M), agreed follow-ups (N), medicines (K), rescue (Playbook 14, 15) ----
 
-  // The customer wrote: a pending rescue is no longer needed and the "two in a row" count starts again
+  // The customer wrote: nothing that was waiting for them is needed any more, so nothing goes out for no reason:
+  // the rescue, an agreed follow-up (they came back by themselves; a new one can be agreed in this turn) and a
+  // first-contact message queued for 09:00. The "two in a row" rescue count starts again.
   private async customerReplied(s: Saved) {
     try {
       await this._Scheduler?.cancelForConversation(
         s.conversation.id,
-        ["rescue"],
+        CANCEL_ON_REPLY,
         "customer_replied",
       );
       if ((s.conversation.rescue_count ?? 0) > 0) {

@@ -23,19 +23,43 @@ import {
   usePageTitle,
 } from "../components/ui";
 import ApiDocs, { DOC_CSS, STANDALONE_TOKENS } from "../components/ApiDocs";
+import VoiceAgentDocs from "../components/VoiceAgentDocs";
 
-type DevTab = "setup" | "docs";
+type DevTab = "setup" | "docs" | "voice";
+type Audience = "crm" | "voice";
 
-/** The integration guide as one self-contained HTML file for the client's developers */
-async function downloadGuide(base: string) {
+const GUIDE: Record<Audience, { title: string; file: string; postman: string }> = {
+  crm: {
+    title: "Oxxy CRM integration guide",
+    file: "oxxy-crm-integration-guide.html",
+    postman: "oxxy-crm-api.postman_collection.json",
+  },
+  voice: {
+    title: "Oxxy voice agent integration guide",
+    file: "oxxy-voice-agent-guide.html",
+    postman: "oxxy-voice-agent-api.postman_collection.json",
+  },
+};
+
+const tabFromHash = (h: string): DevTab =>
+  h.startsWith("#voice-") ? "voice" : h.startsWith("#doc-") ? "docs" : "setup";
+
+/** An integration guide as one self-contained HTML file for the client's developers */
+async function downloadGuide(base: string, audience: Audience) {
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const body = renderToStaticMarkup(<ApiDocs base={base} interactive={false} />);
+  const body = renderToStaticMarkup(
+    audience === "voice" ? (
+      <VoiceAgentDocs base={base} interactive={false} />
+    ) : (
+      <ApiDocs base={base} interactive={false} />
+    ),
+  );
   const html = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Oxxy CRM integration guide</title>
+<title>${GUIDE[audience].title}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&family=Roboto:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" />
 <style>${STANDALONE_TOKENS}${DOC_CSS}</style>
@@ -46,7 +70,7 @@ async function downloadGuide(base: string) {
   const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = "oxxy-crm-integration-guide.html";
+  a.download = GUIDE[audience].file;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -115,9 +139,7 @@ export default function Developer() {
   const [expiry, setExpiry] = useState<string>("365");
   const [newKey, setNewKey] = useState<{ name: string; key: string } | null>(null);
   const [formError, setFormError] = useState("");
-  const [tab, setTab] = useState<DevTab>(() =>
-    window.location.hash.startsWith("#doc-") ? "docs" : "setup",
-  );
+  const [tab, setTab] = useState<DevTab>(() => tabFromHash(window.location.hash));
 
   const origin = apiOrigin();
   const actionsBase = `${origin}/api/v1/Actions`;
@@ -144,14 +166,17 @@ export default function Developer() {
   });
 
   const postman = useMutation({
-    mutationFn: () => getPostman(origin),
-    onSuccess: (data) => {
+    mutationFn: async (audience: Audience) => ({
+      audience,
+      data: await getPostman(origin, audience),
+    }),
+    onSuccess: ({ audience, data }) => {
       const url = URL.createObjectURL(
         new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
       );
       const a = document.createElement("a");
       a.href = url;
-      a.download = "oxxy-api.postman_collection.json";
+      a.download = GUIDE[audience].postman;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     },
@@ -180,19 +205,24 @@ export default function Developer() {
   const curl = `curl -H "X-Api-Key: <your key>" "${actionsBase}/Changes?after=0&limit=5"`;
   const insecure = origin.startsWith("http://") && !/localhost|127\.0\.0\.1/.test(origin);
 
-  const guideButtons = (
-    <>
-      <button
-        className="btn"
-        onClick={() => downloadGuide(origin).catch((e: Error) => message.error(e.message))}
-      >
-        Download guide (HTML)
-      </button>
-      <button className="btn" onClick={() => postman.mutate()} disabled={postman.isPending}>
-        Download Postman collection
-      </button>
-    </>
-  );
+  const guide = (audience: Audience) =>
+    downloadGuide(origin, audience).catch((e: Error) => message.error(e.message));
+  const audienceNow: Audience = tab === "voice" ? "voice" : "crm";
+  const guideButtons =
+    tab === "setup" ? null : (
+      <>
+        <button className="btn" onClick={() => guide(audienceNow)}>
+          Download guide (HTML)
+        </button>
+        <button
+          className="btn"
+          onClick={() => postman.mutate(audienceNow)}
+          disabled={postman.isPending}
+        >
+          Download Postman collection
+        </button>
+      </>
+    );
 
   return (
     <>
@@ -202,18 +232,19 @@ export default function Developer() {
           onChange={setTab}
           items={[
             ["setup", "Keys and setup"],
-            ["docs", "API documentation"],
+            ["docs", "CRM API docs"],
+            ["voice", "Voice agent API docs"],
           ]}
         />
         <span className="spacer" />
         {guideButtons}
       </div>
-      {tab === "docs" ? (
+      {tab !== "setup" ? (
         <>
           <style>{DOC_CSS}</style>
           <div className="panel">
             <div className="panel-b">
-              <ApiDocs base={origin} />
+              {tab === "voice" ? <VoiceAgentDocs base={origin} /> : <ApiDocs base={origin} />}
             </div>
           </div>
         </>
@@ -222,8 +253,9 @@ export default function Developer() {
           <div className="row">
             <span className="small muted">
               What the client's developers need to connect their CRM or voice AI to the bot. Give
-              keys and secrets through a password manager, never by WhatsApp or email. The full
-              guide for their developers is on the API documentation tab.
+              keys and secrets through a password manager, never by WhatsApp or email. Their
+              developers' guides are on the CRM API docs and Voice agent API docs tabs. Make one key
+              per system: the CRM and the voice agent each get their own.
             </span>
           </div>
           <ErrorNote error={overview.error ?? keys.error} />
@@ -339,14 +371,48 @@ export default function Developer() {
             </div>
           </Panel>
 
-          <Panel title="Postman collection" note="Every API call">
-            <p className="small muted">
-              Ready-made requests for the client's developers, with this server's address filled in.
-              It has no keys in it: they paste their own.
-            </p>
-            <button className="btn" onClick={() => postman.mutate()} disabled={postman.isPending}>
-              Download collection
-            </button>
+          <Panel
+            title="Documents for the client's developers"
+            note="This server's address is filled in; no keys inside"
+          >
+            <div className="grid g2">
+              <div className="grid" style={{ gap: 8 }}>
+                <b>CRM</b>
+                <span className="small muted">
+                  Customer actions, import, changes feed, booking / payment / task updates.
+                </span>
+                <div className="row">
+                  <button className="btn" onClick={() => guide("crm")}>
+                    Guide (HTML)
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => postman.mutate("crm")}
+                    disabled={postman.isPending}
+                  >
+                    Postman
+                  </button>
+                </div>
+              </div>
+              <div className="grid" style={{ gap: 8 }}>
+                <b>Voice agent</b>
+                <span className="small muted">
+                  Call flow, WhatsApp consent, StartConversation with the call context, what to say.
+                </span>
+                <div className="row">
+                  <button className="btn" onClick={() => guide("voice")}>
+                    Guide (HTML)
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => postman.mutate("voice")}
+                    disabled={postman.isPending}
+                  >
+                    Postman
+                  </button>
+                </div>
+              </div>
+            </div>
           </Panel>
         </>
       )}
