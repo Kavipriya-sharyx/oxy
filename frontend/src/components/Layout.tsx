@@ -167,6 +167,22 @@ function Shell() {
               {live === "live" ? "Live" : live === "connecting" ? "Connecting…" : "Offline"}
             </Pill>
           </span>
+          <button
+            className="btn sm"
+            title="Switch between the light and the dark look (kept in this browser)"
+            onClick={() => {
+              const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+              try {
+                localStorage.setItem("oxxy-theme", next);
+              } catch {
+                /* storage blocked: the choice lasts until the page is closed */
+              }
+              // the component library reads the look once at start, so the page is loaded again
+              window.location.reload();
+            }}
+          >
+            {document.documentElement.dataset.theme === "dark" ? "Light" : "Dark"}
+          </button>
           <label className="search">
             <span className="muted small">Search</span>
             <input

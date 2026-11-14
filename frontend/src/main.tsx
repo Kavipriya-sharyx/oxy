@@ -12,6 +12,12 @@ const queryClient = new QueryClient({
 });
 
 // Light by default, like www.oxxy.in; dark only when <html data-theme="dark"> is set (styles/oxxy.css)
+// The user's choice (topbar switch, Layout.tsx) is kept in this browser and applied before the first paint.
+try {
+  if (localStorage.getItem("oxxy-theme") === "dark") document.documentElement.dataset.theme = "dark";
+} catch {
+  /* storage blocked: stay light */
+}
 const dark = typeof document !== "undefined" && document.documentElement.dataset.theme === "dark";
 
 const root = document.getElementById("root");

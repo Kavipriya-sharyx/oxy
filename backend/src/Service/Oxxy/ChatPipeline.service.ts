@@ -220,6 +220,19 @@ const KNOWN_NEED_FIELDS = [
   "urgency",
   "pre_existing",
 ];
+// what is carried over from the customer's previous conversation (dates and one-off bills are not)
+const EARLIER_NEED_FIELDS = [
+  "beneficiary",
+  "healthcare_need",
+  "need_pattern",
+  "specialisation",
+  "city",
+  "locality",
+  "postcode",
+  "annual_medical_spend",
+  "insurance_status",
+  "pre_existing",
+];
 export const PAUSE_ACK_T: L = {
   en: "The Oxxy team will contact you. If this is an emergency, please call 112 (or 108 for an ambulance) now.",
   hi: "Oxxy टीम आपसे संपर्क करेगी। अगर यह इमरजेंसी है, तो कृपया अभी 112 पर कॉल करें (एम्बुलेंस के लिए 108)।",
@@ -1632,7 +1645,8 @@ export class ChatPipelineService {
   // What is already stored about this customer, for the LLM: without it the bot only "remembers" what is
   // still inside the last 20 messages and asks again for the city, the patient or the spend it already has.
   //  known            = the answers of THIS conversation (need row) + where it stands (state, plan, booking)
-  //  from_earlier_chat = city / locality of the customer's previous conversation (to confirm, not to re-ask)
+  //  from_earlier_chat = the answers and the plan of the customer's previous conversation, last 90 days
+  //                      (to confirm in a few words, not to re-ask and not to assume)
   // Health fields are left out when the customer refused the health-data consent.
   private async knownFacts(s: Saved, healthAllowed: boolean): Promise<Record<string, unknown>> {
     const out: Record<string, unknown> = {};
@@ -1659,10 +1673,17 @@ export class ChatPipelineService {
         const earlier = await need
           .createQueryBuilder("n")
           .innerJoin(conversation, "c", "c.id = n.conversation_id")
-          .where("c.customer_id = :cid AND c.id <> :cur", { cid: s.customer.id, cur: conv.id })
+          .where("c.customer_id = :cid AND c.id <> :cur AND n.created_on > now() - interval '90 days'", {
+            cid: s.customer.id,
+            cur: conv.id,
+          })
           .orderBy("n.created_on", "DESC")
           .getOne();
-        const before = pick(earlier as any, ["city", "locality", "postcode"]);
+        // the last 90 days only: older answers (need, spend) are likely out of date
+        const before = pick(earlier as any, EARLIER_NEED_FIELDS);
+        const prev = earlier ? await conversation.findOne({ where: { id: (earlier as any).conversation_id } }) : null;
+        if (prev?.selected_product) before.selected_product = prev.selected_product;
+        if (prev?.recommended_plan) before.recommended_plan = prev.recommended_plan;
         if (Object.keys(before).length) out.from_earlier_chat = before;
       }
     } catch (e) {
