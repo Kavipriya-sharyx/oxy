@@ -1,4 +1,5 @@
 // The admin chooses the LLM (Claude, OpenAI or Gemini) and an optional fallback; every draft is the same JSON
+import { parseAnswerJson } from "./Claude.service";
 import axios from "axios";
 import { ClaudeService, geminiBody, providerOrder } from "./Claude.service";
 
@@ -48,7 +49,7 @@ describe("Gemini request", () => {
     expect(url).toBe("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent");
     expect(url).not.toContain("g-key");
     expect(opts.headers["x-goog-api-key"]).toBe("g-key");
-    expect(body.systemInstruction.parts[0].text).toContain("You are Oxxy's WhatsApp assistant");
+    expect(body.systemInstruction.parts[0].text).toContain("You are Oxxy Health's automated WhatsApp assistant");
     expect(body.systemInstruction.parts[0].text).toContain("Known about this customer:\n{}");
   });
 });
@@ -90,4 +91,15 @@ describe("fallback", () => {
   it("no key at all -> a clear error", async () => {
     await expect(service({}).generate(history, "{}")).rejects.toThrow(/No LLM is configured/);
   });
+});
+
+describe("reading one booking answer", () => {
+  it("parses the kinds; an answer needs a value", () => {
+    expect(parseAnswerJson('{"kind":"wants_suggestion","value":null}')).toEqual({ kind: "wants_suggestion", value: null });
+    expect(parseAnswerJson('Sure: {"kind":"answer","value":" Orthopaedics "}')).toEqual({ kind: "answer", value: "Orthopaedics" });
+    expect(parseAnswerJson('{"kind":"question","value":"ignored"}')).toEqual({ kind: "question", value: null });
+  });
+  it.each(['{"kind":"answer","value":""}', '{"kind":"answer"}', '{"kind":"something"}', "not json", ""])("unusable -> null (the word rules decide): %s", (raw) =>
+    expect(parseAnswerJson(raw)).toBeNull(),
+  );
 });

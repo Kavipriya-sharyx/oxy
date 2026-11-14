@@ -1,4 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
+import { CrmOutboxService } from "@Service/Crm/CrmOutbox.service";
+import { CrmAction } from "@Helper/Enum/CrmAction";
 import { trigger_event } from "@Database/Table/Oxxy/trigger_event";
 import { consent } from "@Database/Table/Oxxy/consent";
 import { conversation } from "@Database/Table/Oxxy/conversation";
@@ -45,6 +47,9 @@ const PRIORITY: TriggerId[] = [
 @Injectable()
 export class TriggerEngineService {
   private readonly logger = new Logger(TriggerEngineService.name);
+
+  // Full Plan 3.2 log_event: every trigger (fired or suppressed) also goes to the CRM record (Trigger layer 13)
+  constructor(@Optional() private readonly _Outbox?: CrmOutboxService) {}
 
   inferCandidate(intent: string, product?: string | null, needsHuman?: boolean): TriggerId | null {
     if (needsHuman) return "O";
@@ -121,7 +126,21 @@ export class TriggerEngineService {
       );
     } catch (e) {
       this.logger.debug(`trigger ${d.id} not recorded: ${(e as Error).message}`);
+      return;
     }
+    await this._Outbox?.emit(CrmAction.LogEvent, customerId, {
+      event: "trigger",
+      customer_id: customerId,
+      conversation_id: conv.id,
+      trigger_id: d.id,
+      trigger_reason: reason,
+      conversation_source: "whatsapp_inbound",
+      asset_ids: !d.suppression ? (extra.assets ?? []) : [],
+      cta: d.suppression ? null : (extra.cta ?? null),
+      next_state: conv.state,
+      suppression_reason: d.suppression,
+      at: new Date().toISOString(),
+    });
   }
 
   /** decide + record in one step (for triggers with nothing extra to send) */

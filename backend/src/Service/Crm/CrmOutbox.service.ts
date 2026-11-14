@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Queue, Worker } from "bullmq";
 import { EntityManager, In, LessThanOrEqual } from "typeorm";
@@ -14,6 +14,7 @@ import { TaskPriority } from "@Helper/Enum/TaskPriority";
 import { CrmClient } from "./CrmClient.service";
 import { queuePrefix, redisConnection } from "@Root/Config/Redis";
 import { backoffMs, failureState } from "./CrmRetry";
+import { ChangeFeedService, feedType } from "./ChangeFeed.service";
 
 const QUEUE = "crm-outbox";
 
@@ -26,6 +27,7 @@ export class CrmOutboxService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly _Config: ConfigService,
     private readonly _Client: CrmClient,
+    @Optional() private readonly _Feed?: ChangeFeedService,
   ) {}
 
   get enabled(): boolean {
@@ -39,10 +41,41 @@ export class CrmOutboxService implements OnModuleInit, OnModuleDestroy {
     customerId: string | null,
     payload: Record<string, unknown>,
   ): Promise<crm_outbox | null> {
-    if (!this.enabled) return null; // CRM off: nothing is written, bot behaves as before
+    // the pull feed (GET /Actions/Changes) gets every change, in the same transaction, push on or off
+    await this._Feed?.record(manager, feedType(action, payload), customerId, payload);
+    if (!this.enabled) return null; // CRM push off: no outbox row, bot behaves as before
     return await manager.save(
       manager.create(crm_outbox, { action, customer_id: customerId, payload }),
     );
+  }
+
+  /** A CRM call that is not part of a bigger change (an event, a field update): saved and sent. Never throws. */
+  async emit(
+    action: CrmAction,
+    customerId: string | null,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    await this._Feed?.record(null, feedType(action, payload), customerId, payload);
+    if (!this.enabled) return;
+    try {
+      const row = await crm_outbox.save(
+        crm_outbox.create({ action, customer_id: customerId, payload } as any),
+      );
+      await this.dispatch(row as unknown as crm_outbox);
+    } catch (e) {
+      this.logger.warn(`CRM ${action} not queued: ${(e as Error).message}`);
+    }
+  }
+
+  /** Full Plan 3.2 lookup_customer. null when the CRM is off, does not know the number or does not answer. */
+  async lookupCustomer(waNumber: string) {
+    if (!this.enabled) return null;
+    try {
+      return await this._Client.lookup(waNumber);
+    } catch (e) {
+      this.logger.warn(`CRM lookup failed: ${(e as Error).message}`);
+      return null;
+    }
   }
 
   // ---- 2. after commit: hand the row to the queue. Never throws (the sweeper is the safety net) ----

@@ -1,0 +1,52 @@
+# Full Development Plan, Phase 0 / section 11: lint, typecheck and unit tests on every push, and the
+# 27 Playbook + 20 Trigger-layer acceptance tests (backend/src/Acceptance) must pass before launch.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: Lint (errors fail the build)
+        run: npx eslint "src/**/*.ts" --quiet
+      - name: Unit tests
+        run: npx jest --ci
+        env:
+          NODE_ENV: test
+      - name: Acceptance tests (Playbook 20, Trigger layer 15)
+        run: npx jest --ci src/Acceptance
+        env:
+          NODE_ENV: test
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Lint
+        run: npx eslint src --quiet
+      - name: Typecheck and build
+        run: npm run build

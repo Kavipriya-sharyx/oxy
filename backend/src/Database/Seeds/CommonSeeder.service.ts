@@ -5,6 +5,7 @@ import { Injectable } from "@nestjs/common";
 import { EncryptionService } from "@Service/Encryption.service";
 import { RoleEnum, RoleLandingPage } from "@Helper/Enum/RoleEnum";
 import { OxxySeederService } from "./OxxySeeder.service";
+import { DEMO_USER_EMAILS } from "@Helper/GoLive";
 
 @Injectable()
 export class CommonSeederService {
@@ -105,6 +106,16 @@ export class CommonSeederService {
             password: "Login123!!",
           },
         ];
+    if (prod) {
+      // demo accounts made by an earlier development start share a known password: switched off for good
+      const off = await this._DataSource.manager
+        .createQueryBuilder()
+        .update(user)
+        .set({ status: false } as any)
+        .where("email IN (:...emails) AND status = true", { emails: DEMO_USER_EMAILS.filter((e) => e !== adminEmail) })
+        .execute();
+      if (off.affected) console.log(`${off.affected} demo login(s) switched off (production)`);
+    }
     if (prod && !users.length) {
       console.log(
         "No users seeded: set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD (12+ characters) for the first Super Admin",

@@ -23,12 +23,18 @@ export const EMERGENCY: string[] = [
   "saans nahi",
   "dil ka daura",
   "behosh",
+  "khoon beh raha",
+  "khoon bah raha",
+  "khoon nahi ruk",
+  "bahut khoon",
   // Hindi
   "सीने में दर्द",
   "सांस नहीं",
   "साँस नहीं",
   "दिल का दौरा",
   "बेहोश",
+  "खून बह रहा",
+  "खून नहीं रुक",
 ];
 
 // These words are also normal plan questions ("is stroke covered?"), so they trigger only when the
@@ -100,6 +106,20 @@ export const STOP_WHOLE_MESSAGE: string[] = [
   "cancel messages",
   "band karo", // Hinglish: only as the whole message (inside a sentence it can mean anything)
   "बंद करो",
+];
+
+// Opt back in after STOP: only the WHOLE message counts (WhatsApp's own wording is "START").
+// Checked only for a customer who is opted out, and only after the safety guardrails.
+export const OPT_IN_WHOLE_MESSAGE: string[] = [
+  "start",
+  "unstop",
+  "subscribe",
+  "resubscribe",
+  "start again",
+  "start messages",
+  "shuru karo", // Hinglish
+  "शुरू करो",
+  "शुरू",
 ];
 
 // ... or the message contains one of these phrases (whole words). A bare "stop" inside a

@@ -23,10 +23,19 @@ export default function Login() {
   return (
     <div className="login">
       <div className="l">
-        <div className="brand" style={{ padding: 0 }}>
-          <div className="mark">O</div>
+        <div
+          className="brand"
+          style={{ padding: 0, flexDirection: "column", alignItems: "flex-start", gap: 2 }}
+        >
+          <img
+            className="logo"
+            src="/oxxy-logo.png"
+            alt="Oxxy"
+            width={113}
+            height={55}
+            style={{ height: 55 }}
+          />
           <div>
-            <b>Oxxy</b>
             <span>Sales and bot console</span>
           </div>
         </div>

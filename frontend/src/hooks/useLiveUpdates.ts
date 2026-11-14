@@ -6,7 +6,7 @@ import { getToken } from "../api/client";
 // react-query data is refetched through the normal, permission-checked endpoints. Polling stays as the
 // fallback when the stream is down.
 const TOPIC_KEYS: Record<string, string[][]> = {
-  message: [["conversations"]],
+  message: [["conversations"], ["messages"]],
   conversation: [["conversations"], ["customerRecord"]],
   task: [["tasks"], ["privacyRequests"]],
   booking: [["bookings"]],
@@ -47,9 +47,12 @@ export function useLiveUpdates(enabled: boolean): LiveStatus {
     let stopped = false;
 
     const onEvent = (e: { topic?: string; conversation_id?: string | null }) => {
-      for (const key of TOPIC_KEYS[e.topic ?? ""] ?? []) void queryClient.invalidateQueries({ queryKey: key });
+      for (const key of TOPIC_KEYS[e.topic ?? ""] ?? [])
+        void queryClient.invalidateQueries({ queryKey: key });
       if (e.topic === "message")
-        void queryClient.invalidateQueries({ queryKey: e.conversation_id ? ["messages", e.conversation_id] : ["messages"] });
+        void queryClient.invalidateQueries({
+          queryKey: e.conversation_id ? ["messages", e.conversation_id] : ["messages"],
+        });
     };
 
     const run = async () => {
@@ -61,7 +64,11 @@ export function useLiveUpdates(enabled: boolean): LiveStatus {
             signal: ctrl.signal,
           });
           // the backend answers errors (e.g. Unauthorized) with HTTP 200 + JSON: only a real stream counts
-          if (!res.ok || !res.body || !(res.headers.get("content-type") ?? "").includes("text/event-stream"))
+          if (
+            !res.ok ||
+            !res.body ||
+            !(res.headers.get("content-type") ?? "").includes("text/event-stream")
+          )
             throw new Error(`HTTP ${res.status}`);
           setStatus("live");
           wait = 2000;

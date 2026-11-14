@@ -1,10 +1,10 @@
-// The ONE copy of the Oxxy sample data. Both seeders (app start and `npm run seed`) use it.
-// Values come from Full Development Plan section 1.1. [CONFIRM] = open item Oxxy must answer before go-live.
+// The plan catalogue rows the system starts with. Prices, savings and age limits come from Full Development
+// Plan section 1.1. NO sample data: the official activation link of every plan, and the renewal terms and
+// activation time of the Oxxy plans, are not known here, so they start EMPTY. Oxxy enters them in the console
+// (Plans: propose, a second user approves). Until then the bot gives no price disclosure or link for that plan
+// and hands over to the team (Helper/GoLive.ts planReady); the Go-live check lists what is missing.
 
-export const GST_RATE = 0.18; // [CONFIRM]
-const LINK = (slug: string) => `https://example.com/oxxy/activate/${slug}`; // [CONFIRM] official links
-const OXXY_ACTIVATION_TIME = "[CONFIRM] activation time";
-const OXXY_RENEWAL = "[CONFIRM] renewal terms";
+export const GST_RATE = 0.18;
 
 export interface PlanSeed {
   product: "oxxy" | "cut_medi_bills";
@@ -12,12 +12,12 @@ export interface PlanSeed {
   billing: "monthly" | "yearly";
   price: number;
   auto_renews: boolean;
-  renewal_terms: string;
+  renewal_terms: string | null;
   max_saving_pct: number | null;
   illustration_pct: number | null;
   age_limit: number | null;
-  activation_time: string;
-  activation_link: string;
+  activation_time: string | null;
+  activation_link: string | null;
 }
 
 // plan, monthly price, yearly price, savings up to %, illustration %, age limit
@@ -40,13 +40,13 @@ export function planSeeds(): PlanSeed[] {
         plan,
         billing,
         price,
-        auto_renews: false, // [CONFIRM]
-        renewal_terms: OXXY_RENEWAL,
+        auto_renews: false,
+        renewal_terms: null,
         max_saving_pct: upTo,
         illustration_pct: rate,
         age_limit: age,
-        activation_time: OXXY_ACTIVATION_TIME,
-        activation_link: LINK(`${plan}-${billing}`),
+        activation_time: null,
+        activation_link: null,
       });
     }
   }
@@ -63,7 +63,7 @@ export function planSeeds(): PlanSeed[] {
       illustration_pct: 30,
       age_limit: null,
       activation_time: "5 to 10 working days",
-      activation_link: LINK("cut-medi-bills-monthly"),
+      activation_link: null,
     },
     {
       product: "cut_medi_bills",
@@ -76,72 +76,8 @@ export function planSeeds(): PlanSeed[] {
       illustration_pct: 30,
       age_limit: null,
       activation_time: "5 to 10 working days",
-      activation_link: LINK("cut-medi-bills-annual"),
+      activation_link: null,
     },
   );
   return rows;
 }
-
-export interface CentreSeed {
-  name: string;
-  branch: string;
-  locality: string;
-  city: string;
-  latitude: number;
-  longitude: number;
-  centre_type: string;
-  specialisations: string[];
-}
-
-export const CENTRE_SEEDS: CentreSeed[] = [
-  {
-    name: "Sample Care Hospital",
-    branch: "Anna Nagar",
-    locality: "Anna Nagar",
-    city: "Chennai",
-    latitude: 13.085,
-    longitude: 80.2101,
-    centre_type: "multispeciality",
-    specialisations: ["general", "cardiology"],
-  },
-  {
-    name: "Sample Diagnostics",
-    branch: "T Nagar",
-    locality: "T Nagar",
-    city: "Chennai",
-    latitude: 13.0418,
-    longitude: 80.2341,
-    centre_type: "diagnostic",
-    specialisations: ["pathology", "radiology"],
-  },
-  {
-    name: "Sample Dental Clinic",
-    branch: "Adyar",
-    locality: "Adyar",
-    city: "Chennai",
-    latitude: 13.0012,
-    longitude: 80.2565,
-    centre_type: "clinic",
-    specialisations: ["dental"],
-  },
-  {
-    name: "Sample Multispeciality",
-    branch: "Indiranagar",
-    locality: "Indiranagar",
-    city: "Bengaluru",
-    latitude: 12.9719,
-    longitude: 77.6412,
-    centre_type: "multispeciality",
-    specialisations: ["general", "orthopaedics"],
-  },
-  {
-    name: "Sample Eye Centre",
-    branch: "Bandra",
-    locality: "Bandra West",
-    city: "Mumbai",
-    latitude: 19.0596,
-    longitude: 72.8295,
-    centre_type: "specialist",
-    specialisations: ["ophthalmology"],
-  },
-];

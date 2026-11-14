@@ -7,6 +7,8 @@ export type ReplyKey =
   | "self_harm"
   | "opt_out"
   | "opt_out_booking"
+  | "opt_out_payment"
+  | "opt_in"
   | "escalation"
   | "health_notice"
   | "health_consent_yes"
@@ -18,61 +20,81 @@ export type ReplyLanguage = "en" | "hi" | "hinglish";
 
 // Version of the DPDP health-data notice below. Change it whenever the notice text changes: every
 // customer must then give consent again (consent saved under an older version is never valid).
-export const NOTICE_VERSION = "dpdp-health-v1";
+export const NOTICE_VERSION = "dpdp-health-v2"; // v2 = Playbook 16.3 wording (retention + privacy contact)
 
 export const FIXED_REPLIES: Record<ReplyKey, Record<ReplyLanguage, string>> = {
+  // Playbook 16.1 (approved English)
   emergency: {
-    // [CONFIRM]
     en:
-      "This sounds like it could be an emergency. Please call 112 or 108 right now, or go to the nearest hospital. " +
-      "We have paused our plan conversation, and a team member will follow up with you.",
+      "This may need immediate medical attention. Please call 112 (or 108 for an ambulance) or go to the nearest " +
+      "emergency department now. I will pause the plan and activation discussion.",
     // [CONFIRM]
     hi:
-      "यह एक आपात स्थिति हो सकती है। कृपया अभी 112 या 108 पर कॉल करें, या नज़दीकी अस्पताल जाएँ। " +
-      "हमने अपनी प्लान की बातचीत रोक दी है, और हमारी टीम का एक सदस्य आपसे संपर्क करेगा।",
+      "इसके लिए तुरंत चिकित्सा सहायता की ज़रूरत हो सकती है। कृपया अभी 112 पर कॉल करें (एम्बुलेंस के लिए 108) या नज़दीकी " +
+      "इमरजेंसी विभाग में जाएँ। मैं प्लान और एक्टिवेशन की बातचीत रोक रहा हूँ।",
     // [CONFIRM]
     hinglish:
-      "Yeh emergency ho sakti hai. Kripya abhi 112 ya 108 par call karein, ya najdeeki hospital jaayein. " +
-      "Humne apni plan ki baatcheet rok di hai, aur hamari team ka ek member aapse sampark karega.",
+      "Isme turant medical madad ki zaroorat ho sakti hai. Kripya abhi 112 par call karein (ambulance ke liye 108) ya " +
+      "sabse nazdeeki emergency department jaayein. Main plan aur activation ki baat rok raha hoon.",
   },
+  // Playbook 16.1: the emergency reply + Tele-MANAS 14416 (free, 24x7)
   self_harm: {
-    // [CONFIRM]
     en:
-      "I'm really sorry you are going through this. You do not have to face it alone. " +
-      "Please call Tele-MANAS on 14416 to talk to someone now. If you are in immediate danger, call 112. " +
-      "A team member will also reach out to you.",
+      "I'm really sorry you are going through this. You do not have to face it alone. Please call Tele-MANAS on " +
+      "14416 (free, 24x7) to talk to someone now. If you are in immediate danger, call 112. I will pause the plan " +
+      "and activation discussion.",
     // [CONFIRM]
     hi:
-      "मुझे बहुत दुख है कि आप इस दौर से गुज़र रहे हैं। आपको अकेले इसका सामना नहीं करना है। " +
-      "कृपया अभी किसी से बात करने के लिए Tele-MANAS को 14416 पर कॉल करें। " +
-      "अगर आप तुरंत खतरे में हैं, तो 112 पर कॉल करें। हमारी टीम का एक सदस्य भी आपसे संपर्क करेगा।",
+      "मुझे सच में अफ़सोस है कि आप इससे गुज़र रहे हैं। आप अकेले नहीं हैं। कृपया अभी किसी से बात करने के लिए Tele-MANAS को " +
+      "14416 पर कॉल करें (मुफ़्त, 24x7)। अगर आप तुरंत ख़तरे में हैं, तो 112 पर कॉल करें। मैं प्लान और एक्टिवेशन की बातचीत रोक रहा हूँ।",
     // [CONFIRM]
     hinglish:
-      "Mujhe bahut dukh hai ki aap is daur se guzar rahe hain. Aapko akele iska saamna nahi karna hai. " +
-      "Kripya abhi kisi se baat karne ke liye Tele-MANAS ko 14416 par call karein. " +
-      "Agar aap turant khatre mein hain, to 112 par call karein. Hamari team ka ek member bhi aapse sampark karega.",
+      "Mujhe sach mein afsos hai ki aap is se guzar rahe hain. Aap akele nahi hain. Kripya abhi kisi se baat karne ke " +
+      "liye Tele-MANAS ko 14416 par call karein (free, 24x7). Agar aap turant khatre mein hain, to 112 par call karein. " +
+      "Main plan aur activation ki baat rok raha hoon.",
   },
+  // Playbook 16.3 (approved English): confirm, no further question
   opt_out: {
+    en: "Certainly. I have recorded that you do not want further WhatsApp communication. I will end the chat now.",
     // [CONFIRM]
-    en: "You have been unsubscribed. We will not send you any more messages. Thank you.",
+    hi: "ज़रूर। मैंने दर्ज कर लिया है कि आप आगे WhatsApp पर संपर्क नहीं चाहते। मैं अब चैट समाप्त कर रहा हूँ।",
     // [CONFIRM]
-    hi: "आपको अनसब्सक्राइब कर दिया गया है। हम आपको अब कोई संदेश नहीं भेजेंगे। धन्यवाद।",
-    // [CONFIRM]
-    hinglish: "Aapko unsubscribe kar diya gaya hai. Hum aapko ab koi message nahi bhejenge. Dhanyavaad.",
+    hinglish: "Zaroor. Maine record kar liya hai ki aap aage WhatsApp par communication nahi chahte. Main ab chat band kar raha hoon.",
   },
+  // Playbook 16.3: opt-out with an open booking request
   opt_out_booking: {
-    // [CONFIRM]
     en:
-      "You have been unsubscribed from messages. Your booking request is still with our team, " +
-      "and they may contact you about it. Thank you.",
+      "Certainly. I have recorded that you do not want further WhatsApp communication. Your existing booking request " +
+      "stays recorded, and the Oxxy team will contact you only about it. I will end the chat now.",
     // [CONFIRM]
     hi:
-      "आपको संदेशों से अनसब्सक्राइब कर दिया गया है। आपका बुकिंग अनुरोध अभी हमारी टीम के पास है, " +
-      "और वे इस बारे में आपसे संपर्क कर सकते हैं। धन्यवाद।",
+      "ज़रूर। मैंने दर्ज कर लिया है कि आप आगे WhatsApp पर संपर्क नहीं चाहते। आपकी मौजूदा बुकिंग रिक्वेस्ट दर्ज रहेगी, और Oxxy " +
+      "टीम आपसे केवल उसी के बारे में संपर्क करेगी। मैं अब चैट समाप्त कर रहा हूँ।",
     // [CONFIRM]
     hinglish:
-      "Aapko messages se unsubscribe kar diya gaya hai. Aapka booking request abhi hamari team ke paas hai, " +
-      "aur woh is baare mein aapse sampark kar sakte hain. Dhanyavaad.",
+      "Zaroor. Maine record kar liya hai ki aap aage WhatsApp par communication nahi chahte. Aapki existing booking " +
+      "request record rahegi, aur Oxxy team aapse sirf usi ke baare mein contact karegi. Main ab chat band kar raha hoon.",
+  },
+  // Playbook 3.1 / 16.3: an open payment case keeps only that service contact [CONFIRM wording]
+  opt_out_payment: {
+    en:
+      "Certainly. I have recorded that you do not want further WhatsApp communication. Your open payment case stays " +
+      "with the Oxxy team, and they will contact you only about it. I will end the chat now.",
+    hi:
+      "ज़रूर। मैंने दर्ज कर लिया है कि आप आगे WhatsApp पर संपर्क नहीं चाहते। आपका खुला पेमेंट केस Oxxy टीम के पास रहेगा, और " +
+      "वे आपसे केवल उसी के बारे में संपर्क करेंगे। मैं अब चैट समाप्त कर रहा हूँ।",
+    hinglish:
+      "Zaroor. Maine record kar liya hai ki aap aage WhatsApp par communication nahi chahte. Aapka open payment case " +
+      "Oxxy team ke paas rahega, aur woh aapse sirf usi ke baare mein contact karenge. Main ab chat band kar raha hoon.",
+  },
+  opt_in: {
+    // [CONFIRM]
+    en: "Welcome back! You will get messages from Oxxy again. Reply STOP at any time to unsubscribe. How can I help you today?",
+    // [CONFIRM]
+    hi: "आपका फिर से स्वागत है! अब आपको Oxxy से संदेश फिर मिलेंगे। अनसब्सक्राइब करने के लिए कभी भी STOP लिखें। आज मैं आपकी क्या मदद कर सकता हूँ?",
+    // [CONFIRM]
+    hinglish:
+      "Welcome back! Ab aapko Oxxy se messages phir milenge. Unsubscribe karne ke liye kabhi bhi STOP likhein. Aaj main aapki kya madad kar sakta hoon?",
   },
   escalation: {
     // [CONFIRM]
@@ -86,31 +108,23 @@ export const FIXED_REPLIES: Record<ReplyKey, Record<ReplyLanguage, string>> = {
   // ---- DPDP health-data consent (sent before ANY health question; see NOTICE_VERSION) ----
   // The notice says what is collected, why, how it is used, that consent is optional and can be refused.
   // The statements about sharing and withdrawing must be checked by Oxxy / legal before go-live.
+  // Playbook 16.3 (approved English). {retention} and {privacy_contact} come from the config
+  // (RETENTION_DAYS, OXXY_PRIVACY_CONTACT) [CONFIRM both before launch]. "Sharing them is your choice" is
+  // added to the Playbook text so the consent is clearly voluntary (DPDP Act 2023) [CONFIRM with legal].
+  // A change here = a new NOTICE_VERSION.
   health_notice: {
-    // [CONFIRM]
     en:
-      "Before we continue: to suggest a suitable plan and find the right centre for you, Oxxy would like to ask for " +
-      "health-related information: the kind of healthcare you need, who it is for, and your yearly medical spending. " +
-      "We use it only to recommend options, find centres and arrange any booking you ask for. It is seen by our team " +
-      "and, for a booking, shared with the centre you choose. Sharing this information is your choice. You can say " +
-      "no and still get general help, and you can change your mind later by writing to us. " +
-      "Do you agree to share this health information? Please reply YES or NO.",
+      "Before you share health details: Oxxy uses them only to arrange your booking, savings and support, keeps " +
+      "them for {retention}, and you can ask for deletion anytime at {privacy_contact}. Sharing them is your choice. Is that okay? Please reply YES or NO.",
     // [CONFIRM]
     hi:
-      "आगे बढ़ने से पहले: आपके लिए सही प्लान सुझाने और सही केंद्र ढूँढने के लिए Oxxy आपसे स्वास्थ्य से जुड़ी जानकारी " +
-      "माँगना चाहता है: आपको किस तरह की स्वास्थ्य सेवा चाहिए, वह किसके लिए है, और आपका सालाना चिकित्सा खर्च। " +
-      "हम इसका उपयोग केवल विकल्प सुझाने, केंद्र ढूँढने और आपके कहने पर बुकिंग कराने के लिए करते हैं। इसे हमारी टीम देखती है " +
-      "और बुकिंग के लिए आपके चुने हुए केंद्र के साथ साझा किया जाता है। यह जानकारी देना आपकी मर्ज़ी है। आप मना कर सकते हैं " +
-      "और फिर भी सामान्य मदद पा सकते हैं, और बाद में हमें लिखकर अपना फ़ैसला बदल सकते हैं। " +
-      "क्या आप यह स्वास्थ्य जानकारी साझा करने के लिए सहमत हैं? कृपया हाँ या नहीं लिखें।",
+      "स्वास्थ्य से जुड़ी जानकारी देने से पहले: Oxxy इसका उपयोग केवल आपकी बुकिंग, बचत और सहायता के लिए करता है, इसे " +
+      "{retention} तक रखता है, और आप {privacy_contact} पर कभी भी इसे हटाने के लिए कह सकते हैं। यह जानकारी देना आपकी मर्ज़ी है। क्या यह ठीक है? कृपया YES या NO लिखें।",
     // [CONFIRM]
     hinglish:
-      "Aage badhne se pehle: aapke liye sahi plan sujhane aur sahi centre dhoondhne ke liye Oxxy aapse health se judi " +
-      "jaankari maangna chahta hai: aapko kis tarah ki healthcare chahiye, woh kiske liye hai, aur aapka saalana medical kharcha. " +
-      "Hum ise sirf options sujhane, centre dhoondhne aur aapke kehne par booking karane ke liye use karte hain. Ise hamari team " +
-      "dekhti hai aur booking ke liye aapke chune hue centre ke saath share kiya jaata hai. Yeh jaankari dena aapki marzi hai. " +
-      "Aap mana kar sakte hain aur phir bhi general madad pa sakte hain, aur baad mein humein likhkar apna faisla badal sakte hain. " +
-      "Kya aap yeh health jaankari share karne ke liye sehmat hain? Kripya YES ya NO likhein.",
+      "Health details share karne se pehle: Oxxy inka use sirf aapki booking, savings aur support ke liye karta hai, " +
+      "inhe {retention} tak rakhta hai, aur aap {privacy_contact} par kabhi bhi deletion ke liye keh sakte hain. " +
+      "Yeh share karna aapki marzi hai. Kya yeh theek hai? Kripya YES ya NO likhiye.",
   },
   health_consent_yes: {
     // [CONFIRM]
@@ -148,19 +162,19 @@ export const FIXED_REPLIES: Record<ReplyKey, Record<ReplyLanguage, string>> = {
       "Maaf kijiye, main samajh nahi paya. Kya aap bataye gaye tarike se apni health se judi jaankari humare saath share karne " +
       "ke liye sehmat hain? Kripya YES ya NO likhein.",
   },
+  // Playbook 16.3 (approved English); {privacy_contact} = OXXY_PRIVACY_CONTACT [CONFIRM]
   privacy: {
-    // [CONFIRM]
     en:
-      "We have logged your privacy / data deletion request and paused any activation or promotional messages. " +
-      "Our privacy team will follow up with you shortly.",
+      "I understand. I will record your privacy request for handling under the applicable process and stop the " +
+      "activation discussion. You can also contact {privacy_contact}.",
     // [CONFIRM]
     hi:
-      "हमने आपका गोपनीयता / डेटा हटाने का अनुरोध दर्ज कर लिया है और सभी प्रचार संदेश रोक दिए हैं। " +
-      "हमारी गोपनीयता टीम जल्द ही आपसे संपर्क करेगी।",
+      "मैं समझता हूँ। मैं आपकी प्राइवेसी रिक्वेस्ट लागू प्रक्रिया के तहत दर्ज कर रहा हूँ और एक्टिवेशन की बातचीत रोक रहा हूँ। " +
+      "आप {privacy_contact} पर भी संपर्क कर सकते हैं।",
     // [CONFIRM]
     hinglish:
-      "Humne aapka privacy / data deletion request record kar liya hai aur promotional messages rok diye hain. " +
-      "Hamari privacy team jaldi aapse sampark karegi.",
+      "Main samajhta hoon. Main aapki privacy request applicable process ke tahat record kar raha hoon aur activation " +
+      "ki baat rok raha hoon. Aap {privacy_contact} par bhi contact kar sakte hain.",
   },
   complaint: {
     // [CONFIRM]
@@ -198,8 +212,27 @@ export function centreSavingReply(language?: string | null): string {
   return `${NEUTRAL_SAVINGS_LINE[lang]} ${BOOKING_STILL_POSSIBLE[lang]}`;
 }
 
+// Playbook 16.3 placeholders [CONFIRM both before launch, Playbook 22.2]. Until then the official support
+// e-mail (Playbook 21) and the privacy policy stand in.
+export function privacyContact(): string {
+  return process.env.OXXY_PRIVACY_CONTACT || process.env.OXXY_SUPPORT_EMAIL || "info@oxxy.in";
+}
+const RETENTION_TEXT: Record<ReplyLanguage, (days: number | null) => string> = {
+  en: (d) => (d ? `${d} days` : "the period stated in the Oxxy privacy policy"),
+  hi: (d) => (d ? `${d} दिन` : "Oxxy की प्राइवेसी पॉलिसी में बताई गई अवधि"),
+  hinglish: (d) => (d ? `${d} din` : "Oxxy privacy policy mein batayi gayi avadhi"),
+};
+export function retentionText(lang: ReplyLanguage): string {
+  const d = Number(process.env.RETENTION_DAYS);
+  return RETENTION_TEXT[lang](Number.isFinite(d) && d > 0 ? Math.round(d) : null);
+}
+
 // Unknown or missing language -> English
 export function fixedReply(key: ReplyKey, language?: string | null): string {
   const lang: ReplyLanguage = language === "hi" || language === "hinglish" ? language : "en";
-  return FIXED_REPLIES[key][lang];
+  return FIXED_REPLIES[key][lang]
+    .split("{privacy_contact}")
+    .join(privacyContact())
+    .split("{retention}")
+    .join(retentionText(lang));
 }

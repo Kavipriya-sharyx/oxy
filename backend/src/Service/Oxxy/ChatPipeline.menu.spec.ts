@@ -56,6 +56,7 @@ function setup(opts: { state?: S; language?: string; consented?: boolean } = {})
   stub(task, "findOne", async () => null);
   stub(booking_request, "findOne", async () => null);
   stub(activation, "findOne", async () => null);
+  stub(booking_request, "find", async () => []);
 
   const pipeline = new ChatPipelineService(
     new GuardrailService(),
@@ -95,14 +96,22 @@ describe("the opening list", () => {
   });
 
   it("the four rows lead to the four states of the plan", () => {
-    expect(MENU_ROWS.map((r) => r.state)).toEqual([S.NeedDiscovery, S.OxxyExplain, S.ServiceOrEscalation, S.FollowUpTime]);
+    // Playbook 4.2: Reduce a medical bill / Find or book a centre / Understand Oxxy / Existing customer help
+    expect(MENU_ROWS.map((r) => r.state)).toEqual([S.NeedDiscovery, S.CentreSearch, S.OxxyExplain, S.ServiceOrEscalation]);
+    expect(MENU_ROWS.map((r) => r.title.en)).toEqual([
+      "Reduce a medical bill",
+      "Find or book a centre",
+      "Understand Oxxy",
+      "Existing customer help",
+    ]);
   });
 
   it("matches a tap (id), a typed title in any language, and a typed number", () => {
     expect(matchMenuRow("menu_explain")?.state).toBe(S.OxxyExplain);
-    expect(matchMenuRow("What is Oxxy?")?.state).toBe(S.OxxyExplain);
-    expect(matchMenuRow("Baad mein baat karein")?.state).toBe(S.FollowUpTime);
-    expect(matchMenuRow("3")?.state).toBe(S.ServiceOrEscalation);
+    expect(matchMenuRow("Understand Oxxy")?.state).toBe(S.OxxyExplain);
+    expect(matchMenuRow("Oxxy ko samjhein")?.state).toBe(S.OxxyExplain);
+    expect(matchMenuRow("2")?.state).toBe(S.CentreSearch);
+    expect(matchMenuRow("4")?.state).toBe(S.ServiceOrEscalation);
     expect(matchMenuRow("5")).toBeNull();
     expect(matchMenuRow("I need a plan")).toBeNull();
   });
@@ -157,7 +166,7 @@ describe("welcome + opening list through the pipeline", () => {
 
   it("a typed row title or number also routes while the menu is open", async () => {
     const t = setup({ state: S.IntentMenu });
-    await t.run("2");
+    await t.run("3");
     expect(t.conv.state).toBe(S.OxxyExplain);
   });
 

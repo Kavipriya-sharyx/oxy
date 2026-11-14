@@ -5,10 +5,10 @@ import { conversation } from "@Database/Table/Oxxy/conversation";
 import { customer } from "@Database/Table/Oxxy/customer";
 import { message } from "@Database/Table/Oxxy/message";
 import { OutboundMessage, SendPurpose } from "@Helper/WhatsappMessage";
-import { InvalidMessageError, WhatsappApiError, WindowClosedError } from "@Helper/WhatsappErrors";
+import { FREQUENCY_CAP_CODES, FrequencyCapError, InvalidMessageError, WhatsappApiError, WindowClosedError } from "@Helper/WhatsappErrors";
 import { checkAllowed } from "./WhatsappRules";
 import { buildPayload, validateMessage } from "./WhatsappPayload";
-import { assertTemplateUsable } from "@Service/Ops/Templates.service";
+import { assertTemplateUsable, templateLanguage } from "@Service/Ops/Templates.service";
 
 const TIMEOUT_MS = 10_000;
 
@@ -33,6 +33,7 @@ export function mapMetaError(e: unknown): Error {
     });
   }
   if (code === 131047) return new WindowClosedError();
+  if (code !== undefined && FREQUENCY_CAP_CODES.includes(code)) return new FrequencyCapError();
   if (code === 190) {
     return new WhatsappApiError("WHATSAPP_ACCESS_TOKEN expired or invalid", {
       retryable: false,
@@ -96,7 +97,11 @@ export class WhatsappClient implements OnModuleInit {
     checkAllowed(msg, purpose, conv.last_customer_message_at, new Date());
     validateMessage(msg);
     // a template Meta rejected / paused / disabled is not even tried (Console -> Templates)
-    if (msg.kind === "template") await assertTemplateUsable(msg.name, msg.languageCode);
+    if (msg.kind === "template") {
+      // Hindi customer + approved Hindi version of this template = send that one
+      msg = { ...msg, languageCode: await templateLanguage(msg.name, msg.languageCode, cust.language) };
+      await assertTemplateUsable(msg.name, msg.languageCode);
+    }
 
     const wamid = await this.callApi(cust.wa_number, msg);
 

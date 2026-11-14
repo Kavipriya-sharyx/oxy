@@ -68,7 +68,7 @@ export default function Centres() {
   });
   const importer = useMutation({
     mutationFn: () => importCentres(parseCsv(csv ?? "")),
-    onSuccess: (r) => done(`Imported ${r.created} centres`),
+    onSuccess: (r) => done(`Imported: ${r.created} new, ${r.updated ?? 0} updated, ${r.skipped ?? 0} skipped (no name or city)`),
     onError: (e: Error) => setError(e.message),
   });
 
@@ -95,7 +95,7 @@ export default function Centres() {
             <button
               className="btn"
               onClick={() =>
-                setCsv("name,branch,locality,city,latitude,longitude,specialisations\n")
+                setCsv("name,branch,locality,city,postcode,latitude,longitude,centre_type,specialisations,is_private,verified,verification_source\n")
               }
             >
               Import CSV
@@ -300,7 +300,9 @@ export default function Centres() {
           }}
         >
           <p className="small muted" style={{ margin: 0 }}>
-            One centre per line. Use | between specialisations, e.g. cardiology|orthopaedics.
+            One centre per line. Use | between specialisations, e.g. cardiology|orthopaedics. The bot suggests a
+            centre only when verified is yes (add who checked it in verification_source) and is_private is yes.
+            A row with the same name, branch and city updates that centre.
           </p>
           <textarea
             className="input mono"

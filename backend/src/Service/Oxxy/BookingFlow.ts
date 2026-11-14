@@ -39,6 +39,39 @@ export function writeDraft(d: BookingDraft): string {
   return PREFIX + JSON.stringify(d);
 }
 
+// ---- the answer to "Please share the centre and branch": a name, or something else? ----
+
+const SUGGEST_RE =
+  /\b(suggest\w*|recommend\w*|your (choice|pick|wish|suggestion|recommendation)|you (choose|decide|pick|tell|select)|(any|some|which|what|best|good|nearest|nearby|closest) (one|centre|center|hospital|clinic|lab|place|option)s?|any ?(one|where|thing)|near ?by|near (me|my)|no idea|not sure|do ?n[o']?t know|dont know|no preference|up to you|as you (like|wish|say)|aap (hi )?(bata|suggest|batai)\w*|koi bhi|kuch bhi|pata nahi|nahi pata)\b|सुझा|बताइए|बता दीजिए|कोई भी|पता नहीं/i;
+
+/** "No, give me your suggestion" / "any good hospital nearby" / "aap batao": the customer has no centre in mind */
+export function asksForSuggestion(text: string): boolean {
+  return SUGGEST_RE.test((text || "").replace(/[’`]/g, "'"));
+}
+
+/** The customer asked for a booking or an appointment in so many words */
+export function asksToBook(text: string): boolean {
+  return /\b(book\w*|appointment\w*|appoinment\w*|slot|schedule\w*|reserve\w*|fix (a|an|the|my)? ?(visit|time|date)|visit (on|at|tomorrow|next)|booking|bukking|buk)\b|बुक|अपॉइंटमेंट/i.test(text || "");
+}
+
+const CENTRE_WORD_RE =
+  /\b(hospitals?|clinics?|centres?|centers?|labs?|laborator\w+|diagnostics?|scans?|nursing home|polyclinic|medical|medicals|health ?care|care|pharmacy|dental|eye|dr\.?|doctor)\b|अस्पताल|क्लिनिक|हॉस्पिटल|लैब/i;
+const SENTENCE_START_RE =
+  /^(no|nope|yes|yeah|ok|okay|please|pls|give|show|tell|send|find|get|search|book|i|i'm|im|we|you|u|can|could|will|would|what|which|where|how|why|is|are|do|does|let|want|need|just|nahi|haan|mujhe|hume|kya|kaun|kahan)\b/i;
+
+/**
+ * Could this message be a centre name? A request or a sentence ("No give me at your suggestion", "give it
+ * for villapuram area") is not: it must never be saved as a centre for the team to verify.
+ * A message that names a centre ("... hospital", "... clinic") always counts, however it starts.
+ */
+export function looksLikeCentreName(text: string): boolean {
+  const t = (text || "").trim();
+  if (!t || asksForSuggestion(t)) return false;
+  if (CENTRE_WORD_RE.test(t)) return true;
+  if (SENTENCE_START_RE.test(t)) return false;
+  return t.split(/\s+/).length <= 6; // "Apollo, Greams Road"; a long sentence is not a name
+}
+
 /** The next unanswered question, or null when the request can be recorded */
 export function nextStep(d: BookingDraft, hasSpecialisation: boolean): BookingStep | null {
   if (!d.c && !d.cn) return "centre";
@@ -136,11 +169,39 @@ const iso = (y: number, m: number, d: number) => `${y}-${pad(m)}-${pad(d)}`;
 
 /**
  * A date as customers write it: 2026-11-20, 20/11/2026, 20-11-26, 20 Nov, Nov 20 2026, 20th November,
- * today, tomorrow. Day before month (India). Without a year: this year, or next year if already past.
+ * today, tomorrow, and the Hindi forms (20 नवंबर, २० नवंबर २०२६, कल, परसों). Day before month (India). Without a year: this year, or next year if already past.
  * Returns YYYY-MM-DD (not yet checked against the booking window) or null.
  */
+// Hindi words -> the English forms the parser below reads. Nukta is dropped first (फ़रवरी = फरवरी).
+const HINDI_DATE_WORDS: [RegExp, string][] = [
+  [/जनवरी/g, " jan "],
+  [/फरवरी/g, " feb "],
+  [/मार्च/g, " mar "],
+  [/अप्रैल|अप्रेल/g, " apr "],
+  [/मई/g, " may "],
+  [/जून/g, " jun "],
+  [/जुलाई/g, " jul "],
+  [/अगस्त/g, " aug "],
+  [/सितंबर|सितम्बर/g, " sep "],
+  [/अक्टूबर|अक्तूबर/g, " oct "],
+  [/नवंबर|नवम्बर/g, " nov "],
+  [/दिसंबर|दिसम्बर/g, " dec "],
+  [/परसों|परसो/g, " parso "],
+  [/आज/g, " aaj "],
+  [/कल/g, " kal "],
+  [/तारीख|तारीख़|तिथि|को/g, " "],
+];
+
+/** Devanagari digits -> 0-9, Hindi month and day words -> English (so "20 नवंबर" = "20 nov") */
+export function normaliseHindiDate(text: string): string {
+  let t = (text || "").normalize("NFD").replace(/़/g, "").normalize("NFC");
+  t = t.replace(/[०-९]/g, (c) => String(c.charCodeAt(0) - 0x0966));
+  for (const [re, en] of HINDI_DATE_WORDS) t = t.replace(re, en);
+  return t.replace(/\s+/g, " ");
+}
+
 export function parseCustomerDate(text: string, now: Date = new Date()): string | null {
-  const t = (text || "").toLowerCase().trim();
+  const t = normaliseHindiDate(text).toLowerCase().trim();
   const today = todayIST(now);
   const [ty, tm, td] = today.split("-").map(Number);
   const plusDays = (n: number) => {

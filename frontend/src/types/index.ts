@@ -79,6 +79,15 @@ export interface Conversation {
   last_customer_message_at: string | null;
   closed_at: string | null;
   customer?: Customer;
+  // inbox list only
+  last_message?: {
+    direction: "in" | "out";
+    sender: string;
+    text: string;
+    created_on: string;
+  } | null;
+  waiting?: number; // customer messages after the last reply
+  open_booking?: boolean; // a pending booking request (an opted-out customer may still be answered about it)
 }
 
 export interface Message {

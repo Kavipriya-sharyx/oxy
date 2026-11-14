@@ -2,7 +2,11 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { booking_request } from "@Database/Table/Oxxy/booking_request";
 import { BookingStatus } from "@Helper/Enum/BookingStatus";
 import { DateWindowService } from "./DateWindow.service";
-import { DataSource } from "typeorm";
+import { DataSource, EntityManager } from "typeorm";
+import { centre } from "@Database/Table/Oxxy/centre";
+import { customer } from "@Database/Table/Oxxy/customer";
+import { conversation } from "@Database/Table/Oxxy/conversation";
+import { activation } from "@Database/Table/Oxxy/activation";
 import { user } from "@Database/Table/Admin/user";
 import { CrmOutboxService } from "@Service/Crm/CrmOutbox.service";
 import { CrmAction } from "@Helper/Enum/CrmAction";
@@ -42,14 +46,46 @@ export class BookingService {
           booking_status: BookingStatus.PendingConfirmation,
         } as any),
       );
-      const row = await this._Outbox.enqueue(m, CrmAction.CreateBookingRequest, data.customer_id, {
-        booking_id: (saved as any).id,
-        ...data,
-      });
+      const row = await this._Outbox.enqueue(
+        m,
+        CrmAction.CreateBookingRequest,
+        data.customer_id,
+        await this.crmPayload((saved as any).id, data, m), // also the pull feed, so always built
+      );
       return { b: saved as any, ob: row };
     });
     await this._Outbox.dispatch(ob);
     return b;
+  }
+
+  /** Playbook 17.2 booking payload (plus the bot's own ids so the CRM can answer with webhooks) */
+  private async crmPayload(bookingId: string, data: CreateBooking, m: EntityManager) {
+    const ctr = await m.findOne(centre, { where: { id: data.centre_id } });
+    const cust = await m.findOne(customer, { where: { id: data.customer_id } });
+    const conv = data.conversation_id
+      ? await m.findOne(conversation, { where: { id: data.conversation_id } })
+      : null;
+    const act = await m.findOne(activation, {
+      where: { customer_id: data.customer_id },
+      order: { created_on: "DESC" } as any,
+    });
+    const product = cust?.active_product || conv?.selected_product || null;
+    const plan = cust?.active_plan || conv?.recommended_plan || null;
+    return {
+      booking_id: bookingId,
+      customer_id: data.customer_id,
+      crm_customer_id: cust?.crm_customer_id ?? null,
+      conversation_id: data.conversation_id ?? null,
+      centre: { centre_id: data.centre_id, name: ctr?.name ?? null, branch: ctr?.branch ?? null },
+      specialisation: data.specialisation ?? null,
+      preferred_date: data.preferred_date,
+      preferred_time: data.preferred_time ?? null,
+      timezone: "Asia/Kolkata",
+      selected_product: product === "oxxy" && plan ? `oxxy_${plan}` : product,
+      activation_status: cust?.active_product ? "active" : (act?.activation_status ?? "none"),
+      request_status: BookingStatus.PendingConfirmation,
+      source: "whatsapp_ai",
+    };
   }
 
   // Human path: only called from the JWT-protected controller

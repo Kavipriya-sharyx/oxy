@@ -1,0 +1,831 @@
+{
+  "info": {
+    "name": "Oxxy bot API",
+    "description": "Oxxy bot API for your CRM and voice AI (header X-Api-Key). Your CRM only calls this API: customer actions, then CRM sync (import, poll the changes feed, send your sales team's updates). Set base_url and api_key (Admin > Developer in the Oxxy console). Full guide: Admin > Developer > API documentation.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://your-bot-host"
+    },
+    {
+      "key": "api_key",
+      "value": ""
+    },
+    {
+      "key": "last_seq",
+      "value": "0"
+    },
+    {
+      "key": "booking_request_id",
+      "value": ""
+    },
+    {
+      "key": "activation_id",
+      "value": ""
+    },
+    {
+      "key": "task_id",
+      "value": ""
+    },
+    {
+      "key": "customer_id",
+      "value": ""
+    },
+    {
+      "key": "wa_number",
+      "value": "919800000000"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Customer actions",
+      "description": "Every call needs the header X-Api-Key. Errors: { error, status, code, message }.",
+      "item": [
+        {
+          "name": "lookup_customer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/LookupCustomer?wa_number={{wa_number}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "LookupCustomer"
+              ],
+              "query": [
+                {
+                  "key": "wa_number",
+                  "value": "{{wa_number}}"
+                }
+              ]
+            },
+            "description": "Active product, consent, open bookings and cases. Call first; save customer_id."
+          }
+        },
+        {
+          "name": "search_centres",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/SearchCentres?city=Chennai&specialisation=cardiology",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "SearchCentres"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "Chennai"
+                },
+                {
+                  "key": "specialisation",
+                  "value": "cardiology"
+                }
+              ]
+            },
+            "description": "Verified private centres only, at most 5. Or latitude + longitude + radius_km."
+          }
+        },
+        {
+          "name": "create_booking_request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/BookingRequests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "BookingRequests"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"centre\": {\n    \"centre_id\": \"<from search_centres>\"\n  },\n  \"specialisation\": \"cardiology\",\n  \"preferred_date\": \"YYYY-MM-DD\",\n  \"preferred_time\": \"10:30\",\n  \"source\": \"voice_ai\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Always pending_confirmation. preferred_date: today + 3 days .. + 6 months (Asia/Kolkata)."
+          }
+        },
+        {
+          "name": "create_follow_up",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/FollowUps",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "FollowUps"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"scheduled_for\": \"2026-12-01T11:00:00+05:30\",\n  \"reason\": \"talk after salary day\",\n  \"selected_product\": \"oxxy\",\n  \"source\": \"voice_ai\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Between 09:00 and 21:00 IST, within 90 days. Sent later as the approved template."
+          }
+        },
+        {
+          "name": "get_official_plan",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/OfficialPlan?product=oxxy&plan=vital&billing=yearly",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "OfficialPlan"
+              ],
+              "query": [
+                {
+                  "key": "product",
+                  "value": "oxxy"
+                },
+                {
+                  "key": "plan",
+                  "value": "vital"
+                },
+                {
+                  "key": "billing",
+                  "value": "yearly"
+                }
+              ]
+            },
+            "description": "Price, GST, renewal terms, activation link. needs_confirmation=true: not final yet."
+          }
+        },
+        {
+          "name": "send_approved_asset",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/SendAsset",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "SendAsset"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"code\": \"trust_pack_en\",\n  \"source\": \"crm\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Sends one approved item on WhatsApp now. Once per journey; no proactive sends 21:00-09:00 IST."
+          }
+        },
+        {
+          "name": "create_escalation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/Escalations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "Escalations"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"reason\": \"Wants the exact discount at a centre\",\n  \"summary\": \"Asked about discount at the chosen centre (no health details)\",\n  \"priority\": \"high\",\n  \"source\": \"voice_ai\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "A task for a person. No health details in summary."
+          }
+        },
+        {
+          "name": "start_conversation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/StartConversation",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "StartConversation"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"wa_number\": \"{{wa_number}}\",\n  \"first_name\": \"Ravi\",\n  \"whatsapp_consent\": true,\n  \"consent_source\": \"voice_ai\",\n  \"language\": \"en\",\n  \"context\": {\n    \"summary\": \"Asked for Oxxy plan details on WhatsApp; mother needs regular dental care\",\n    \"need\": \"dental treatment for mother\",\n    \"beneficiary\": \"mother\",\n    \"city\": \"Chennai\",\n    \"specialisation\": \"dental\",\n    \"selected_product\": \"oxxy\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "After a call: first WhatsApp message with three buttons. context = what was said on the call. status: sent | queued (quiet hours, sent at 09:00 IST) | context_saved (chat in progress)."
+          }
+        },
+        {
+          "name": "set_opt_out",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/OptOut",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "OptOut"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"source\": \"crm\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Stops all WhatsApp automation for the customer. Safe to repeat."
+          }
+        },
+        {
+          "name": "customer_record",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/Customers/{{customer_id}}/Record",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "Customers",
+                "{{customer_id}}",
+                "Record"
+              ],
+              "query": []
+            },
+            "description": "The Playbook 17 record (no health details)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. CRM sync (your CRM reads and updates)",
+      "description": "Import once (Customers, BookingRequests?status=all, Tasks?status=all, Activations?payment_status=all), then poll Changes every 30-60 s with the last seq you stored. Your sales team's changes go through the update calls.",
+      "item": [
+        {
+          "name": "changes feed",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/Changes?after={{last_seq}}&limit=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "Changes"
+              ],
+              "query": [
+                {
+                  "key": "after",
+                  "value": "{{last_seq}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            },
+            "description": "Every bot change after seq, oldest first. Store next_after after saving the changes."
+          }
+        },
+        {
+          "name": "list customers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/Customers?limit=100&offset=0",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "Customers"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "100"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "All customers, oldest first, for the first import."
+          }
+        },
+        {
+          "name": "link your customer id",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/Customers/{{customer_id}}/CrmId",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "Customers",
+                "{{customer_id}}",
+                "CrmId"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"crm_customer_id\": \"C-10023\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Store your own customer id on the bot's customer."
+          }
+        },
+        {
+          "name": "list booking requests",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/BookingRequests?status=pending_confirmation",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "BookingRequests"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending_confirmation"
+                }
+              ]
+            },
+            "description": "status: pending_confirmation (default), confirmed, changed, cancelled, all."
+          }
+        },
+        {
+          "name": "confirm a booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/BookingRequests/{{booking_request_id}}/Confirm",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "BookingRequests",
+                "{{booking_request_id}}",
+                "Confirm"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"confirmed_by\": \"Priya S (sales)\",\n  \"crm_booking_id\": \"BK-1001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "The customer gets the booking_confirmed template."
+          }
+        },
+        {
+          "name": "reschedule a booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/BookingRequests/{{booking_request_id}}/Reschedule",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "BookingRequests",
+                "{{booking_request_id}}",
+                "Reschedule"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"preferred_date\": \"YYYY-MM-DD\",\n  \"preferred_time\": \"15:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Today + 3 days .. + 6 months. The customer gets booking_rescheduled."
+          }
+        },
+        {
+          "name": "cancel a booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/BookingRequests/{{booking_request_id}}/Cancel",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "BookingRequests",
+                "{{booking_request_id}}",
+                "Cancel"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"centre closed that day\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "The customer is told; the first time it offers another centre once."
+          }
+        },
+        {
+          "name": "list activations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/Activations?payment_status=pending",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "Activations"
+              ],
+              "query": [
+                {
+                  "key": "payment_status",
+                  "value": "pending"
+                }
+              ]
+            },
+            "description": "payment_status: pending (default), paid, failed, all."
+          }
+        },
+        {
+          "name": "record a payment result",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/Activations/{{activation_id}}/Payment",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "Activations",
+                "{{activation_id}}",
+                "Payment"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"result\": \"paid\",\n  \"crm_activation_id\": \"PAY-55\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "paid: product active, customer gets activation_confirmed. failed / refunded: no message."
+          }
+        },
+        {
+          "name": "list tasks",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/Tasks?status=not_done",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "Tasks"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "not_done"
+                }
+              ]
+            },
+            "description": "status: not_done (default), open, in_progress, done, all. Urgent first."
+          }
+        },
+        {
+          "name": "complete a task",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/Tasks/{{task_id}}/Complete",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "Tasks",
+                "{{task_id}}",
+                "Complete"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outcome\": \"called, answered the pricing question\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "If the chat was waiting for a person, the bot may continue."
+          }
+        }
+      ]
+    }
+  ]
+}

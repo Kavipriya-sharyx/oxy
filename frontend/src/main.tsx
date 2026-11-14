@@ -11,9 +11,8 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 });
 
-// antd follows the same light / dark choice as the prototype tokens
-const dark =
-  typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+// Light by default, like www.oxxy.in; dark only when <html data-theme="dark"> is set (styles/oxxy.css)
+const dark = typeof document !== "undefined" && document.documentElement.dataset.theme === "dark";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Root element not found");
@@ -26,8 +25,9 @@ createRoot(root).render(
           theme={{
             algorithm: dark ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
             token: {
-              colorPrimary: dark ? "#4cc2a8" : "#0d6b5c",
-              fontFamily: '"Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif',
+              colorPrimary: dark ? "#2cc6b9" : "#02857c",
+              colorLink: dark ? "#2cc6b9" : "#02857c",
+              fontFamily: '"Roboto", system-ui, -apple-system, "Segoe UI", sans-serif',
               borderRadius: 6,
             },
           }}

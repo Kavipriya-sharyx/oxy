@@ -53,4 +53,8 @@ export class booking_request extends BaseTable {
 
   @Column({ type: "text", nullable: true, unique: true })
   crm_booking_id: string;
+
+  // who confirmed it when the client's CRM confirms through the Actions API (not a console user)
+  @Column({ type: "varchar", nullable: true })
+  confirmed_by_name: string | null;
 }

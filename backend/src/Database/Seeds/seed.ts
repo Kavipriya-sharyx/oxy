@@ -6,8 +6,8 @@ import { OxxySeederService } from "./OxxySeeder.service";
  * Standalone seed (run after the migrations): npm run seed
  * Uses the same data and rules as the seeder that runs at app start (OxxyData.ts):
  *  - plan_catalog: 4 Oxxy plans (monthly + yearly) and Cut Medi Bills (monthly + yearly)
- *  - centres: 5 sample verified centres
- * Safe to run more than once. Values marked [CONFIRM] must be replaced before go-live.
+ *  - no centres and no content: the real ones are entered in the console (Centres, Content)
+ * Safe to run more than once. Links and Oxxy terms start empty: see the Go-live check in the console.
  */
 async function main() {
   await dataSource.initialize();

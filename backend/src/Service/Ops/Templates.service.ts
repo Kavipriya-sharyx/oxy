@@ -37,6 +37,26 @@ export async function assertTemplateUsable(name: string, languageCode: string | 
     throw new InvalidMessageError(`template ${name} is ${row.meta_status} in Meta`);
 }
 
+/**
+ * The language to send a template in. Callers ask for "en"; a Hindi-speaking customer gets the Hindi
+ * version instead, but only once that version is in the template list AND approved by Meta. Hinglish has
+ * no template language of its own in Meta, so it stays English. Any lookup problem keeps the request as is.
+ */
+export async function templateLanguage(
+  name: string,
+  requested: string | undefined,
+  customerLanguage: string | null | undefined,
+): Promise<string> {
+  const asked = requested || "en";
+  if (customerLanguage !== "hi" || asked.toLowerCase().split(/[_-]/)[0] !== "en") return asked;
+  try {
+    const hi = await wa_template.findOne({ where: { name, language: "hi" } });
+    return hi?.meta_status === "approved" ? "hi" : asked;
+  } catch {
+    return asked;
+  }
+}
+
 @Injectable()
 export class TemplatesService {
   constructor(private readonly _Config: ConfigService) {}

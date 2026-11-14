@@ -8,6 +8,7 @@ import { ResponseEnum } from "@Helper/Enum/ResponseEnum";
 import { AnalyticsService } from "@Service/Crm/Analytics.service";
 import { CustomerRecordService } from "@Service/Crm/CustomerRecord.service";
 import { approved_asset } from "@Database/Table/Oxxy/approved_asset";
+import { isPlaceholder, isRealLink } from "@Helper/GoLive";
 
 const KINDS = ["document", "comparison", "media", "testimonial", "policy", "website", "article"];
 
@@ -91,6 +92,8 @@ export class InsightsController extends JWTAuthController {
     const data = this.clean(body ?? {}, true);
     Object.assign(row, data);
     if (body?.approved !== undefined) {
+      if (body.approved && (!isRealLink(row.url) || isPlaceholder(row.title)))
+        throw new BadRequestException("Put the real https link and title first: a placeholder cannot be approved");
       row.approved = !!body.approved;
       row.approved_by_id = row.approved ? (req.user?.user_id ?? null) : null;
     }

@@ -5,6 +5,7 @@ import {
   EMERGENCY,
   EMERGENCY_ACTIVE_EVENT,
   EMERGENCY_UNLESS_COVERAGE_QUESTION,
+  OPT_IN_WHOLE_MESSAGE,
   PRIVACY_REQUEST,
   SELF_HARM,
   STOP_PHRASES,
@@ -46,6 +47,12 @@ const L = {
 // "STOP, I have chest pain" / "I want to die. Unsubscribe": the message starts with the word, or ends with it after punctuation.
 // Only used to ALSO record an opt-out next to a safety reply; never to trigger by itself.
 const STOP_BESIDE_SAFETY = /^\s*(stop|unsubscribe)\b|[,.;\-–—]\s*(stop|unsubscribe)\s*[.!]*\s*$/i;
+
+const OPT_IN = norm(OPT_IN_WHOLE_MESSAGE);
+/** "START" and friends, as the whole message: the opted-out customer asks for messages again */
+export function isOptIn(text: string): boolean {
+  return OPT_IN.includes(normalise(text));
+}
 
 const anywhere = (t: string, list: string[]) => list.some((k) => t.includes(k)); // over-triggers on purpose
 const wholeWords = (t: string, list: string[]) => list.some((k) => ` ${t} `.includes(` ${k} `)); // precise

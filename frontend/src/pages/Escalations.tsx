@@ -19,6 +19,8 @@ const TYPES: Record<string, string> = {
   privacy_request: "Privacy request",
   payment_issue: "Payment failed",
   directory_verification: "Check a new centre",
+  servicing: "Existing customer request",
+  activation_follow_up: "Activation follow-up (after booking)",
 };
 const PRIO: Record<string, [string, Tone]> = {
   urgent: ["Urgent", "crit"],
@@ -105,6 +107,21 @@ export default function Escalations() {
                       <b>{TYPES[t.type] ?? t.type}</b>
                       {t.summary && !t.summary.startsWith("wamid:") && (
                         <div className="small muted">{t.summary}</div>
+                      )}
+                      {t.callback_from && (
+                        <div className="small">
+                          Call back: <b>{fmtTime(t.callback_from)}</b>
+                          {t.callback_to && (
+                            <>
+                              {" "}
+                              to{" "}
+                              {new Date(t.callback_to).toLocaleTimeString("en-IN", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td>

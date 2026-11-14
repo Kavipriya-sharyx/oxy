@@ -149,7 +149,8 @@ export class AnalyticsService {
     const [violations] = await this.q(
       `SELECT
          (SELECT count(*)::int FROM trigger_event WHERE suppression_reason = 'duplicate' AND ${inRange("created_on")}) AS duplicate_triggers_blocked,
-         (SELECT count(*)::int FROM trigger_event WHERE suppression_reason = 'frequency_cap' AND ${inRange("created_on")}) AS frequency_cap_blocked,
+         ((SELECT count(*)::int FROM trigger_event WHERE suppression_reason = 'frequency_cap' AND ${inRange("created_on")})
+          + (SELECT count(*)::int FROM message WHERE message_status = 'frequency_cap' AND ${inRange("created_on")})) AS frequency_cap_blocked,
          (SELECT count(*)::int FROM (SELECT reply_to_wa_message_id FROM message
              WHERE direction = 'out' AND reply_to_wa_message_id IS NOT NULL AND ${inRange("created_on")}
              GROUP BY reply_to_wa_message_id HAVING count(*) > 1) d) AS duplicate_replies,

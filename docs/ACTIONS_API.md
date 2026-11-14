@@ -1,5 +1,7 @@
 # Oxxy Actions API (v1)
 
+Part A of `CRM_API_REFERENCE.md` (start there: it also covers the webhooks and the calls the bot makes to the CRM).
+
 The eight actions from Playbook section 17.1, for the in-house CRM, the voice AI and other back-end services.
 The bot applies every business rule itself: a caller cannot book outside the date window, send unapproved
 content, message an opted-out customer or skip quiet hours. Not for browsers or the console.
@@ -14,14 +16,20 @@ content, message an opted-out customer or skip quiet hours. Not for browsers or 
 | send_approved_asset | `POST /api/v1/Actions/SendAsset` | Yes, at once |
 | create_escalation | `POST /api/v1/Actions/Escalations` | No |
 | set_opt_out | `POST /api/v1/Actions/OptOut` | No |
+| start a consented lead chat (Playbook 4.1) | `POST /api/v1/Actions/StartConversation` | Yes, the approved `lead_intro` template |
 | customer record (Playbook 17 field groups) | `GET /api/v1/Actions/Customers/{id}/Record` | No |
 
 ## 1. Connecting
 
 - **Base URL:** `https://<bot-host>/api/v1/Actions` (local: `http://localhost:8000/api/v1/Actions`).
-- **Auth:** every request sends the header `X-Api-Key: <ACTIONS_API_KEY>`. The bot team gives you the key; it
-  is set on the bot server as `ACTIONS_API_KEY`. Wrong or missing key: `401`. Key not set on the server: `503`.
-  Keep the key server-side only (never in a browser or mobile app). HTTPS only outside local development.
+- **Auth:** every request sends the header `X-Api-Key: <key>`. The bot team makes a key for each system and
+  environment in the console (Admin > Developer: "Generate key", optional expiry, revoke at any time) and gives
+  it to you; the server key `ACTIONS_API_KEY` also still works. Wrong, expired or revoked key: `401`. No key
+  exists at all: `503`. Keep the key server-side only (never in a browser or mobile app). HTTPS only outside
+  local development.
+- **Postman:** Admin > Developer > "Download collection" (or `docs/oxxy-api.postman_collection.json`) has every
+  call below and every webhook, with webhook signing done by a pre-request script. Set `base_url`, `api_key`
+  and `webhook_secret`.
 - **Body:** JSON, `Content-Type: application/json`.
 - **Timeout:** answer times are well under a second; use a 5-second timeout like the bot does towards the CRM.
 
@@ -68,6 +76,8 @@ Every error has the same shape and a real HTTP status. Branch on `code`, show `m
 | 409 | `window_closed`, `window_closed_no_template` | Outside the 24-hour window and no approved template |
 | 409 | `safety_event_open` | An emergency is open: no commercial content |
 | 410 | `asset_expired` | The content is past its `valid_to` |
+| 400 | `consent_required` | StartConversation without `whatsapp_consent: true` and a `consent_source` |
+| 409 | `chat_open` | StartConversation while a chat with the customer is already going on |
 | 422 | `centre_needs_verification` | The centre is not in the verified directory; a check task was made (also `task_id`) |
 | 500 | `internal_error` | Bot-side problem; retry later (writes are safe to retry only where noted) |
 | 503 | `not_configured` | The Actions API is switched off on this server |
@@ -276,6 +286,35 @@ The task also goes to the CRM through the outbox (`create_task`, with `activatio
 Emergencies and self-harm are not for this endpoint: the bot handles them itself before anything else.
 Errors: `400 reason_required | summary_required | invalid_time | invalid_callback_window`, `404 customer_not_found`.
 
+### 4.8a start a consented lead chat — `POST /StartConversation`
+
+Playbook 4.1: the first WhatsApp message to a lead who agreed to be contacted (lead form, voice AI call,
+CRM). The bot sends the approved template `lead_intro` ("Hello {{First_Name}} ji, I am Oxxy Health's automated
+assistant…") with three quick-reply buttons: **Yes, please** (discovery), **Just send details** (one priority
+question, then only the matching short summary), **Not now** (asks for a convenient time). Footer: "Reply STOP to opt out".
+
+| Field | Required | Notes |
+|---|---|---|
+| `wa_number` | yes | the lead's WhatsApp number |
+| `whatsapp_consent` | yes | must be `true` |
+| `consent_source` | yes | where the consent was given, e.g. `lead_form`, `voice_ai` |
+| `first_name` | no | used in the template |
+| `lead_id` | no | your lead id, kept on the customer record |
+| `language` | no | `en` (default), `hi`, `hinglish` |
+| `context` | no | what was said on the call: `summary`, `need`, `beneficiary`, `city`, `locality`, `specialisation`, `selected_product` (`oxxy` / `cut_medi_bills`), `recommended_plan`. Saved on the chat (encrypted) and the need record; the bot does not ask it again (7 days) |
+
+`201`: `{ "customer_id", "conversation_id", "context_saved", "status", … }` where `status` is
+- `sent` + `"template": "lead_intro"`: a new chat;
+- `sent` + `"template": null`: the customer wrote within 24 hours and nothing is in progress, so the same text and
+  buttons go as a normal message;
+- `queued` + `scheduled_for`: called between 21:00 and 09:00 IST, sent at 09:00 IST (skipped if the customer starts
+  chatting first);
+- `context_saved` + `"reason": "chat_in_progress"`: a chat is going on; it is not interrupted.
+
+Errors: `400 consent_required | customer_ref_required`, `403 opted_out`, `409 chat_open` (an older chat stopped
+part-way and the 24-hour window is closed).
+The template must be approved in Meta first (Console > WhatsApp templates).
+
 ### 4.8 set_opt_out — `POST /OptOut`
 
 Stops all WhatsApp automation for the customer at once: consent updated, conversation OPTED_OUT, scheduled
@@ -320,12 +359,36 @@ pre-existing) are left out on this API.
 Eligibility values: `none` (nothing done yet), `done` / `generated` (already happened), `unknown` (not asked yet).
 `trigger_path` on a paid activation is the trigger journey before payment, e.g. `A>D>G>H>E`.
 
+## 5a. CRM sync (the client's CRM reads and updates; added 14 Nov)
+
+The client's CRM only calls this API. It imports once, polls the changes feed, and sends its sales team's
+changes here. Full detail with examples: console → Admin → Developer → API documentation.
+
+| Call | Purpose | Notes |
+|---|---|---|
+| `GET /Changes?after=<seq>&limit=1..500` | Every bot change after `seq`, oldest first | `{ changes: [{ seq, type, customer_id, data, created_at }], next_after, has_more }`; kept 90 days |
+| `GET /Customers?limit=&offset=` | All customers for the first import | `next_offset` null = last page |
+| `PUT /Customers/{id}/CrmId` | Store the CRM's customer id | `{ crm_customer_id }`; 409 `crm_id_in_use` |
+| `GET /BookingRequests?status=` | pending_confirmation (default), confirmed, changed, cancelled, all | oldest first |
+| `POST /BookingRequests/{id}/Confirm` | `{ confirmed_by (required), crm_booking_id? }` | customer gets `booking_confirmed`; 409 `not_pending` |
+| `POST /BookingRequests/{id}/Reschedule` | `{ preferred_date, preferred_time? }` | window checked; customer gets `booking_rescheduled` |
+| `POST /BookingRequests/{id}/Cancel` | `{ reason? }` | customer told; first time offers another centre once; repeat-safe |
+| `GET /Activations?payment_status=` | pending (default), paid, failed, all | |
+| `POST /Activations/{id}/Payment` | `{ result: paid / failed / refunded, crm_activation_id? }` | paid: product active, `activation_confirmed`; repeat-safe |
+| `GET /Tasks?status=&type=` | not_done (default), open, in_progress, done, all | urgent first |
+| `POST /Tasks/{id}/Complete` | `{ outcome?, crm_task_id? }` | a chat waiting for a person continues; repeat-safe |
+
+Change types: customer.updated, customer.opted_out, customer.opted_in, consent.changed, booking.created,
+booking.confirmed, booking.rescheduled, booking.cancelled, task.created, task.callback_window, task.completed,
+activation.created, activation.declined, activation.paid, activation.failed, activation.refunded, trigger.fired.
+
 ## 6. Related, not in this API
 
 - **CRM -> bot webhooks** (`POST /api/v1/Crm/Webhook`, HMAC-SHA256 in `X-CRM-Signature`, unix time in
-  `X-CRM-Timestamp`, refused if older than 5 minutes): `booking.confirmed`, `booking.rescheduled`,
-  `booking.cancelled`, `activation.paid`, `activation.failed`, `activation.refunded`, `task.completed`,
-  `task.updated`, `customer.opted_out`, `customer.owner_changed`, `user.upserted`. Plan section 3.3.
-- **Bot -> CRM calls** go through the bot's outbox with retries (1, 5, 15, 60 minutes, then hourly for 24 hours).
-  Plan sections 3.2 and 3.4.
+  `X-CRM-Timestamp`, refused if older than 5 minutes): every event, its fields, signing examples and the
+  answers are in `CRM_API_REFERENCE.md` section 5.
+- **Bot -> CRM calls** (the endpoints the CRM builds: `PUT /customers/{wa}`, `POST /booking-requests`,
+  `POST /tasks`, `POST /activations`, `POST /customers/{id}/events`, `POST /customers/{id}/opt-out`,
+  `POST /set_opt_in`, `POST /set_callback_window`, `GET /customers?whatsapp=`, `GET /reconciliation/open`), with
+  payloads, `Idempotency-Key` and retries: `CRM_API_REFERENCE.md` section 6.
 - **Interactive docs:** `/swagger` on a development server lists these endpoints too.

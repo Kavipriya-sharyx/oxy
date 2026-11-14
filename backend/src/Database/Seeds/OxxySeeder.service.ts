@@ -1,14 +1,13 @@
 import { Injectable } from "@nestjs/common";
 import { user_role } from "../Table/Admin/user_role";
 import { plan_catalog } from "../Table/Oxxy/plan_catalog";
-import { centre } from "../Table/Oxxy/centre";
-import { approved_asset } from "../Table/Oxxy/approved_asset";
-import { CENTRE_SEEDS, GST_RATE, planSeeds } from "./OxxyData";
+import { GST_RATE, planSeeds } from "./OxxyData";
 
 @Injectable()
 export class OxxySeederService {
   async Run() {
-    for (const f of [this.Roles, this.Plans, this.Centres, this.Assets]) {
+    // no sample centres, no example content: the real directory and content are entered in the console
+    for (const f of [this.Roles, this.Plans]) {
       try {
         await f();
       } catch (e) {
@@ -78,28 +77,5 @@ export class OxxySeederService {
       }
       if (changed) await row.save();
     }
-  };
-
-  Centres = async () => {
-    if ((await centre.count()) > 0) return;
-    for (const r of CENTRE_SEEDS) {
-      await centre.save(
-        centre.create({ ...r, is_private: true, verified: true, active: true } as any),
-      );
-    }
-  };
-
-  // Example assets for development only, NOT approved: an admin approves each one in the console after
-  // checking it (Playbook 18.1). Production starts with none.
-  Assets = async () => {
-    if (process.env.NODE_ENV === "production" || (await approved_asset.count()) > 0) return;
-    const rows = [
-      { code: "trust_pack_en", kind: "website", trigger_id: "A", title: "About Oxxy Health [CONFIRM]", url: "https://example.com/oxxy/about" },
-      { code: "insurance_vs_oxxy_en", kind: "comparison", trigger_id: "B", title: "Health insurance and Oxxy [CONFIRM]", url: "https://example.com/oxxy/insurance-vs-oxxy" },
-      { code: "why_activate_en", kind: "document", trigger_id: "C", title: "Why activate Oxxy [CONFIRM]", url: "https://example.com/oxxy/why-activate" },
-      { code: "testimonials_en", kind: "testimonial", trigger_id: "L", title: "What members say [CONFIRM]", url: "https://example.com/oxxy/stories" },
-      { code: "privacy_policy_en", kind: "policy", trigger_id: null, title: "Privacy policy [CONFIRM]", url: "https://example.com/oxxy/privacy" },
-    ];
-    for (const r of rows) await approved_asset.save(approved_asset.create({ ...r, language: "en", approved: false } as any));
   };
 }

@@ -56,6 +56,10 @@ import { ConsoleController } from "./Controller/Oxxy/Console.controller";
 import { TriggerEngineService } from "./Service/Oxxy/TriggerEngine.service";
 import { FollowUpSchedulerService } from "./Service/Oxxy/FollowUpScheduler.service";
 import { SystemConfigService } from "./Service/Admin/SystemConfig.service";
+import { ApiKeyService } from "./Service/Admin/ApiKey.service";
+import { ChangeFeedService } from "./Service/Crm/ChangeFeed.service";
+import { CrmPullService } from "./Service/Crm/CrmPull.service";
+import { DeveloperController } from "./Controller/Admin/Developer.controller";
 import { BotActionsService } from "./Service/Crm/BotActions.service";
 import { CustomerRecordService } from "./Service/Crm/CustomerRecord.service";
 import { AnalyticsService } from "./Service/Crm/Analytics.service";
@@ -69,6 +73,9 @@ import { RetentionService } from "./Service/Ops/Retention.service";
 import { NightlyJobsService } from "./Service/Ops/NightlyJobs.service";
 import { PlanChangeService } from "./Service/Ops/PlanChange.service";
 import { TemplatesService } from "./Service/Ops/Templates.service";
+import { GoLiveService } from "./Service/Ops/GoLive.service";
+import { MonitoringService } from "./Service/Ops/Monitoring.service";
+import { HealthController, HealthDetailsController } from "./Controller/Ops/Health.controller";
 
 @Module({
   imports: [
@@ -122,6 +129,7 @@ import { TemplatesService } from "./Service/Ops/Templates.service";
     }),
   ],
   controllers: [
+    DeveloperController,
     LoginController,
     UserController,
     UserRoleController,
@@ -136,6 +144,8 @@ import { TemplatesService } from "./Service/Ops/Templates.service";
     ConsoleController,
     ActionsController,
     InsightsController,
+    HealthController,
+    HealthDetailsController,
     LiveController,
     OpsController,
   ],
@@ -175,6 +185,9 @@ import { TemplatesService } from "./Service/Ops/Templates.service";
     TriggerEngineService,
     FollowUpSchedulerService,
     SystemConfigService,
+    ApiKeyService,
+    ChangeFeedService,
+    CrmPullService,
     BotActionsService,
     CustomerRecordService,
     AnalyticsService,
@@ -184,6 +197,8 @@ import { TemplatesService } from "./Service/Ops/Templates.service";
     NightlyJobsService,
     PlanChangeService,
     TemplatesService,
+    GoLiveService,
+    MonitoringService,
     ActionsApiKeyGuard,
     CacheService,
     {

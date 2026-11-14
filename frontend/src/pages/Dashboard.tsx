@@ -32,7 +32,7 @@ export default function Dashboard() {
   const reports = useQuery({ queryKey: ["reports"], queryFn: getReports, refetchInterval: 30_000 });
   const convs = useQuery({
     queryKey: ["conversations"],
-    queryFn: listConversations,
+    queryFn: () => listConversations(),
     refetchInterval: 15_000,
   });
   const pending = useQuery({

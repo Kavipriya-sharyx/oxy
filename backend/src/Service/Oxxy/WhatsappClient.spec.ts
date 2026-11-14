@@ -231,3 +231,12 @@ describe("WhatsappClient.send", () => {
     expect(t.saved).toHaveLength(0);
   });
 });
+
+describe("Meta marketing limit (Playbook 15.1)", () => {
+  it("131049 is a frequency cap, not a retryable error", () => {
+    const { mapMetaError } = jest.requireActual("./WhatsappClient.service");
+    const { FrequencyCapError } = jest.requireActual("@Helper/WhatsappErrors");
+    const e = mapMetaError({ response: { status: 400, data: { error: { code: 131049, message: "healthy ecosystem" } } } });
+    expect(e).toBeInstanceOf(FrequencyCapError);
+  });
+});

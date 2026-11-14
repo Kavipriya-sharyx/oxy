@@ -174,7 +174,7 @@ describe("a failed draft is replaced by the fixed template and logged", () => {
       { recommend: true },
     );
     await t.run("recommend a plan");
-    const text = String(t.out[0].text);
+    const text = t.out.map((o: { text?: unknown }) => String(o.text)).join("\n\n");
     expect(text).toContain("Vital plan");
     expect(text).toContain("₹1,999 monthly or ₹20,000 yearly plus applicable GST");
     expect(text).toContain("As an easy illustration");

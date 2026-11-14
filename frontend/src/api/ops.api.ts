@@ -119,3 +119,22 @@ export async function runRetention(): Promise<JobRun> {
 export async function eraseCustomer(customerId: string) {
   return (await client.post(`/Console/PrivacyRequests/${customerId}/Erase`)).data;
 }
+
+// ---- Go-live check (real state of the system, no sample data) ----
+export interface GoLiveCheck {
+  area: string;
+  item: string;
+  status: "ok" | "warn" | "blocker";
+  detail: string;
+  fix?: string;
+}
+export interface GoLiveReport {
+  ready: boolean;
+  blockers: number;
+  warnings: number;
+  checked_at: string;
+  checks: GoLiveCheck[];
+}
+export async function getGoLive(): Promise<GoLiveReport> {
+  return (await client.get<GoLiveReport>("/Console/GoLive")).data;
+}

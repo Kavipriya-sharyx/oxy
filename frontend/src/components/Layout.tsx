@@ -41,6 +41,8 @@ const NAV: [string, [string, string, string][]][] = [
       ["/privacy", "Data requests", "lock"],
       ["/audit-log", "Audit log", "log"],
       ["/settings", "Configuration", "gear"],
+      ["/developer", "Developer", "key"],
+      ["/go-live", "Go-live check", "lock"],
     ],
   ],
 ];
@@ -95,9 +97,9 @@ function Shell() {
       <div className="navscrim" onClick={() => setOpen(false)} />
       <aside className="rail" aria-label="Main navigation">
         <div className="brand">
-          <div className="mark">O</div>
+          <img className="logo" src="/oxxy-logo.png" alt="Oxxy" width={99} height={48} />
+          <img className="logo-icon" src="/oxxy-icon.png" alt="Oxxy" width={34} height={33} />
           <div>
-            <b>Oxxy</b>
             <span>Sales and bot console</span>
           </div>
         </div>
@@ -154,8 +156,16 @@ function Shell() {
             {sub && <div className="eyebrow">{sub}</div>}
             <h1>{title}</h1>
           </div>
-          <span title={live === "live" ? "Screens update as soon as something changes" : "Live updates are reconnecting; screens still refresh every few seconds"}>
-            <Pill tone={live === "live" ? "ok" : undefined}>{live === "live" ? "Live" : live === "connecting" ? "Connecting…" : "Offline"}</Pill>
+          <span
+            title={
+              live === "live"
+                ? "Screens update as soon as something changes"
+                : "Live updates are reconnecting; screens still refresh every few seconds"
+            }
+          >
+            <Pill tone={live === "live" ? "ok" : undefined}>
+              {live === "live" ? "Live" : live === "connecting" ? "Connecting…" : "Offline"}
+            </Pill>
           </span>
           <label className="search">
             <span className="muted small">Search</span>

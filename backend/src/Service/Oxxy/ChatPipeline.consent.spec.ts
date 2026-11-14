@@ -53,7 +53,8 @@ function setup(
   opts: { cons?: Partial<ConsentRow>; saveFails?: boolean; language?: string; claude?: Fn; state?: S } = {},
 ) {
   const cons: ConsentRow = { ...emptyConsent(), ...opts.cons };
-  const conv = { id: "v1", state: opts.state ?? S.New };
+  // default: the customer already saw the welcome + opening list (Playbook 4.2 comes before the notice)
+  const conv = { id: "v1", state: opts.state ?? S.IntentMenu, pending_action: null as string | null };
   const out: Record<string, unknown>[] = [];
   const customerSaved: Record<string, unknown>[] = [];
   const needSaves: Record<string, unknown>[] = [];
@@ -123,7 +124,26 @@ const texts = (t: { out: Record<string, unknown>[] }) => t.out.map((o) => o.text
 afterEach(() => jest.restoreAllMocks());
 
 describe("DPDP health-data consent gate", () => {
-  it("1. a new customer gets the notice first, and nothing else in that turn", async () => {
+  it("0. a brand-new chat gets the Playbook 4.2 welcome and list first, no notice and no health question", async () => {
+    const t = setup({ state: S.New });
+    await t.run("hi");
+    expect(texts(t)).toEqual([WELCOME.en]);
+    expect(t.conv.state).toBe(S.IntentMenu);
+    expect(t.cons.notice_sent_at).toBeNull();
+    expect(t.generate).not.toHaveBeenCalled();
+  });
+
+  it("0b. the row picked before consent is answered right after YES", async () => {
+    const t = setup({ state: S.IntentMenu });
+    await t.run("menu_centre");
+    expect(texts(t)).toEqual([fixedReply("health_notice", "en")]);
+    expect(t.conv.pending_action).toBe("after_consent:menu_centre");
+    await t.run("yes");
+    expect(texts(t)[1]).toContain("Which city and locality does the patient live in?");
+    expect(t.conv.state).toBe(S.CentreSearch);
+  });
+
+  it("1. the next message gets the notice, and nothing else in that turn", async () => {
     const t = setup();
     await t.run("hi");
     expect(texts(t)).toEqual([fixedReply("health_notice", "en")]);

@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException, UnprocessableEntityException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  UnprocessableEntityException,
+} from "@nestjs/common";
 import { BotActionsService, normaliseWa, parseWhen, sourceOf } from "./BotActions.service";
 import { range } from "./Analytics.service";
 import { validApiKey } from "@Controller/Crm/Actions.controller";
@@ -29,7 +33,10 @@ describe("helpers", () => {
     expect(validApiKey("abc", undefined)).toBe(false);
   });
   it("KPI range defaults to the last 30 days in IST", () => {
-    expect(range(undefined, undefined, new Date("2026-11-13T20:00:00Z"))).toEqual({ from: "2026-10-16", to: "2026-11-14" });
+    expect(range(undefined, undefined, new Date("2026-11-13T20:00:00Z"))).toEqual({
+      from: "2026-10-16",
+      to: "2026-11-14",
+    });
     expect(range("2026-11-01", "2026-11-10")).toEqual({ from: "2026-11-01", to: "2026-11-10" });
   });
 });
@@ -39,12 +46,29 @@ const U = "11111111-2222-4333-8444-555555555555";
 function service(over: Record<string, unknown> = {}) {
   const conv = { id: "v1", state: "discovery", selected_product: null };
   const deps = {
-    dataSource: { transaction: async (fn: any) => fn({ save: async (v: any) => ({ ...v, id: "t1" }), create: (_c: unknown, v: unknown) => v }) },
+    dataSource: {
+      transaction: async (fn: any) =>
+        fn({
+          save: async (v: any) => ({ ...v, id: "t1" }),
+          create: (_c: unknown, v: unknown) => v,
+        }),
+    },
     outbox: { enqueue: jest.fn(async () => null), dispatch: jest.fn() },
-    convRepo: { findOpenByCustomer: async () => conv, openNew: async () => conv, transition: async () => conv },
+    convRepo: {
+      findOpenByCustomer: async () => conv,
+      openNew: async () => conv,
+      transition: async () => conv,
+    },
     search: { search: jest.fn(async () => []) },
     booking: { create: jest.fn(async (d: any) => ({ id: "b1", ...d })) },
-    scheduler: { create: jest.fn(async (f: any) => ({ id: "f1", selected_product: f.selectedProduct, follow_up_status: "scheduled" })), cancelAll: jest.fn(async () => 2) },
+    scheduler: {
+      create: jest.fn(async (f: any) => ({
+        id: "f1",
+        selected_product: f.selectedProduct,
+        follow_up_status: "scheduled",
+      })),
+      cancelAll: jest.fn(async () => 2),
+    },
     wa: { send: jest.fn(async () => "wamid") },
     ...over,
   };
@@ -74,7 +98,12 @@ describe("create_booking_request (17.1)", () => {
   it("refuses a date outside today + 3 days .. + 6 months (Asia/Kolkata)", async () => {
     const { svc, deps } = service();
     await expect(
-      svc.createBookingRequest({ customer_id: U, centre: { centre_id: "x" }, specialisation: "dental", preferred_date: "2020-01-01" }),
+      svc.createBookingRequest({
+        customer_id: U,
+        centre: { centre_id: "x" },
+        specialisation: "dental",
+        preferred_date: "2020-01-01",
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(deps.booking.create).not.toHaveBeenCalled();
   });
@@ -85,10 +114,20 @@ describe("create_booking_request (17.1)", () => {
     const { svc, deps } = service();
     const d = new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10);
     await expect(
-      svc.createBookingRequest({ customer_id: U, centre: { name: "Kumar Nursing Home" }, specialisation: "ortho", preferred_date: d }),
+      svc.createBookingRequest({
+        customer_id: U,
+        centre: { name: "Kumar Nursing Home" },
+        specialisation: "ortho",
+        preferred_date: d,
+      }),
     ).rejects.toBeInstanceOf(UnprocessableEntityException);
     expect(deps.booking.create).not.toHaveBeenCalled();
-    expect(deps.outbox.enqueue).toHaveBeenCalledWith(expect.anything(), "create_task", "c1", expect.objectContaining({ type: "directory_verification" }));
+    expect(deps.outbox.enqueue).toHaveBeenCalledWith(
+      expect.anything(),
+      "create_task",
+      "c1",
+      expect.objectContaining({ type: "directory_verification" }),
+    );
   });
 });
 
@@ -102,8 +141,16 @@ describe("create_follow_up (17.1)", () => {
     const { svc } = service();
     const night = new Date(Date.now() + 2 * 86400000);
     night.setUTCHours(17, 0, 0, 0); // 22:30 IST
-    await expect(svc.createFollowUp({ customer_id: U, scheduled_for: night.toISOString(), reason: "call back" })).rejects.toThrow(/09:00 and 21:00/);
-    await expect(svc.createFollowUp({ customer_id: U, scheduled_for: "2020-01-01T05:00:00Z", reason: "x" })).rejects.toThrow(/future/);
+    await expect(
+      svc.createFollowUp({
+        customer_id: U,
+        scheduled_for: night.toISOString(),
+        reason: "call back",
+      }),
+    ).rejects.toThrow(/09:00 and 21:00/);
+    await expect(
+      svc.createFollowUp({ customer_id: U, scheduled_for: "2020-01-01T05:00:00Z", reason: "x" }),
+    ).rejects.toThrow(/future/);
   });
 
   it("refuses an opted-out customer", async () => {
@@ -111,28 +158,65 @@ describe("create_follow_up (17.1)", () => {
     const { svc } = service();
     const day = new Date(Date.now() + 2 * 86400000);
     day.setUTCHours(6, 0, 0, 0); // 11:30 IST
-    await expect(svc.createFollowUp({ customer_id: U, scheduled_for: day.toISOString(), reason: "x" })).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      svc.createFollowUp({ customer_id: U, scheduled_for: day.toISOString(), reason: "x" }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
 
 describe("get_official_plan (17.1)", () => {
   it("returns price, GST, renewal, link and version; flags [CONFIRM] values", async () => {
     jest.spyOn(plan_catalog, "find").mockResolvedValue([
-      { id: "p1", billing: "yearly", price: "10000", gst_rate: "0.18", renewal_terms: "[CONFIRM] renewal", activation_time: "x", activation_link: "https://l", version: 2, auto_renews: false, created_on: new Date("2026-11-01") },
+      {
+        id: "p1",
+        billing: "yearly",
+        price: "10000",
+        gst_rate: "0.18",
+        renewal_terms: "[CONFIRM] renewal",
+        activation_time: "x",
+        activation_link: "https://l",
+        version: 2,
+        auto_renews: false,
+        created_on: new Date("2026-11-01"),
+      },
     ] as never);
     const { svc } = service();
     const r = await svc.getOfficialPlan({ product: "oxxy", plan: "everyday" });
-    expect(r.options[0]).toMatchObject({ price: 10000, gst_rate: 0.18, price_incl_gst: 11800, version: 2, needs_confirmation: true });
+    expect(r.options[0]).toMatchObject({
+      price: 10000,
+      gst_rate: 0.18,
+      price_incl_gst: 11800,
+      version: 2,
+      needs_confirmation: true,
+    });
+    // a placeholder is never handed out: it comes back empty
+    expect(r.options[0]).toMatchObject({
+      renewal_terms: null,
+      activation_link: null,
+      activation_time: "x",
+    });
   });
   it("needs a plan for Oxxy", async () => {
     const { svc } = service();
-    await expect(svc.getOfficialPlan({ product: "oxxy" })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.getOfficialPlan({ product: "oxxy" })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 });
 
 describe("ids", () => {
   it("a customer_id that is not a UUID is a 400, not a database error", async () => {
     const { svc } = service();
-    await expect(svc.lookupCustomer({ customer_id: "abc" })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.lookupCustomer({ customer_id: "abc" })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
+});
+
+describe("start_conversation (Playbook 4.1)", () => {
+  it("only for a consented lead", async () => {
+    const { svc } = service();
+    await expect(svc.startConversation({ wa_number: "9840012345" })).rejects.toThrow(/consent/);
+  });
+  // quiet hours now queue the message for 09:00 IST: see StartConversation.spec.ts
 });

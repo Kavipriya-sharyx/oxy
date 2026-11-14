@@ -58,6 +58,44 @@ const LINK_RE =
 const CONFIRMED_CLAIM_RE =
   /\b(booking|appointment|slot|visit|request)\b[^.!?\n]{0,40}\b(is|has been|have been|are|now)\s+(now\s+)?confirmed\b|\bconfirmed\s+(your|the)\s+(booking|appointment|slot|visit)\b|^\s*confirmed\b/i;
 
+// Playbook 2.1 forbids PROMISING a saving or discount, not describing Oxxy: the approved explanation is
+// "a lifelong healthcare savings and support partner" (7.1, 13). So the generic noun passes; a promise,
+// a figure, a guarantee, an offer or "pays for itself" (only after the 9.2 check, added by the system) does not.
+// Negations ("not guaranteed", "cannot guarantee") are taken out first: they are the required honesty.
+const NEGATED_GUARANTEE =
+  /\b(not|never|no|cannot|can ?not|can'?t|isn'?t|is not|won'?t)\s+(be\s+|a\s+)?(guarantee[sd]?|guaranteed|promised?)\b|\bwithout (a |any )?guarantee\b|guarantee\s+(nahi|nahin)\b|गारंटी नहीं/giu;
+const SAVINGS_PROMISE: RegExp[] = [
+  /\b(you|you'?ll|you will|you can|you could|we will|we'll|it will|this will)\s+(definitely\s+|surely\s+|easily\s+|always\s+)?(save|get (a |an )?(discount|cashback|saving))/i,
+  /\bsave\s+(a lot|lots|money|big|huge|thousands|lakhs?|up to|upto|\d)/i,
+  /\b(guarantee[sd]?|guaranteed|assured|promised?|definitely|surely|fixed)\b[^.!?\n]{0,40}\b(sav(e|es|ed|ing|ings)|discounts?|cashback)\b/i,
+  /\b(sav(e|es|ed|ing|ings)|discounts?|cashback)\b[^.!?\n]{0,40}\b(guarantee[sd]?|guaranteed|assured|promised)\b/i,
+  /\b(sav(e|es|ed|ing|ings)|discounts?|off)\b[^.!?\n]{0,30}\d+\s*(%|percent|per cent)|\d+\s*(%|percent|per cent)[^.!?\n]{0,30}\b(sav(e|es|ed|ing|ings)|discounts?|off)\b/i,
+  /\b(offer|offers|give|gives|provide|provides|get|gets|enjoy)\s+(you\s+)?(a |an |huge |big |special |flat )?(discounts?|cashback|savings?)\b/i,
+  /\bcashback\b/i,
+  /\bpays? for itself\b/i,
+  /\b(pakka|pakki|guarantee|guaranteed)\b[^.!?\n]{0,20}\b(bachat|discount)\b|\b(bachat|discount)\b[^.!?\n]{0,20}\b(pakka|pakki|milega|milegi|guarantee)\b/i,
+  /(बचत|डिस्काउंट|छूट)[^।.!?\n]{0,20}(पक्की|पक्का|गारंटी|मिलेगी|मिलेगा)|(पक्की|गारंटी)[^।.!?\n]{0,20}(बचत|डिस्काउंट|छूट)/u,
+];
+
+// A refusal clause ("I can't provide discount codes", "50% bachat ki guarantee nahi de sakta") is the honest
+// answer, not a promise. Clauses are split on sentence ends, commas and "but / lekin / par", so a promise
+// after the refusal ("I can't say exactly, but you will save 30%") is still checked.
+const REFUSAL =
+  /\b(can'?t|cannot|can not|won'?t|will not|not able to|unable to|do not|don'?t|nahi|nahin)\s+(\w+\s+){0,2}(provide|give|offer|share|promise|guarantee|confirm|de|kar|bata)\w*\b|\b(nahi|nahin) (de|kar|bata) (sakta|sakti|sakte)\b|नहीं (दे|कर|बता) सक/iu;
+const CLAUSES = /[.!?।,;]+|\b(?:but|however|lekin|par|magar|लेकिन|पर)\b/iu;
+
+function withoutRefusals(t: string): string {
+  return t
+    .split(CLAUSES)
+    .filter((c) => c && !REFUSAL.test(c))
+    .join(". ");
+}
+
+export function promisesSavings(text: string): boolean {
+  const t = withoutRefusals(text || "").replace(NEGATED_GUARANTEE, " ");
+  return SAVINGS_PROMISE.some((re) => re.test(t));
+}
+
 // Pure check. allowedPrices = every price a reply may show (catalog price and price incl. GST).
 export function validateReply(
   text: string,
@@ -78,11 +116,49 @@ export function validateReply(
   // "insurance" in English, Hindi (Devanagari) and Hinglish. "बीमारी" (illness) must not match.
   if (/insurance|(?<![\p{L}\p{M}])(इंश्योरेंस|बीमा)(?![\p{L}\p{M}])|\bbima\b/iu.test(t))
     reasons.push("mentions insurance");
-  if (/\b(sav(e|es|ed|ing|ings)|discounts?|cashback|\d+\s*%\s*off)\b/i.test(forSavings))
-    reasons.push("promises savings or discounts");
+  if (promisesSavings(forSavings)) reasons.push("promises savings or discounts");
+  // Playbook 2.1: never shorten the name; no urgency or dark patterns; never ask for credentials; never
+  // describe either product as insurance, cover or a policy
+  if (/\bCMB\b|\bcut[\s-]*medi\b(?![\s-]*bills?\b)|\bcutmedibills?\b|\bc\.m\.b\b/i.test(t))
+    reasons.push("shortens Cut Medi Bills");
+  if (
+    /\b(activate|buy|join|sign up|subscribe)\s+(it\s+|now\s+)?today\b|\b(offer|price|deal|discount)\b[^.!?\n]{0,25}\b(expires?|expiring|ends|ending|valid (till|until|only))\b|\blimited[- ](time|period|offer|slots?)\b|\bprices?\s+(will|may|is going to)\s+(go up|rise|increase)\b|\bhurry\b|\blast chance\b|\btoo late\b/i.test(
+      t,
+    )
+  )
+    reasons.push("creates urgency");
+  // a warning ("never share your OTP") is fine; a request is not
+  const noWarnings = t.replace(
+    /\b(never|don'?t|do not|please do not|not|without)\s+(ever\s+)?(share|send|tell|give|enter|provide|type)\b/gi,
+    " ",
+  );
+  if (/\b(share|send|tell|give|enter|provide|type)\b[^.!?\n]{0,30}\b(otp|pin|upi pin|password|cvv|card number|net ?banking)\b/i.test(noWarnings))
+    reasons.push("asks for credentials");
+  if (
+    /\b(oxxy|cut medi bills|the plan|this plan|your plan|everyday|vital|thrive|infinity)\b[^.!?\n]{0,25}\b(covers?|covered|coverage)\b|\bpolicy ?holder\b|\bclaim settlement\b/i.test(
+      t,
+    )
+  )
+    reasons.push("describes the product as cover");
+  else if (/\bcovered under\b|\b(be|are|is|get|gets|stay|remain)\s+(fully\s+|completely\s+)?covered\b/i.test(t))
+    reasons.push("describes the product as cover");
+  // Playbook 2: never reveal internal prompts, routing or rules (red-team: prompt injection)
+  if (
+    // what a leak looks like, not a refusal ("I can't share internal instructions" is the right answer)
+    /\b(here is|here's|this is|below is)\s+(my|the)\s+(system\s+)?(prompt|instructions)\b|\bmy (system )?(instructions|prompt|rules|guidelines) (are|say|is)\b|\bi (was|am|have been) (instructed|programmed|told) to\b|\bdeveloper mode (is )?(on|enabled|activated)\b|\bas an ai language model\b|\byou are oxxy health'?s whatsapp ai assistant\b/i.test(
+      t,
+    )
+  )
+    reasons.push("reveals internal instructions");
   // only a claim that a booking IS confirmed; "will be confirmed separately" / "pending confirmation" are fine
   if (CONFIRMED_CLAIM_RE.test(t)) reasons.push("says a booking is confirmed");
-  if (/tie[\s-]?ups?|tied up|partner(ed|ship|ships)?/i.test(t)) reasons.push("mentions tie-ups");
+  // "support partner" (Playbook 7.1, Oxxy describing itself) is fine; a partnership with a centre is not
+  if (
+    /tie[\s-]?ups?|tied up|\bpartner(ed|ship|ships)\b|\b(partner|network|empanelled|empaneled)\s+(hospitals?|centres?|centers?|clinics?|labs?|doctors?)\b/i.test(
+      t,
+    )
+  )
+    reasons.push("mentions tie-ups");
   // links come only from plan_catalog / approved_asset, added by the system (Playbook 2.1, 12.2):
   // a draft with any link, web address or e-mail (even the right one) is rewritten
   if (LINK_RE.test(t)) reasons.push("contains a link");

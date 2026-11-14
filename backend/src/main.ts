@@ -71,3 +71,5 @@ async function bootstrap() {
   }
 }
 bootstrap();
+// reload config
+

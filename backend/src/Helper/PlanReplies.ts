@@ -55,6 +55,38 @@ export const NO_CENTRE_T: L = {
   hi: "उस इलाके में मुझे कोई सत्यापित विकल्प नहीं मिला। क्या मैं खोज का दायरा बढ़ाऊँ, या आपके मन में कोई केंद्र है?",
   hinglish: "Us area mein mujhe koi verified option nahi mila. Kya main search badhaun, ya aapke mann mein koi centre hai?",
 };
+/**
+ * No verified centre for the place. `again` = it was said in the last message too: the team checks, and the
+ * customer is not asked the same thing in a loop.
+ */
+export function noCentreText(place: string | null, again: boolean, l: string | null = "en"): string {
+  const at = { en: place ? `in ${place}` : "in that area", hi: place ? `${place} में` : "उस इलाके में", hinglish: place ? `${place} mein` : "us area mein" };
+  if (again)
+    return say(
+      {
+        en: `I still do not have a verified centre ${at.en}. I have asked our team to check the options there, and they will contact you. If you have a centre and branch in mind, please share its name.`,
+        hi: `${at.hi} मेरे पास अब भी कोई सत्यापित केंद्र नहीं है। मैंने हमारी टीम से वहाँ के विकल्प देखने को कहा है, वे आपसे संपर्क करेंगे। अगर आपके मन में कोई केंद्र और शाखा है, तो उसका नाम बताइए।`,
+        hinglish: `${at.hinglish} mere paas ab bhi koi verified centre nahi hai. Maine hamari team se wahan ke options check karne ko kaha hai, woh aapse sampark karenge. Agar aapke mann mein koi centre aur branch hai, to uska naam bataiye.`,
+      },
+      l,
+    );
+  return say(
+    {
+      // Playbook 10.1 "say so plainly", then the required reply of 10.2 ("Please share the healthcare centre's name and
+      // location. Oxxy can help take your booking request there."); "in this or another area" is our addition
+      en: `I do not have a verified centre ${at.en} yet. Please share the healthcare centre's name and location, in this or another area. Oxxy can help take your booking request there.`,
+      hi: `${at.hi} मेरे पास अभी कोई सत्यापित केंद्र नहीं है। कृपया इस या किसी दूसरे इलाके के स्वास्थ्य केंद्र का नाम और जगह बताइए। Oxxy वहाँ आपका बुकिंग अनुरोध लेने में मदद कर सकता है।`,
+      hinglish: `${at.hinglish} mere paas abhi koi verified centre nahi hai. Kripya is ya kisi dusre area ke healthcare centre ka naam aur location bataiye. Oxxy wahan aapka booking request lene mein madad kar sakta hai.`,
+    },
+    l,
+  );
+}
+
+/** Was this message one of the "no verified centre" replies (any language)? */
+export function isNoCentreText(body: string | null | undefined): boolean {
+  return /do not have a verified centre|could not find a verified option|सत्यापित केंद्र नहीं|सत्यापित विकल्प नहीं|verified centre nahi|verified option nahi/i.test(body || "");
+}
+
 export const ASK_AGE = ASK_AGE_T.en;
 export const ASK_CITY = ASK_CITY_T.en;
 export const NO_CENTRE = NO_CENTRE_T.en;

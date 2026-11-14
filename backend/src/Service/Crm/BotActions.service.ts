@@ -1,6 +1,7 @@
 // The Playbook 17.1 actions: lookup_customer, search_centres, create_booking_request, create_follow_up,
 // get_official_plan, send_approved_asset, create_escalation, set_opt_out. Used by the CRM, the voice AI and
 // the console through ActionsController. Every rule is checked here, never left to the caller.
+import { isPlaceholder, isRealLink, planReady } from "@Helper/GoLive";
 import {
   BadRequestException,
   ConflictException,
@@ -41,14 +42,33 @@ import { BookingService } from "@Service/Oxxy/Booking.service";
 import { DateWindowService } from "@Service/Oxxy/DateWindow.service";
 import { FollowUpSchedulerService } from "@Service/Oxxy/FollowUpScheduler.service";
 import { WhatsappClient } from "@Service/Oxxy/WhatsappClient.service";
-import { isQuietHours, isWithin24h } from "@Service/Oxxy/WhatsappRules";
+import { isQuietHours, isWithin24h, nextAllowedAt } from "@Service/Oxxy/WhatsappRules";
+import { cleanCallContext, describeCallContext, type CallContext } from "@Helper/CallContext";
+import { LEAD_INTRO_TEXT, LEAD_ROWS } from "@Helper/OpeningMenu";
+import { lang } from "@Helper/Lang";
+import { follow_up } from "@Database/Table/Oxxy/follow_up";
 import { InvalidTransitionError } from "@Service/Oxxy/ConversationStateMachine";
 
 export type Source = "voice_ai" | "whatsapp_inbound" | "whatsapp_outbound" | "human_agent" | "crm";
-const SOURCES: Source[] = ["voice_ai", "whatsapp_inbound", "whatsapp_outbound", "human_agent", "crm"];
-export const sourceOf = (s: unknown): Source => (SOURCES.includes(s as Source) ? (s as Source) : "crm");
+const SOURCES: Source[] = [
+  "voice_ai",
+  "whatsapp_inbound",
+  "whatsapp_outbound",
+  "human_agent",
+  "crm",
+];
+export const sourceOf = (s: unknown): Source =>
+  SOURCES.includes(s as Source) ? (s as Source) : "crm";
 
-const ASSET_KINDS = ["document", "comparison", "media", "testimonial", "policy", "website", "article"];
+const ASSET_KINDS = [
+  "document",
+  "comparison",
+  "media",
+  "testimonial",
+  "policy",
+  "website",
+  "article",
+];
 
 /** "+91 98400 12345", "09840012345", "9840012345" -> "919840012345" (how WhatsApp sends it) */
 export function normaliseWa(n: unknown): string | null {
@@ -70,7 +90,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** 400 instead of a database error for an id that is not a UUID */
 export function assertId(v: unknown, name: string): string {
   const s = String(v ?? "");
-  if (!UUID.test(s)) throw new BadRequestException({ message: `${name} must be a UUID`, code: "invalid_id" });
+  if (!UUID.test(s))
+    throw new BadRequestException({ message: `${name} must be a UUID`, code: "invalid_id" });
   return s;
 }
 
@@ -97,7 +118,8 @@ export class BotActionsService {
   // ---------------------------------------------------------------- helpers
 
   async findCustomer(ref: CustomerRef): Promise<customer | null> {
-    if (ref.customer_id) return await customer.findOne({ where: { id: assertId(ref.customer_id, "customer_id") } });
+    if (ref.customer_id)
+      return await customer.findOne({ where: { id: assertId(ref.customer_id, "customer_id") } });
     const wa = normaliseWa(ref.wa_number);
     if (!wa) return null;
     return await customer.findOne({ where: { wa_number: wa } });
@@ -105,15 +127,20 @@ export class BotActionsService {
 
   private async mustFindCustomer(ref: CustomerRef): Promise<customer> {
     if (!ref.customer_id && !ref.wa_number)
-      throw new BadRequestException({ message: "customer_id or wa_number is required", code: "customer_ref_required" });
+      throw new BadRequestException({
+        message: "customer_id or wa_number is required",
+        code: "customer_ref_required",
+      });
     const c = await this.findCustomer(ref);
-    if (!c) throw new NotFoundException({ message: "Customer not found", code: "customer_not_found" });
+    if (!c)
+      throw new NotFoundException({ message: "Customer not found", code: "customer_not_found" });
     return c;
   }
 
   private async openConversation(customerId: string): Promise<conversation> {
     return (
-      (await this._ConvRepo.findOpenByCustomer(customerId)) ?? (await this._ConvRepo.openNew(customerId))
+      (await this._ConvRepo.findOpenByCustomer(customerId)) ??
+      (await this._ConvRepo.openNew(customerId))
     );
   }
 
@@ -185,7 +212,11 @@ export class BotActionsService {
     const activations = await activation.find({
       where: {
         customer_id: c.id,
-        activation_status: In([ActivationStatus.Pending, ActivationStatus.LinkSent, ActivationStatus.Active]),
+        activation_status: In([
+          ActivationStatus.Pending,
+          ActivationStatus.LinkSent,
+          ActivationStatus.Active,
+        ]),
       },
       order: { created_on: "DESC" } as any,
     });
@@ -255,12 +286,16 @@ export class BotActionsService {
     longitude?: number | string;
     radius_km?: number | string;
     specialisation?: string;
+    locality?: string;
     customer_id?: string;
   }) {
     const lat = q.latitude != null && q.latitude !== "" ? Number(q.latitude) : undefined;
     const lon = q.longitude != null && q.longitude !== "" ? Number(q.longitude) : undefined;
     if (!q.city && (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)))
-      throw new BadRequestException({ message: "city, or latitude and longitude, is required", code: "location_required" });
+      throw new BadRequestException({
+        message: "city, or latitude and longitude, is required",
+        code: "location_required",
+      });
     const radius = Math.min(200, Math.max(1, Number(q.radius_km) || 10));
     const list = await this._CentreSearch.search({
       city: q.city,
@@ -268,6 +303,7 @@ export class BotActionsService {
       longitude: lon,
       radiusKm: radius,
       specialisation: q.specialisation,
+      locality: q.locality,
     });
     if (q.customer_id) {
       // Provider group: the ids shown, so the record says exactly what was suggested
@@ -329,12 +365,19 @@ export class BotActionsService {
         min: chk.min,
         max: chk.max,
       });
-    if (!body.specialisation?.trim()) throw new BadRequestException({ message: "specialisation is required", code: "specialisation_required" });
+    if (!body.specialisation?.trim())
+      throw new BadRequestException({
+        message: "specialisation is required",
+        code: "specialisation_required",
+      });
     const conv = await this.openConversation(c.id);
 
     const centreId = body.centre?.centre_id ?? body.centre?.id;
     let ctr: centre | null = null;
-    if (centreId) ctr = await centre.findOne({ where: { id: assertId(centreId, "centre.centre_id"), verified: true, active: true } });
+    if (centreId)
+      ctr = await centre.findOne({
+        where: { id: assertId(centreId, "centre.centre_id"), verified: true, active: true },
+      });
     else if (body.centre?.name) {
       ctr = await centre.findOne({
         where: {
@@ -344,7 +387,11 @@ export class BotActionsService {
           active: true,
         },
       });
-    } else throw new BadRequestException({ message: "centre.centre_id or centre.name is required", code: "centre_required" });
+    } else
+      throw new BadRequestException({
+        message: "centre.centre_id or centre.name is required",
+        code: "centre_required",
+      });
 
     if (!ctr) {
       // never reject a centre the customer chose: the team checks it, then the booking is made
@@ -423,18 +470,45 @@ export class BotActionsService {
   }) {
     const c = await this.mustFindCustomer(body);
     const when = parseWhen(body.scheduled_for);
-    if (!when) throw new BadRequestException({ message: "scheduled_for must be an ISO date-time, e.g. 2026-11-20T11:00:00+05:30", code: "invalid_time" });
-    if (when.getTime() < Date.now() + 60_000) throw new BadRequestException({ message: "scheduled_for must be in the future", code: "time_in_past" });
+    if (!when)
+      throw new BadRequestException({
+        message: "scheduled_for must be an ISO date-time, e.g. 2026-11-20T11:00:00+05:30",
+        code: "invalid_time",
+      });
+    if (when.getTime() < Date.now() + 60_000)
+      throw new BadRequestException({
+        message: "scheduled_for must be in the future",
+        code: "time_in_past",
+      });
     if (when.getTime() > Date.now() + 90 * 24 * 3600 * 1000)
-      throw new BadRequestException({ message: "scheduled_for must be within 90 days", code: "time_too_far" });
-    if (isQuietHours(when)) throw new BadRequestException({ message: "Follow-ups can be sent only between 09:00 and 21:00 IST", code: "quiet_hours" });
-    if (!body.reason?.trim()) throw new BadRequestException({ message: "reason is required", code: "reason_required" });
+      throw new BadRequestException({
+        message: "scheduled_for must be within 90 days",
+        code: "time_too_far",
+      });
+    if (isQuietHours(when))
+      throw new BadRequestException({
+        message: "Follow-ups can be sent only between 09:00 and 21:00 IST",
+        code: "quiet_hours",
+      });
+    if (!body.reason?.trim())
+      throw new BadRequestException({ message: "reason is required", code: "reason_required" });
     const product = body.selected_product ?? null;
     if (product && !Object.values(ProductType).includes(product as ProductType))
-      throw new BadRequestException({ message: "selected_product must be oxxy or cut_medi_bills", code: "invalid_product" });
+      throw new BadRequestException({
+        message: "selected_product must be oxxy or cut_medi_bills",
+        code: "invalid_product",
+      });
     const cons = await consent.findOne({ where: { customer_id: c.id } });
-    if (cons?.opt_out_at) throw new ForbiddenException({ message: "The customer opted out: no follow-ups", code: "opted_out" });
-    if (cons?.privacy_request_at) throw new ForbiddenException({ message: "Open privacy request: no follow-ups", code: "privacy_request_open" });
+    if (cons?.opt_out_at)
+      throw new ForbiddenException({
+        message: "The customer opted out: no follow-ups",
+        code: "opted_out",
+      });
+    if (cons?.privacy_request_at)
+      throw new ForbiddenException({
+        message: "Open privacy request: no follow-ups",
+        code: "privacy_request_open",
+      });
     const kind = ["agreed_follow_up", "rescue", "booking_update"].includes(String(body.kind))
       ? (body.kind as "agreed_follow_up")
       : "agreed_follow_up";
@@ -471,9 +545,15 @@ export class BotActionsService {
   async getOfficialPlan(q: { product?: string; plan?: string; billing?: string }) {
     const product = String(q.product ?? "");
     if (!Object.values(ProductType).includes(product as ProductType))
-      throw new BadRequestException({ message: "product must be oxxy or cut_medi_bills", code: "invalid_product" });
+      throw new BadRequestException({
+        message: "product must be oxxy or cut_medi_bills",
+        code: "invalid_product",
+      });
     if (product === ProductType.Oxxy && !q.plan)
-      throw new BadRequestException({ message: "plan is required for oxxy (everyday, vital, thrive, infinity)", code: "plan_required" });
+      throw new BadRequestException({
+        message: "plan is required for oxxy (everyday, vital, thrive, infinity)",
+        code: "plan_required",
+      });
     const where: any = { product, status: true };
     if (product === ProductType.Oxxy) where.plan = String(q.plan).toLowerCase();
     if (q.billing) where.billing = String(q.billing).toLowerCase();
@@ -482,18 +562,35 @@ export class BotActionsService {
       order: { billing: "ASC" } as any,
       // the version time; BaseTable hides these columns by default
       select: [
-        "id", "product", "plan", "billing", "price", "gst_rate", "auto_renews", "renewal_terms",
-        "max_saving_pct", "age_limit", "activation_time", "activation_link", "version", "created_on", "updated_on",
+        "id",
+        "product",
+        "plan",
+        "billing",
+        "price",
+        "gst_rate",
+        "auto_renews",
+        "renewal_terms",
+        "max_saving_pct",
+        "age_limit",
+        "activation_time",
+        "activation_link",
+        "version",
+        "created_on",
+        "updated_on",
       ] as any,
     });
-    if (!rows.length) throw new NotFoundException({ message: "No current official plan for this product", code: "plan_not_found" });
+    if (!rows.length)
+      throw new NotFoundException({
+        message: "No current official plan for this product",
+        code: "plan_not_found",
+      });
     return {
       product,
       plan: product === ProductType.Oxxy ? where.plan : null,
       options: rows.map((r) => {
         const gst = Number(r.gst_rate) || 0;
         const price = Number(r.price);
-        const unconfirmed = /\[CONFIRM\]/i.test(`${r.renewal_terms ?? ""} ${r.activation_time ?? ""}`);
+        const unconfirmed = !planReady(r);
         return {
           catalog_id: r.id,
           billing: r.billing,
@@ -502,14 +599,14 @@ export class BotActionsService {
           gst_amount: Math.round(price * gst * 100) / 100,
           price_incl_gst: Math.round(price * (1 + gst) * 100) / 100,
           auto_renews: !!r.auto_renews,
-          renewal_terms: r.renewal_terms ?? null,
-          activation_time: r.activation_time ?? null,
+          renewal_terms: isPlaceholder(r.renewal_terms) ? null : r.renewal_terms,
+          activation_time: isPlaceholder(r.activation_time) ? null : r.activation_time,
           max_saving_pct: r.max_saving_pct != null ? Number(r.max_saving_pct) : null,
           age_limit: r.age_limit ?? null,
-          activation_link: r.activation_link ?? null,
+          activation_link: isRealLink(r.activation_link) ? r.activation_link : null,
           version: r.version,
           version_timestamp: (r.updated_on ?? r.created_on) as Date,
-          // a value still marked [CONFIRM] must not be shown to customers as final
+          // true = a value is missing or a placeholder (returned as null): do not quote this plan as final
           needs_confirmation: unconfirmed,
         };
       }),
@@ -519,24 +616,55 @@ export class BotActionsService {
   // ---------------------------------------------------------------- send_approved_asset
 
   /** Only approved, in-date assets; one send per asset per journey; consent, 24 h window, quiet hours. */
-  async sendApprovedAsset(body: { customer_id?: string; wa_number?: string; asset_id?: string; code?: string; source?: string }) {
+  async sendApprovedAsset(body: {
+    customer_id?: string;
+    wa_number?: string;
+    asset_id?: string;
+    code?: string;
+    source?: string;
+  }) {
     const c = await this.mustFindCustomer(body);
     const source = sourceOf(body.source);
-    if (!body.asset_id && !body.code) throw new BadRequestException({ message: "asset_id or code is required", code: "asset_ref_required" });
+    if (!body.asset_id && !body.code)
+      throw new BadRequestException({
+        message: "asset_id or code is required",
+        code: "asset_ref_required",
+      });
     const a = await approved_asset.findOne({
-      where: body.asset_id ? { id: assertId(body.asset_id, "asset_id") } : { code: String(body.code) },
+      where: body.asset_id
+        ? { id: assertId(body.asset_id, "asset_id") }
+        : { code: String(body.code) },
     });
-    if (!a || !a.status) throw new NotFoundException({ message: "Asset not found", code: "asset_not_found" });
-    if (!a.approved || !ASSET_KINDS.includes(a.kind)) throw new ForbiddenException({ message: "Asset is not approved for sending", code: "asset_not_approved" });
-    if (a.valid_to && new Date(a.valid_to).getTime() < Date.now()) throw new GoneException({ message: "Asset has expired", code: "asset_expired" });
+    if (!a || !a.status)
+      throw new NotFoundException({ message: "Asset not found", code: "asset_not_found" });
+    if (!a.approved || !ASSET_KINDS.includes(a.kind))
+      throw new ForbiddenException({
+        message: "Asset is not approved for sending",
+        code: "asset_not_approved",
+      });
+    if (a.valid_to && new Date(a.valid_to).getTime() < Date.now())
+      throw new GoneException({ message: "Asset has expired", code: "asset_expired" });
 
     const cons = await consent.findOne({ where: { customer_id: c.id } });
-    if (cons?.opt_out_at) throw new ForbiddenException({ message: "The customer opted out", code: "opted_out" });
-    if (cons?.privacy_request_at) throw new ForbiddenException({ message: "Open privacy request", code: "privacy_request_open" });
+    if (cons?.opt_out_at)
+      throw new ForbiddenException({ message: "The customer opted out", code: "opted_out" });
+    if (cons?.privacy_request_at)
+      throw new ForbiddenException({
+        message: "Open privacy request",
+        code: "privacy_request_open",
+      });
     const conv = await this.openConversation(c.id);
-    if (conv.state === ConversationState.Pause) throw new ConflictException({ message: "Safety event open: no commercial content", code: "safety_event_open" });
+    if (conv.state === ConversationState.Pause)
+      throw new ConflictException({
+        message: "Safety event open: no commercial content",
+        code: "safety_event_open",
+      });
     if (await asset_send.findOne({ where: { conversation_id: conv.id, asset_id: a.id } }))
-      throw new ConflictException({ message: "Already sent in this journey", code: "duplicate", suppression_reason: "duplicate" });
+      throw new ConflictException({
+        message: "Already sent in this journey",
+        code: "duplicate",
+        suppression_reason: "duplicate",
+      });
 
     const inWindow = isWithin24h(conv.last_customer_message_at);
     let wamid: string;
@@ -550,16 +678,29 @@ export class BotActionsService {
       } else if (a.template_name) {
         wamid = await this._Wa.send(
           c.id,
-          { kind: "template", name: a.template_name, languageCode: a.language === "hi" ? "hi" : "en", params: [a.title, a.url] },
+          {
+            kind: "template",
+            name: a.template_name,
+            languageCode: a.language === "hi" ? "hi" : "en",
+            params: [a.title, a.url],
+          },
           "proactive",
         );
       } else {
-        throw new ConflictException({ message: "Outside the 24-hour window and the asset has no approved template", code: "window_closed_no_template" });
+        throw new ConflictException({
+          message: "Outside the 24-hour window and the asset has no approved template",
+          code: "window_closed_no_template",
+        });
       }
     } catch (e) {
       if (e instanceof QuietHoursError)
-        throw new ConflictException({ message: "Quiet hours (21:00-09:00 IST)", code: "quiet_hours", next_allowed_at: e.nextAllowedAt });
-      if (e instanceof WindowClosedError) throw new ConflictException({ message: e.message, code: "window_closed" });
+        throw new ConflictException({
+          message: "Quiet hours (21:00-09:00 IST)",
+          code: "quiet_hours",
+          next_allowed_at: e.nextAllowedAt,
+        });
+      if (e instanceof WindowClosedError)
+        throw new ConflictException({ message: e.message, code: "window_closed" });
       throw e;
     }
     const sent = await asset_send.save(
@@ -573,8 +714,17 @@ export class BotActionsService {
       } as any),
     );
     if (a.trigger_id)
-      await this.logTrigger(c, conv, a.trigger_id, `asset ${a.code} sent`, source, { assets: [a.id], cta: a.url });
-    return { asset_send_id: sent.id, asset_id: a.id, code: a.code, kind: a.kind, wa_message_id: wamid };
+      await this.logTrigger(c, conv, a.trigger_id, `asset ${a.code} sent`, source, {
+        assets: [a.id],
+        cta: a.url,
+      });
+    return {
+      asset_send_id: sent.id,
+      asset_id: a.id,
+      code: a.code,
+      kind: a.kind,
+      wa_message_id: wamid,
+    };
   }
 
   // ---------------------------------------------------------------- create_escalation
@@ -636,13 +786,25 @@ export class BotActionsService {
     const priority = Object.values(TaskPriority).includes(body.priority as TaskPriority)
       ? (body.priority as TaskPriority)
       : TaskPriority.Normal;
-    if (!body.reason?.trim()) throw new BadRequestException({ message: "reason is required", code: "reason_required" });
-    if (!body.summary?.trim()) throw new BadRequestException({ message: "summary is required (no health details)", code: "summary_required" });
+    if (!body.reason?.trim())
+      throw new BadRequestException({ message: "reason is required", code: "reason_required" });
+    if (!body.summary?.trim())
+      throw new BadRequestException({
+        message: "summary is required (no health details)",
+        code: "summary_required",
+      });
     const from = parseWhen(body.callback_window?.from);
     const to = parseWhen(body.callback_window?.to);
     if ((body.callback_window?.from && !from) || (body.callback_window?.to && !to))
-      throw new BadRequestException({ message: "callback_window.from / to must be ISO date-times", code: "invalid_time" });
-    if (from && to && to <= from) throw new BadRequestException({ message: "callback_window.to must be after from", code: "invalid_callback_window" });
+      throw new BadRequestException({
+        message: "callback_window.from / to must be ISO date-times",
+        code: "invalid_time",
+      });
+    if (from && to && to <= from)
+      throw new BadRequestException({
+        message: "callback_window.to must be after from",
+        code: "invalid_callback_window",
+      });
     const conv = await this.openConversation(c.id);
     const t = await this.newTask(c, conv, {
       type: TaskType.Escalation,
@@ -667,6 +829,164 @@ export class BotActionsService {
     };
   }
 
+  // ---------------------------------------------------------------- start_conversation (Playbook 4.1)
+
+  /**
+   * A consented outbound lead (lead form, voice AI call, CRM). Playbook 4.1 Message 1 with three buttons.
+   * - context: what the customer already said on the call (need, city, product …). Saved on the conversation
+   *   and the need record, so the chat does not ask it again.
+   * - quiet hours (21:00-09:00 IST): queued and sent at 09:00 IST (status "queued").
+   * - a new chat: the approved template lead_intro (status "sent").
+   * - the customer wrote within 24 hours and nothing is in progress: the same three buttons as a normal
+   *   message (status "sent"). A chat in progress is not interrupted: only the context is saved
+   *   (status "context_saved").
+   * Never to an opted-out number.
+   */
+  async startConversation(body: {
+    wa_number?: string;
+    first_name?: string;
+    lead_id?: string;
+    consent_source?: string;
+    whatsapp_consent?: boolean;
+    language?: string;
+    source?: string;
+    context?: unknown;
+  }) {
+    const wa = normaliseWa(body.wa_number);
+    if (!wa)
+      throw new BadRequestException({
+        message: "wa_number is required",
+        code: "customer_ref_required",
+      });
+    if (body.whatsapp_consent !== true || !body.consent_source?.trim())
+      throw new BadRequestException({
+        message:
+          "whatsapp_consent: true and consent_source are required (Playbook 4.1: consented leads only)",
+        code: "consent_required",
+      });
+    const ctx = cleanCallContext(body.context);
+    let c = await customer.findOne({ where: { wa_number: wa } });
+    if (!c) {
+      c = await customer.save(
+        customer.create({
+          wa_number: wa,
+          first_name: body.first_name?.trim() || null,
+          lead_id: body.lead_id ?? null,
+          language: ["en", "hi", "hinglish"].includes(String(body.language)) ? body.language : "en",
+        } as any),
+      );
+    } else {
+      const patch: Record<string, unknown> = {};
+      if (body.lead_id && !c.lead_id) patch.lead_id = body.lead_id;
+      if (body.first_name?.trim() && !c.first_name) patch.first_name = body.first_name.trim();
+      if (Object.keys(patch).length) await customer.update(c.id, patch);
+    }
+    const cons =
+      (await consent.findOne({ where: { customer_id: c.id } })) ??
+      consent.create({ customer_id: c.id } as any);
+    if (cons.opt_out_at)
+      throw new ForbiddenException({ message: "The customer opted out", code: "opted_out" });
+    cons.whatsapp_consent = true;
+    cons.consent_source = body.consent_source.trim().slice(0, 120);
+    await cons.save();
+    const conv = await this.openConversation(c.id);
+    if (ctx) await this.saveCallContext(conv, ctx, !!c.active_product);
+    const name = c.first_name || body.first_name?.trim() || "there";
+    const base = { customer_id: c.id, conversation_id: conv.id, context_saved: !!ctx };
+
+    const inWindow = isWithin24h(conv.last_customer_message_at);
+    const idle =
+      !conv.pending_action &&
+      [ConversationState.New, ConversationState.IntentMenu].includes(
+        conv.state as ConversationState,
+      );
+    if (inWindow && !idle) return { ...base, status: "context_saved", reason: "chat_in_progress" };
+    if (!inWindow && conv.state !== ConversationState.New)
+      throw new ConflictException({
+        message: "A chat with this customer is already going on",
+        code: "chat_open",
+        context_saved: !!ctx,
+      });
+
+    if (isQuietHours(new Date())) {
+      const existing = await follow_up.findOne({
+        where: { conversation_id: conv.id, kind: "lead_intro", follow_up_status: "scheduled" },
+      });
+      const when = nextAllowedAt(new Date());
+      if (!existing)
+        await this._Scheduler.create({
+          customerId: c.id,
+          conversationId: conv.id,
+          kind: "lead_intro",
+          scheduledFor: when,
+          templateName: "lead_intro",
+          params: [name],
+          reason: "consented lead, asked during quiet hours",
+          source: sourceOf(body.source ?? "voice_ai"),
+        });
+      return {
+        ...base,
+        status: "queued",
+        scheduled_for: new Date(existing?.scheduled_for ?? when).toISOString(),
+        template: "lead_intro",
+      };
+    }
+
+    let wamid: string | null;
+    if (inWindow) {
+      // inside the 24-hour window: the same message and buttons as a normal message (no template needed)
+      const l = lang(c.language);
+      wamid = await this._Wa.send(
+        c.id,
+        {
+          kind: "buttons",
+          body: LEAD_INTRO_TEXT[l].replace("{name}", name),
+          buttons: LEAD_ROWS.map((r) => ({ id: r.id, title: r.title[l] })),
+        },
+        "proactive",
+      );
+    } else {
+      wamid = await this._Wa.send(
+        c.id,
+        {
+          kind: "template",
+          name: "lead_intro",
+          languageCode: c.language === "hi" ? "hi" : "en",
+          params: [name],
+        },
+        "proactive",
+      );
+    }
+    await conversation.update(conv.id, { pending_action: "lead_intro" });
+    return {
+      ...base,
+      status: "sent",
+      wa_message_id: wamid,
+      template: inWindow ? null : "lead_intro",
+    };
+  }
+
+  /** The call's details on the conversation (encrypted) and on the need record, so the chat does not ask again */
+  private async saveCallContext(conv: conversation, ctx: CallContext, hasActiveProduct: boolean) {
+    conv.call_context = describeCallContext(ctx);
+    conv.call_context_at = new Date();
+    if (!hasActiveProduct && !conv.selected_product && ctx.selected_product) {
+      conv.selected_product = ctx.selected_product;
+      if (ctx.selected_product === "oxxy" && ctx.recommended_plan)
+        conv.recommended_plan = ctx.recommended_plan;
+    }
+    await conversation.save(conv);
+    const n =
+      (await need.findOne({ where: { conversation_id: conv.id } })) ??
+      need.create({ conversation_id: conv.id } as any);
+    if (ctx.city && !n.city) n.city = ctx.city;
+    if (ctx.locality && !n.locality) n.locality = ctx.locality;
+    if (ctx.beneficiary && !n.beneficiary) n.beneficiary = ctx.beneficiary;
+    if (ctx.specialisation && !n.specialisation) n.specialisation = ctx.specialisation;
+    if (ctx.need && !n.healthcare_need) n.healthcare_need = ctx.need;
+    await need.save(n);
+  }
+
   // ---------------------------------------------------------------- set_opt_out
 
   /** Suppresses all WhatsApp automation at once: consent, state, scheduled follow-ups, CRM */
@@ -677,16 +997,26 @@ export class BotActionsService {
     const conv = await this._ConvRepo.findOpenByCustomer(c.id);
     const already = await consent.findOne({ where: { customer_id: c.id } });
     if (already?.opt_out_at) {
-      return { customer_id: c.id, opted_out_at: already.opt_out_at, already_opted_out: true, cancelled_follow_ups: 0 };
+      return {
+        customer_id: c.id,
+        opted_out_at: already.opt_out_at,
+        already_opted_out: true,
+        cancelled_follow_ups: 0,
+      };
     }
     const ob = await this._DataSource.transaction(async (mg) => {
-      const cons = (await mg.findOne(consent, { where: { customer_id: c.id } })) ?? mg.create(consent, { customer_id: c.id });
+      const cons =
+        (await mg.findOne(consent, { where: { customer_id: c.id } })) ??
+        mg.create(consent, { customer_id: c.id });
       cons.opt_out_at = at;
       cons.marketing_consent = false;
       await mg.save(cons);
       if (conv) {
         try {
-          await this._ConvRepo.transition(conv.id, ConversationState.OptedOut, { reason: "set_opt_out", manager: mg });
+          await this._ConvRepo.transition(conv.id, ConversationState.OptedOut, {
+            reason: "set_opt_out",
+            manager: mg,
+          });
           await mg.update(conversation, conv.id, { outcome: "opted_out" });
         } catch (e) {
           if (!(e instanceof InvalidTransitionError)) throw e;
@@ -705,6 +1035,11 @@ export class BotActionsService {
       await this.markLastResponse(conv.id, "opted_out");
       await this.logTrigger(c, conv, "R", `opt-out (${source})`, source);
     }
-    return { customer_id: c.id, opted_out_at: at.toISOString(), already_opted_out: false, cancelled_follow_ups: cancelled };
+    return {
+      customer_id: c.id,
+      opted_out_at: at.toISOString(),
+      already_opted_out: false,
+      cancelled_follow_ups: cancelled,
+    };
   }
 }

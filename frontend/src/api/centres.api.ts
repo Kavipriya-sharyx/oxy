@@ -20,7 +20,7 @@ export async function deleteCentre(id: string): Promise<ApiEnvelope> {
   return (await client.delete<ApiEnvelope>(`/Console/Centres/${id}`)).data;
 }
 
-export async function importCentres(rows: Record<string, unknown>[]): Promise<{ created: number }> {
+export async function importCentres(rows: Record<string, unknown>[]): Promise<{ created: number; updated?: number; skipped?: number }> {
   const res = await client.post<{ created: number }>("/Console/Centres/Import", { rows });
   return res.data;
 }

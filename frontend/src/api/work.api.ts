@@ -10,6 +10,8 @@ export interface TaskRow {
   customer_id: string | null;
   conversation_id: string | null;
   crm_task_id: string | null;
+  callback_from?: string | null; // the window the customer chose (Trigger O)
+  callback_to?: string | null;
   created_on?: string;
   customer?: Customer | null;
   assigned_to?: { first_name: string | null; email: string } | null;

@@ -11,4 +11,6 @@ export enum TaskType {
   VerifyActivation = "verify_activation",
   PaymentIssue = "payment_issue",
   DirectoryVerification = "directory_verification",
+  ActivationFollowUp = "activation_follow_up", // booking recorded, activation not done (Playbook 11.2)
+  Servicing = "servicing", // existing customer / active-product request (Playbook 3, 3.1)
 }

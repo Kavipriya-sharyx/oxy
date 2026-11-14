@@ -1,6 +1,7 @@
 // Two-person rule for the plan catalogue (Full Plan 6.1 / 8: "changes need a second approver"). One user
 // proposes, a DIFFERENT user approves; only then is plan_catalog changed (version + 1). Every price, GST
 // rate, renewal term and link the bot sends comes from plan_catalog, so this is the only way to change them.
+import { isPlaceholder, isRealLink } from "@Helper/GoLive";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import { plan_catalog } from "@Database/Table/Oxxy/plan_catalog";
@@ -59,13 +60,13 @@ export function cleanChanges(input: Record<string, unknown>): { clean: Partial<R
         else errors.push("auto_renews must be true or false");
         break;
       case "activation_link":
-        if (typeof v === "string" && /^https:\/\/[^\s]+$/i.test(v.trim()) && v.length <= 1000) clean.activation_link = v.trim();
-        else errors.push("activation_link must be an https:// link");
+        if (typeof v === "string" && isRealLink(v) && v.length <= 1000) clean.activation_link = v.trim();
+        else errors.push("activation_link must be the real official https:// link (no example or test address)");
         break;
       default: {
         const s = typeof v === "string" ? v.trim() : "";
-        if (s && s.length <= 500) clean[f] = s;
-        else errors.push(`${f} must be text of 1-500 characters`);
+        if (s && s.length <= 500 && !isPlaceholder(s)) clean[f] = s;
+        else errors.push(`${f} must be the real text, 1-500 characters (no [CONFIRM] marker)`);
       }
     }
   }

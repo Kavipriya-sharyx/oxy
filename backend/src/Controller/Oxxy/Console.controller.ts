@@ -36,6 +36,133 @@ import { CrmWebhookService } from "@Service/Crm/CrmWebhook.service";
 import { task } from "@Database/Table/Oxxy/task";
 import { activation } from "@Database/Table/Oxxy/activation";
 import { CurrentUser } from "@Helper/Common.helper";
+import { IsNull } from "typeorm";
+
+const truthy = (v: unknown): boolean | null => {
+  if (typeof v === "boolean") return v;
+  const s = String(v ?? "")
+    .trim()
+    .toLowerCase();
+  if (!s) return null;
+  return ["true", "yes", "y", "1"].includes(s);
+};
+
+/**
+ * One CSV / JSON row -> centre fields (Playbook 10.1: only verified private centres are suggested).
+ * Text booleans are parsed ("false" / "no" used to count as verified). A row is verified only when it says
+ * so; it then needs a verification_source and gets verified_at (today unless given).
+ * specialisations: "cardiology|orthopaedics".
+ */
+export function importedCentre(r: Record<string, any>) {
+  const verified = truthy(r.verified) === true;
+  return {
+    name: String(r.name).trim(),
+    branch: r.branch ? String(r.branch).trim() : null,
+    locality: r.locality ? String(r.locality).trim() : null,
+    city: String(r.city).trim(),
+    postcode: r.postcode ? String(r.postcode).trim() : null,
+    latitude: Number(r.latitude) || 0,
+    longitude: Number(r.longitude) || 0,
+    centre_type: r.centre_type ? String(r.centre_type).trim() : "multispeciality",
+    specialisations: Array.isArray(r.specialisations)
+      ? r.specialisations
+      : String(r.specialisations ?? "")
+          .split("|")
+          .map((x: string) => x.trim())
+          .filter(Boolean),
+    is_private: truthy(r.is_private) ?? true,
+    verified,
+    verification_source: r.verification_source
+      ? String(r.verification_source).trim()
+      : verified
+        ? "csv import"
+        : null,
+    verified_at: verified
+      ? r.verified_at
+        ? String(r.verified_at).slice(0, 10)
+        : new Date().toISOString().slice(0, 10)
+      : null,
+    active: truthy(r.active) ?? true,
+  };
+}
+
+// ---- Conversations inbox ----
+export const MESSAGE_PAGE = 200;
+const VIEW_STATES: Record<string, string[]> = {
+  person: [ConversationState.Pause, ConversationState.Escalated],
+  booking: [ConversationState.BookingCapture, ConversationState.BookingRecorded],
+  opted: [ConversationState.OptedOut],
+};
+
+/** 1..300 rows, 100 by default */
+export const pageSize = (v?: string) => Math.min(300, Math.max(1, Math.floor(Number(v)) || 100));
+
+/** Search text -> a lower-case term and, for a phone number, its digits (3 or more) */
+export function inboxSearch(q?: string): { term: string; digits: string } | null {
+  const term = String(q ?? "")
+    .trim()
+    .toLowerCase()
+    .slice(0, 80);
+  if (!term) return null;
+  const digits = term.replace(/\D/g, "");
+  return { term, digits: digits.length >= 3 ? digits : "" };
+}
+
+/** Last message preview, how many customer messages wait for an answer, and an open booking (opted-out replies) */
+export async function withInboxSummary(rows: conversation[]) {
+  if (!rows.length) return [];
+  const ids = rows.map((r) => r.id);
+  const [last, waiting, bookings] = await Promise.all([
+    conversation.query(
+      `SELECT DISTINCT ON (conversation_id) conversation_id, direction, sender, body, template_name, type, created_on
+         FROM message WHERE conversation_id = ANY($1) ORDER BY conversation_id, created_on DESC, id DESC`,
+      [ids],
+    ),
+    conversation.query(
+      `SELECT m.conversation_id, COUNT(*)::int AS n FROM message m
+        WHERE m.conversation_id = ANY($1) AND m.direction = 'in'
+          AND m.created_on > COALESCE((SELECT MAX(o.created_on) FROM message o
+                                       WHERE o.conversation_id = m.conversation_id AND o.direction = 'out'), 'epoch')
+        GROUP BY m.conversation_id`,
+      [ids],
+    ),
+    conversation.query(
+      `SELECT DISTINCT customer_id FROM booking_request WHERE customer_id = ANY($1) AND booking_status = $2`,
+      [rows.map((r) => r.customer_id), BookingStatus.PendingConfirmation],
+    ),
+  ]);
+  const lastBy = new Map<string, any>(last.map((m: any) => [m.conversation_id, m]));
+  const waitBy = new Map<string, number>(waiting.map((w: any) => [w.conversation_id, Number(w.n)]));
+  const booked = new Set<string>(bookings.map((b: any) => b.customer_id));
+  return rows.map((r) => {
+    const m = lastBy.get(r.id);
+    return {
+      ...r,
+      last_message: m
+        ? {
+            direction: m.direction,
+            sender: m.sender,
+            text: previewOf(m),
+            created_on: m.created_on,
+          }
+        : null,
+      waiting: waitBy.get(r.id) ?? 0,
+      open_booking: booked.has(r.customer_id),
+    };
+  });
+}
+
+/** One line for the inbox list */
+export function previewOf(m: {
+  body?: string | null;
+  template_name?: string | null;
+  type?: string | null;
+}): string {
+  const text = (m.body ?? "").replace(/\s+/g, " ").trim();
+  if (text) return text.length > 90 ? `${text.slice(0, 89)}…` : text;
+  if (m.template_name) return `Template: ${m.template_name}`;
+  return m.type && m.type !== "text" ? `[${m.type}]` : "";
+}
 
 @Controller({ path: "Console", version: "1" })
 @ApiTags("Sales Console")
@@ -52,28 +179,48 @@ export class ConsoleController extends JWTAuthController {
 
   @Permission("conversations.read")
   @Get("Conversations")
-  async Conversations() {
-    const rows = await conversation
-      .createQueryBuilder("c")
-      .leftJoinAndSelect("c.customer", "customer")
+  async Conversations(
+    @Query("q") q?: string,
+    @Query("view") view?: string,
+    @Query("limit") limit?: string,
+  ) {
+    // Inbox list: search and tab filter run in the database, so a customer beyond the newest page is still found
+    const qb = conversation.createQueryBuilder("c").leftJoinAndSelect("c.customer", "customer");
+    const states = VIEW_STATES[view ?? ""];
+    if (states) qb.andWhere("c.state IN (:...states)", { states });
+    const search = inboxSearch(q);
+    if (search) {
+      const parts = ["LOWER(customer.first_name) LIKE :term", "c.state LIKE :term"];
+      if (search.digits) parts.push("customer.wa_number LIKE :digits");
+      qb.andWhere(`(${parts.join(" OR ")})`, {
+        term: `%${search.term}%`,
+        digits: `%${search.digits}%`,
+      });
+    }
+    const rows = await qb
       .orderBy("c.last_customer_message_at", "DESC", "NULLS LAST")
-      .limit(100)
+      .addOrderBy("c.id", "ASC")
+      .take(pageSize(limit))
       .getMany();
-    return this.SendResponseData(rows);
+    return this.SendResponseData(await withInboxSummary(rows));
   }
 
   @Permission("conversations.read")
   @Get("Conversations/:Id/Messages")
-  async Messages(@Param("Id") Id: string) {
-    // created_on is hidden by default (BaseTable select:false); the chat needs the times
-    const rows = await message
+  async Messages(@Param("Id") Id: string, @Query("before") before?: string) {
+    // the NEWEST messages (oldest first on screen); "before" pages back to older ones
+    const qb = message
       .createQueryBuilder("m")
       .addSelect("m.created_on")
-      .where("m.conversation_id = :Id", { Id })
-      .orderBy("m.created_on", "ASC")
-      .take(200)
+      .where("m.conversation_id = :Id", { Id });
+    const until = before ? new Date(before) : null;
+    if (until && !isNaN(until.getTime())) qb.andWhere("m.created_on < :until", { until });
+    const rows = await qb
+      .orderBy("m.created_on", "DESC")
+      .addOrderBy("m.id", "DESC")
+      .take(MESSAGE_PAGE)
       .getMany();
-    return this.SendResponseData(rows);
+    return this.SendResponseData(rows.reverse());
   }
 
   // the sales team (User role) chats with customers too (Full Plan 12.9)
@@ -85,7 +232,9 @@ export class ConsoleController extends JWTAuthController {
     // a person has the chat: ESCALATED. PAUSE stays the safety state (emergency / privacy), so a takeover
     // is not counted as an emergency in the trigger suppression and the KPIs
     if (conv.state !== ConversationState.Pause && conv.state !== ConversationState.Escalated) {
-      await this._ConvRepo.transition(Id, ConversationState.Escalated, { reason: "agent take over" });
+      await this._ConvRepo.transition(Id, ConversationState.Escalated, {
+        reason: "agent take over",
+      });
     }
     await conversation.update(Id, {
       taken_over_by_id: req.user?.user_id ?? null,
@@ -366,30 +515,33 @@ export class ConsoleController extends JWTAuthController {
     if (!Array.isArray(rows) || !rows.length)
       throw new BadRequestException("rows array is required");
     let created = 0;
+    let updated = 0;
+    let skipped = 0;
     for (const r of rows) {
-      if (!r?.name || !r?.city) continue;
-      await centre.save(
-        centre.create({
-          name: String(r.name),
-          branch: r.branch ? String(r.branch) : null,
-          locality: r.locality ? String(r.locality) : null,
-          city: String(r.city),
-          latitude: Number(r.latitude ?? 0),
-          longitude: Number(r.longitude ?? 0),
-          centre_type: r.centre_type ? String(r.centre_type) : "multispeciality",
-          specialisations: Array.isArray(r.specialisations)
-            ? r.specialisations
-            : String(r.specialisations ?? "")
-                .split("|")
-                .map((x: string) => x.trim())
-                .filter(Boolean),
-          verified: r.verified !== false,
-          active: true,
-        } as any),
-      );
-      created++;
+      if (!r?.name || !r?.city) {
+        skipped++;
+        continue;
+      }
+      const fields = importedCentre(r);
+      // same name + branch + city = the same centre: update it instead of a duplicate
+      const existing = await centre.findOne({
+        where: {
+          name: fields.name,
+          branch: fields.branch ?? (IsNull() as any),
+          city: fields.city,
+          status: true,
+        } as any,
+      });
+      if (existing) {
+        Object.assign(existing, fields);
+        await existing.save();
+        updated++;
+      } else {
+        await centre.save(centre.create(fields as any));
+        created++;
+      }
     }
-    return this.SendResponseData({ created });
+    return this.SendResponseData({ created, updated, skipped });
   }
 
   @Permission("settings.manage")

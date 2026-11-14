@@ -16,6 +16,7 @@ export interface WaMessage {
 export interface WaStatus {
   id: string; // wamid of OUR outbound message
   status: string; // sent | delivered | read | failed
+  errors?: { code?: number; title?: string }[]; // on "failed": why (131049 = marketing limit)
 }
 
 export interface WaValue {

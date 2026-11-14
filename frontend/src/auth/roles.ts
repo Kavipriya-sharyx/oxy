@@ -22,9 +22,11 @@ export const ROUTE_PERMS: Record<string, string | null> = {
   "/privacy": "privacy.handle",
   "/audit-log": "audit.read",
   "/settings": "settings.manage",
+  "/developer": "developer.manage",
   "/content": "settings.manage",
   "/follow-ups": "conversations.read",
   "/templates": "triggers.read",
+  "/go-live": "settings.manage",
 };
 
 const LANDING_ORDER = ["/dashboard", "/live-chat", "/bookings", "/centres", "/flows"];

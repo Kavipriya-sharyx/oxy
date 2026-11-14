@@ -1,65 +1,50 @@
-/* Oxxy console design system - taken from the approved prototype (Developer_Handoff/2_Oxxy_Prototype.html). */
+/* Oxxy console design system. Brand from www.oxxy.in (14 Nov 2026): teal #03A297, navy #023350, mint
+   backgrounds, Outfit for headings and Roboto for text. Light by default, like the website; the dark set below
+   is used only when <html data-theme="dark"> is set. */
 /* Layout: fixed left rail (nav) + working canvas; collapses to a top bar + scrollable tabs under 860px. */
 :root {
-  --bg: #f3f6f5;
+  --brand: #03a297; /* oxxy.in teal: fills, logo areas */
+  --navy: #023350; /* oxxy.in headings */
+  --bg: #f2f8f7;
   --surface: #ffffff;
-  --sunk: #e8eeec;
-  --line: #d5dfdc;
-  --fg: #15211f;
-  --muted: #5b6b67;
-  --accent: #0d6b5c;
+  --sunk: #e9f4f2;
+  --line: #d2e7e2;
+  --fg: #16283a;
+  --heading: #023350;
+  --muted: #596d78;
+  --accent: #02857c; /* brand teal, one step darker so text and buttons pass WCAG AA on white */
   --accent-ink: #ffffff;
-  --accent-soft: #d8ece7;
+  --accent-soft: #dcf2ef;
   --ok: #1f7a3f;
   --ok-soft: #dcf1e2;
   --warn: #9a5b00;
   --warn-soft: #fbecd2;
   --crit: #b42318;
   --crit-soft: #fbe0dc;
-  --info: #2c5aa0;
-  --info-soft: #dfe8f7;
+  --info: #0e3a66;
+  --info-soft: #e8f0f9;
   --bubble-in: #ffffff;
-  --bubble-out: #dff3ea;
-  --chatbg: #e9efe9;
-  --font-ui: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --bubble-out: #d9f1ed;
+  --chatbg: #eef9f7;
+  --font-ui: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-head: "Outfit", "Roboto", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
   --r: 8px;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0f1715;
-    --surface: #16211e;
-    --sunk: #1c2925;
-    --line: #2a3a35;
-    --fg: #e4ece9;
-    --muted: #93a59f;
-    --accent: #4cc2a8;
-    --accent-ink: #06211b;
-    --accent-soft: #163a32;
-    --ok: #5fd08a;
-    --ok-soft: #163824;
-    --warn: #f0b45a;
-    --warn-soft: #3a2a10;
-    --crit: #ff8a7a;
-    --crit-soft: #41191a;
-    --info: #8fb3ef;
-    --info-soft: #1a2a45;
-    --bubble-in: #1c2925;
-    --bubble-out: #14453a;
-    --chatbg: #111c19;
-    color-scheme: dark;
-  }
+  color-scheme: light;
 }
 :root[data-theme="dark"] {
-  --bg: #0f1715;
-  --surface: #16211e;
-  --sunk: #1c2925;
-  --line: #2a3a35;
-  --fg: #e4ece9;
-  --muted: #93a59f;
-  --accent: #4cc2a8;
-  --accent-ink: #06211b;
-  --accent-soft: #163a32;
+  --brand: #19c2b5;
+  --navy: #e2f1f4;
+  --bg: #04131d;
+  --surface: #0a2230;
+  --sunk: #0f2c3b;
+  --line: #1d3d4d;
+  --fg: #e2edf1;
+  --heading: #f1f8fa;
+  --muted: #92a9b4;
+  --accent: #2cc6b9;
+  --accent-ink: #032420;
+  --accent-soft: #0f3a3f;
   --ok: #5fd08a;
   --ok-soft: #163824;
   --warn: #f0b45a;
@@ -67,10 +52,10 @@
   --crit: #ff8a7a;
   --crit-soft: #41191a;
   --info: #8fb3ef;
-  --info-soft: #1a2a45;
-  --bubble-in: #1c2925;
-  --bubble-out: #14453a;
-  --chatbg: #111c19;
+  --info-soft: #14304d;
+  --bubble-in: #0f2c3b;
+  --bubble-out: #0f4a48;
+  --chatbg: #061a25;
   color-scheme: dark;
 }
 html,
@@ -107,6 +92,8 @@ h2,
 h3 {
   margin: 0;
   text-wrap: balance;
+  font-family: var(--font-head);
+  color: var(--heading);
 }
 h1 {
   font-size: 22px;
@@ -170,6 +157,31 @@ h3 {
 .brand b {
   display: block;
   font-size: 15px;
+}
+/* oxxy.in logo (205 x 100 png); the small icon replaces it in the collapsed rail */
+.brand .logo {
+  height: 48px;
+  width: auto;
+  display: block;
+}
+.rail .brand {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+.app.mini .rail .brand {
+  align-items: center;
+}
+.brand .logo-icon {
+  display: none;
+  width: 34px;
+  height: auto;
+}
+.app.mini .brand .logo {
+  display: none;
+}
+.app.mini .brand .logo-icon {
+  display: block;
 }
 .brand span {
   font-size: 11px;
@@ -535,7 +547,9 @@ h3 {
 .stat .v {
   font-size: 26px;
   font-weight: 600;
-  font-family: var(--font-mono);
+  font-family: var(--font-head);
+  color: var(--heading);
+  font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
 }
 .stat .d {
@@ -545,8 +559,8 @@ h3 {
 .btn {
   border: 1px solid var(--line);
   background: var(--surface);
-  padding: 7px 12px;
-  border-radius: 6px;
+  padding: 7px 14px;
+  border-radius: 999px; /* pill buttons, like oxxy.in */
   cursor: pointer;
   font-weight: 500;
   display: inline-flex;
@@ -561,6 +575,7 @@ h3 {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-ink);
+  font-weight: 600;
 }
 .btn.pri:hover {
   filter: brightness(1.08);
@@ -966,8 +981,8 @@ textarea.input {
   width: 100%;
 }
 .login .r {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: linear-gradient(150deg, var(--navy) 0%, #035a6b 55%, var(--brand) 100%);
+  color: #ffffff;
   padding: 48px;
   display: flex;
   flex-direction: column;
@@ -981,6 +996,7 @@ textarea.input {
 }
 .login .r blockquote {
   margin: 0;
+  font-family: var(--font-head);
   font-size: 24px;
   font-weight: 600;
   line-height: 1.25;

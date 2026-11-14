@@ -1,3 +1,4 @@
+import { FREQUENCY_CAP_CODES } from "@Helper/WhatsappErrors";
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { message } from "@Database/Table/Oxxy/message";
@@ -87,7 +88,9 @@ export class WhatsappInboundService implements OnModuleInit {
     const row = await message.findOne({ where: { wa_message_id: st.id, direction: "out" } });
     if (!row) return;
     if (st.status === "failed") {
-      row.message_status = "failed";
+      // Meta's marketing limit arrives here, after the send was accepted: frequency_cap, not an error to retry
+      const capped = (st.errors ?? []).some((x) => FREQUENCY_CAP_CODES.includes(Number(x.code)));
+      row.message_status = capped ? "frequency_cap" : "failed";
     } else if ((STATUS_RANK[st.status] ?? 0) > (STATUS_RANK[row.message_status] ?? 0)) {
       row.message_status = st.status; // never go backwards (read -> delivered)
     } else {

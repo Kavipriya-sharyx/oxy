@@ -6,22 +6,39 @@ import { RoleEnum } from "@Helper/Enum/RoleEnum";
 export const PERMISSIONS = [
   { key: "dashboard.view", group: "Work", label: "See the dashboard and reports" },
   { key: "conversations.read", group: "Work", label: "Read conversations" },
-  { key: "conversations.reply", group: "Work", label: "Reply to customers and take over from the bot" },
+  {
+    key: "conversations.reply",
+    group: "Work",
+    label: "Reply to customers and take over from the bot",
+  },
   { key: "bookings.read", group: "Work", label: "See booking requests" },
   { key: "bookings.confirm", group: "Work", label: "Confirm bookings (only when the CRM is off)" },
   { key: "tasks.work", group: "Work", label: "Work escalations (claim, done)" },
   { key: "activations.read", group: "Work", label: "See activations" },
-  { key: "activations.record", group: "Work", label: "Record a payment result (only when the CRM is off)" },
+  {
+    key: "activations.record",
+    group: "Work",
+    label: "Record a payment result (only when the CRM is off)",
+  },
   { key: "centres.read", group: "Directory", label: "See centres" },
   { key: "centres.edit", group: "Directory", label: "Add, edit and remove centres" },
   { key: "plans.read", group: "Control", label: "See plans and prices" },
   { key: "plans.edit", group: "Control", label: "Propose a price or plan change" },
-  { key: "plans.approve", group: "Control", label: "Approve someone else's plan change (two-person rule)" },
+  {
+    key: "plans.approve",
+    group: "Control",
+    label: "Approve someone else's plan change (two-person rule)",
+  },
   { key: "triggers.read", group: "Control", label: "See triggers A–R" },
   { key: "crm.manage", group: "Admin", label: "See CRM sync and retry calls" },
   { key: "privacy.handle", group: "Admin", label: "Handle data requests (DPDP)" },
   { key: "audit.read", group: "Admin", label: "Read the audit log" },
   { key: "settings.manage", group: "Admin", label: "Change configuration and API keys" },
+  {
+    key: "developer.manage",
+    group: "Admin",
+    label: "Make and revoke API keys for the CRM / voice AI (Developer page)",
+  },
   { key: "users.manage", group: "Admin", label: "Add, edit, suspend and delete users" },
   { key: "roles.manage", group: "Admin", label: "Add roles and change permissions" },
 ] as const;
@@ -52,10 +69,13 @@ export const BUILT_IN_ROLES: string[] = [RoleEnum.SuperAdmin, RoleEnum.Admin, Ro
 
 // The permissions a role really has: Super Admin = all; a saved list (unknown keys dropped);
 // else the built-in default; else nothing.
-export function permissionsOf(role: { name?: string | null; permission?: unknown } | null | undefined): string[] {
+export function permissionsOf(
+  role: { name?: string | null; permission?: unknown } | null | undefined,
+): string[] {
   if (!role) return [];
   if (role.name === RoleEnum.SuperAdmin) return ALL_PERMISSIONS;
-  if (Array.isArray(role.permission)) return role.permission.filter((k) => ALL_PERMISSIONS.includes(k));
+  if (Array.isArray(role.permission))
+    return role.permission.filter((k) => ALL_PERMISSIONS.includes(k));
   return DEFAULT_PERMISSIONS[role.name ?? ""] ?? [];
 }
 

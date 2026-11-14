@@ -7,6 +7,7 @@ import { consent } from "@Database/Table/Oxxy/consent";
 import { task } from "@Database/Table/Oxxy/task";
 import { booking_request } from "@Database/Table/Oxxy/booking_request";
 import { activation } from "@Database/Table/Oxxy/activation";
+import { conversation } from "@Database/Table/Oxxy/conversation";
 
 type Fn = (...a: unknown[]) => unknown;
 const stub = (cls: unknown, name: string, impl: Fn) =>
@@ -25,11 +26,23 @@ function setup(opts: { optedOut?: boolean; openBooking?: boolean; language?: str
   });
   const mg = {
     save: jest.fn(async (v: Record<string, unknown>) => {
-      if ("type" in v && "priority" in v) tasks.push({ ...v, id: `t${tasks.length + 1}` });
+      if ("type" in v && "priority" in v) {
+        const row = { ...v, id: `t${tasks.length + 1}` };
+        tasks.push(row);
+        return row;
+      }
       return v;
     }),
     create: (_c: unknown, v: unknown) => v,
+    update: jest.fn(async (c: unknown, w: Record<string, unknown>, v: Record<string, unknown>) => {
+      if (c === task) Object.assign(tasks.find((t) => t.id === w.id) ?? {}, v);
+      else Object.assign(cons, v);
+    }),
   };
+  const optIn = jest.fn(async () => {
+    states.push(S.New);
+    return { state: S.New };
+  });
   const transition = jest.fn(async (_id: unknown, to: unknown) => {
     states.push(to as string);
     return { state: to };
@@ -48,6 +61,7 @@ function setup(opts: { optedOut?: boolean; openBooking?: boolean; language?: str
     const where = (a[0] as { where: Record<string, unknown> }).where;
     return tasks.find((r) => Object.entries(where).every(([k, v]) => r[k] === v)) ?? null;
   });
+  stub(conversation, "update", async (...a) => Object.assign(saved.conversation, a[1] as object));
   stub(booking_request, "findOne", async () => (opts.openBooking ? { id: "b1" } : null));
   stub(activation, "findOne", async () => null);
 
@@ -68,15 +82,15 @@ function setup(opts: { optedOut?: boolean; openBooking?: boolean; language?: str
       }),
       dispatch: jest.fn(),
     } as never,
-    { transition } as never,
+    { transition, optIn } as never,
   );
   const saved = {
     customer: { id: "c1", language: opts.language ?? "en" },
-    conversation: { id: "v1", state: opts.state ?? S.Discovery },
-  } as never;
+    conversation: { id: "v1", state: opts.state ?? S.Discovery, pending_action: null as string | null },
+  };
   const run = (text: string, wamid = "wamid.IN1") =>
-    pipeline.process({ waNumber: "919800000001", waMessageId: wamid, text }, saved);
-  return { run, send, replies, tasks, states, cons, claude, outbox };
+    pipeline.process({ waNumber: "919800000001", waMessageId: wamid, text }, saved as never);
+  return { run, send, replies, tasks, states, cons, claude, outbox, optIn, saved };
 }
 
 afterEach(() => jest.restoreAllMocks());
@@ -89,7 +103,10 @@ describe("guardrail turns", () => {
   ])("%s -> reply %s, state %s, one task", async (text, key, state, taskType, priority) => {
     const t = setup();
     await t.run(text);
-    expect(t.replies.map((r) => r.body)).toEqual([FIXED_REPLIES[key as "emergency"].en]);
+    expect(t.replies).toHaveLength(1);
+    expect(String(t.replies[0].body).startsWith(FIXED_REPLIES[key as "emergency"].en)).toBe(true);
+    // Trigger O: an escalation also offers callback windows; a safety reply never does
+    expect(String(t.replies[0].body).includes("Please choose a convenient time")).toBe(key === "escalation");
     expect(t.states).toEqual([state]);
     expect(t.tasks).toHaveLength(1);
     expect(t.tasks[0]).toMatchObject({ type: taskType, priority });
@@ -145,6 +162,67 @@ describe("guardrail turns", () => {
     expect(t.states).toEqual([]);
     expect(t.tasks).toHaveLength(0);
     expect(t.outbox).toEqual([]);
+  });
+
+  it.each(["START", "start", "Start again", "shuru karo"])(
+    "opted out, '%s': opt-out cleared, NEW, CRM set_opt_in, one welcome-back reply",
+    async (text) => {
+      const t = setup({ optedOut: true });
+      await t.run(text);
+      expect(t.cons.opt_out_at).toBeNull();
+      expect(t.cons.marketing_consent).toBe(true); // untouched by the opt-in itself
+      expect(t.states).toEqual([S.New]);
+      expect(t.outbox).toEqual(["set_opt_in"]);
+      expect(t.replies.map((r) => r.body)).toEqual([FIXED_REPLIES.opt_in.en]);
+      expect(t.claude.generate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("opted out, START inside a sentence ('can we start the plan'): nothing sent, still opted out", async () => {
+    const t = setup({ optedOut: true });
+    await t.run("can we start the plan");
+    expect(t.send).not.toHaveBeenCalled();
+    expect(t.cons.opt_out_at).not.toBeNull();
+    expect(t.optIn).not.toHaveBeenCalled();
+  });
+
+  it("not opted out: START is an ordinary message, no opt-in", async () => {
+    const t = setup();
+    await t.run("START").catch(() => undefined); // goes on to the normal path, which this harness does not stub
+    expect(t.optIn).not.toHaveBeenCalled();
+    expect(t.outbox).toEqual([]);
+  });
+
+  it("talk to a person -> callback options; '2' saves that window on the task, tells the CRM, gives a reference", async () => {
+    const t = setup();
+    await t.run("I want to talk to a human");
+    expect(t.saved.conversation.pending_action).toMatch(/^callback_time:t1:/);
+    t.saved.conversation.state = S.Escalated;
+    await t.run("2", "wamid.IN2");
+    expect(t.tasks[0].callback_from).toBeInstanceOf(Date);
+    expect((t.tasks[0].callback_to as Date).getTime()).toBeGreaterThan((t.tasks[0].callback_from as Date).getTime());
+    expect(t.outbox).toEqual(["create_task", "set_callback_window"]);
+    expect(t.saved.conversation.pending_action).toBeNull();
+    expect(t.replies[1].body).toMatch(/^I have requested a callback for .+\. Reference: CB-T1\.$/);
+  });
+
+  it("escalated with callback options open: a non-time message gets no reply (the team answers)", async () => {
+    const t = setup();
+    await t.run("I want to talk to a human");
+    t.saved.conversation.state = S.Escalated;
+    await t.run("what is the price of vital", "wamid.IN2");
+    expect(t.replies).toHaveLength(1);
+    expect(t.saved.conversation.pending_action).toMatch(/^callback_time:/);
+  });
+
+  it("escalated, a time outside team hours: the hours and fresh options, nothing saved", async () => {
+    const t = setup();
+    await t.run("I want to talk to a human");
+    t.saved.conversation.state = S.Escalated;
+    await t.run("11 pm", "wamid.IN2");
+    expect(t.replies[1].body).toContain("Our team calls between");
+    expect(t.replies[1].body).toContain("1) ");
+    expect(t.tasks[0].callback_from).toBeUndefined();
   });
 
   it("already opted out: talk to a person sends nothing", async () => {

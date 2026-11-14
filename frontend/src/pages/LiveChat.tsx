@@ -6,10 +6,11 @@ import {
   handBackConversation,
   listConversations,
   listMessages,
+  MESSAGE_PAGE,
   replyToConversation,
   takeOverConversation,
 } from "../api/conversations.api";
-import type { Conversation } from "../types";
+import type { Conversation, Message } from "../types";
 import { usePermissions } from "../hooks/usePermissions";
 import CustomerRecordDrawer from "../components/CustomerRecordDrawer";
 import {
@@ -25,8 +26,9 @@ import {
 
 type View = "all" | "person" | "booking" | "opted";
 const DAY = 24 * 60 * 60 * 1000;
-const inWindow = (c: Conversation) =>
-  !!c.last_customer_message_at && Date.now() - new Date(c.last_customer_message_at).getTime() < DAY;
+const PAGE = 100;
+const inWindow = (c: Conversation, now: number) =>
+  !!c.last_customer_message_at && now - new Date(c.last_customer_message_at).getTime() < DAY;
 const nameOf = (c?: Conversation) =>
   c?.customer?.first_name || c?.customer?.wa_number || "Customer";
 const productOf = (c: Conversation) => {
@@ -41,6 +43,19 @@ const productOf = (c: Conversation) => {
     );
   return null;
 };
+const whoSent = (m: { direction: string; sender: string }) =>
+  m.direction === "in" ? "" : m.sender === "agent" ? "Team: " : "Bot: ";
+
+// A tap on a list row or button arrives as the row id: show what the customer actually tapped
+const TAP_LABELS: Record<string, string> = {
+  menu_need: "Tapped: Reduce a medical bill",
+  menu_centre: "Tapped: Find or book a centre",
+  menu_explain: "Tapped: Understand Oxxy",
+  menu_service: "Tapped: Existing customer help",
+  lead_yes: "Tapped: Yes, please",
+  lead_details: "Tapped: Just send details",
+  lead_not_now: "Tapped: Not now",
+};
 
 export default function LiveChat() {
   usePageTitle("Conversations", "WhatsApp inbox");
@@ -50,33 +65,45 @@ export default function LiveChat() {
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const [view, setView] = useState<View>("all");
+  const [limit, setLimit] = useState(PAGE);
+  // the chat that is open stays open until someone picks another one: new messages, a state change or a
+  // tab filter never switch it to a different customer
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
+  const [pinned, setPinned] = useState<Conversation | null>(null);
+  // one draft per chat, so text typed for one customer is never sent to another
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [older, setOlder] = useState<{ id: string; rows: Message[]; done: boolean }>({
+    id: "",
+    rows: [],
+    done: false,
+  });
   const [recordFor, setRecordFor] = useState<string | null>(null);
-  const q = (params.get("q") || "").toLowerCase();
+  const [now, setNow] = useState(() => Date.now());
+  const q = (params.get("q") || "").trim();
   const msgsRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
+
+  // the 24-hour window closes while the page is open
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
   const convs = useQuery({
-    queryKey: ["conversations"],
-    queryFn: listConversations,
+    queryKey: ["conversations", "inbox", view, q, limit],
+    queryFn: () => listConversations({ q, view, limit }),
     refetchInterval: 20_000, // live updates push changes; this is the fallback
+    placeholderData: (prev) => prev,
   });
-  const filters: Record<View, (c: Conversation) => boolean> = {
-    all: () => true,
-    person: (c) => c.state === "pause" || c.state === "escalated",
-    booking: (c) => c.state === "booking_capture" || c.state === "booking_recorded",
-    opted: (c) => c.state === "opted_out",
-  };
-  const list = (convs.data ?? [])
-    .filter(filters[view])
-    .filter(
-      (c) =>
-        !q ||
-        `${c.customer?.first_name ?? ""} ${c.customer?.wa_number ?? ""} ${c.state}`
-          .toLowerCase()
-          .includes(q),
-    );
-  const active = list.find((c) => c.id === selectedId) ?? list[0];
+  const list = convs.data ?? [];
+  const fresh = selectedId ? list.find((c) => c.id === selectedId) : undefined;
+  const active = fresh ?? (pinned?.id === selectedId ? pinned : undefined);
+  const notInView = !!active && !fresh;
+
+  // first open: the newest chat. Keep the open chat's latest data while it is in the list.
+  // (state adjusted while rendering, React's pattern for state derived from new data)
+  if (!selectedId && list.length) setSelectedId(list[0].id);
+  if (fresh && fresh !== pinned) setPinned(fresh);
 
   const msgs = useQuery({
     queryKey: ["messages", active?.id],
@@ -84,9 +111,42 @@ export default function LiveChat() {
     enabled: !!active?.id,
     refetchInterval: 15_000, // live updates push changes; this is the fallback
   });
+  const latest = msgs.data ?? [];
+  const olderRows = older.id === active?.id ? older.rows : [];
+  const shown = [...olderRows, ...latest.filter((m) => !olderRows.some((o) => o.id === m.id))];
+  const mayHaveOlder =
+    !!active && (older.id === active.id ? !older.done : latest.length >= MESSAGE_PAGE);
+
   useEffect(() => {
-    if (msgsRef.current) msgsRef.current.scrollTop = msgsRef.current.scrollHeight;
-  }, [msgs.data?.length, active?.id]);
+    stickToBottom.current = true;
+  }, [active?.id]);
+  useEffect(() => {
+    const el = msgsRef.current;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [latest.length, active?.id]);
+
+  const loadOlder = useMutation({
+    mutationFn: async () => {
+      const first = shown[0]?.created_on;
+      const rows = await listMessages(active!.id, first);
+      return { id: active!.id, rows };
+    },
+    onSuccess: ({ id, rows }) => {
+      const el = msgsRef.current;
+      const fromBottom = el ? el.scrollHeight - el.scrollTop : 0;
+      stickToBottom.current = false;
+      setOlder((o) => ({
+        id,
+        rows: [...rows, ...(o.id === id ? o.rows : [])],
+        done: rows.length < MESSAGE_PAGE,
+      }));
+      // keep the message the reader was looking at in place
+      requestAnimationFrame(() => {
+        if (el) el.scrollTop = el.scrollHeight - fromBottom;
+      });
+    },
+    onError: (e: Error) => message.error(e.message),
+  });
 
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ["conversations"] });
@@ -113,24 +173,62 @@ export default function LiveChat() {
   });
   const reply = useMutation({
     mutationFn: ({ id, body }: { id: string; body: string }) => replyToConversation(id, body),
-    onSuccess: async () => {
-      setDraft("");
+    onSuccess: async (_r, v) => {
+      setDrafts((d) => ({ ...d, [v.id]: "" }));
+      stickToBottom.current = true;
       await refresh();
     },
     onError,
   });
 
+  const pick = (id: string) => {
+    setSelectedId(id);
+    setHandBackNote(null);
+  };
+  const changeView = (v: View) => {
+    setView(v);
+    setLimit(PAGE);
+    setSelectedId(null); // open the newest chat of that tab
+  };
+  const search = (text: string) => {
+    setLimit(PAGE);
+    setSelectedId(null);
+    setParams(text.trim() ? { q: text.trim() } : {});
+  };
+
   const withPerson = active?.state === "pause" || active?.state === "escalated";
   const optedOut = active?.state === "opted_out";
-  const open = active ? inWindow(active) : false;
+  const open = active ? inWindow(active, now) : false;
+  const draft = active ? (drafts[active.id] ?? "") : "";
+  const setDraft = (text: string) => active && setDrafts((d) => ({ ...d, [active.id]: text }));
   const send = () => active && draft.trim() && reply.mutate({ id: active.id, body: draft.trim() });
+
+  const composer = (
+    <div className="composer">
+      <textarea
+        className="input"
+        placeholder={`Reply to ${nameOf(active)} as the Oxxy team`}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            send();
+          }
+        }}
+      />
+      <button className="btn pri" disabled={!draft.trim() || reply.isPending} onClick={send}>
+        Send
+      </button>
+    </div>
+  );
 
   return (
     <>
       <div className="row">
         <Tabs<View>
           value={view}
-          onChange={setView}
+          onChange={changeView}
           items={[
             ["all", "All"],
             ["person", "Needs a person"],
@@ -139,44 +237,75 @@ export default function LiveChat() {
           ]}
         />
         <span className="spacer" />
+        <input
+          key={q}
+          className="input"
+          style={{ maxWidth: 260 }}
+          placeholder="Search name or number, press Enter"
+          defaultValue={q}
+          aria-label="Search conversations"
+          onKeyDown={(e) => e.key === "Enter" && search((e.target as HTMLInputElement).value)}
+        />
         {q && (
-          <span className="row small" style={{ gap: 6 }}>
-            Filtered by “{params.get("q")}”
-            <button className="btn sm" onClick={() => setParams({})}>
-              Clear
-            </button>
-          </span>
+          <button className="btn sm" onClick={() => search("")}>
+            Clear
+          </button>
         )}
       </div>
       <ErrorNote error={convs.error} />
       <div className="panel inbox">
         <div className="ilist">
           {convs.isLoading && <Empty>Loading…</Empty>}
-          {!convs.isLoading && !list.length && <Empty>No conversations in this view.</Empty>}
+          {!convs.isLoading && !list.length && (
+            <Empty>
+              {q ? `No conversation matches “${q}”.` : "No conversations in this view."}
+            </Empty>
+          )}
           {list.map((c) => (
             <div
               key={c.id}
               className={`iitem ${c.id === active?.id ? "on" : ""}`}
-              onClick={() => {
-                setSelectedId(c.id);
-                setHandBackNote(null);
-              }}
+              onClick={() => pick(c.id)}
             >
               <div className="avatar">{initials(nameOf(c))}</div>
               <div className="t">
                 <b>
                   <span>{nameOf(c)}</span>
                   <span className="muted small mono" style={{ fontWeight: 400 }}>
-                    {fmtTime(c.last_customer_message_at)}
+                    {fmtTime(c.last_message?.created_on ?? c.last_customer_message_at)}
                   </span>
                 </b>
-                <p className="mono small">{c.customer?.wa_number}</p>
+                <p
+                  className="small"
+                  style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                >
+                  {c.last_message ? (
+                    <>
+                      <span className="muted">{whoSent(c.last_message)}</span>
+                      {c.last_message.text || "—"}
+                    </>
+                  ) : (
+                    <span className="mono">{c.customer?.wa_number}</span>
+                  )}
+                </p>
                 <div className="row" style={{ gap: 6 }}>
                   <StatePill state={c.state} />
+                  {!!c.waiting && <Pill tone="info">{c.waiting} waiting</Pill>}
                 </div>
               </div>
             </div>
           ))}
+          {list.length >= limit && (
+            <div style={{ padding: 12, textAlign: "center" }}>
+              <button
+                className="btn sm"
+                disabled={convs.isFetching}
+                onClick={() => setLimit((l) => Math.min(300, l + PAGE))}
+              >
+                {limit >= 300 ? "Showing the newest 300: search to find older chats" : "Load more"}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="thread">
@@ -215,11 +344,17 @@ export default function LiveChat() {
                     </button>
                   ))}
               </div>
+              {notInView && (
+                <div className="panel-b small" style={{ background: "var(--sunk)" }}>
+                  This chat is no longer in this tab (its state changed). It stays open until you
+                  pick another one.
+                </div>
+              )}
               {handBackNote !== null && (
                 <div className="panel-b small" style={{ background: "var(--sunk)" }}>
                   <div style={{ marginBottom: 6 }}>
-                    Note for the bot (optional): what was agreed, or what it should not bring up again.
-                    The customer never sees it.
+                    Note for the bot (optional): what was agreed, or what it should not bring up
+                    again. The customer never sees it.
                   </div>
                   <textarea
                     className="input"
@@ -244,10 +379,29 @@ export default function LiveChat() {
                   </div>
                 </div>
               )}
-              <div className="msgs" ref={msgsRef}>
-                {(msgs.data ?? []).map((m) => (
+              <div
+                className="msgs"
+                ref={msgsRef}
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+                }}
+              >
+                {mayHaveOlder && (
+                  <div className="sys">
+                    <button
+                      className="btn sm"
+                      disabled={loadOlder.isPending}
+                      onClick={() => loadOlder.mutate()}
+                    >
+                      {loadOlder.isPending ? "Loading…" : "Load older messages"}
+                    </button>
+                  </div>
+                )}
+                {shown.map((m) => (
                   <div key={m.id} className={`bub ${m.direction === "in" ? "" : "out"}`}>
-                    {m.body ||
+                    {(m.direction === "in" && m.body && TAP_LABELS[m.body.trim()]) ||
+                      m.body ||
                       (m.template_name ? `[Template ${m.template_name}]` : "[Non-text message]")}
                     <div className="meta">
                       {m.direction === "out" && (
@@ -270,53 +424,41 @@ export default function LiveChat() {
                     </div>
                   </div>
                 ))}
-                {!msgs.isLoading && !(msgs.data ?? []).length && (
-                  <div className="sys">No messages yet.</div>
-                )}
+                {!msgs.isLoading && !shown.length && <div className="sys">No messages yet.</div>}
               </div>
               {active.state === "pause" && (
                 <div
                   className="panel-b small"
                   style={{ background: "var(--crit-soft)", color: "var(--crit)" }}
                 >
-                  Automation is paused (safety or privacy). Reply manually only
-                  after checking on the customer.
+                  Automation is paused (safety or privacy). Reply manually only after checking on
+                  the customer.
                 </div>
               )}
-              {optedOut ? (
-                <div className="panel-b small" style={{ background: "var(--sunk)" }}>
-                  Customer opted out. Messages are blocked unless there is an open booking request.
-                </div>
-              ) : !canReply ? (
+              {!canReply ? (
                 <div className="panel-b small" style={{ background: "var(--sunk)" }}>
                   Your role can read chats but not reply.
                 </div>
-              ) : open ? (
-                <div className="composer">
-                  <textarea
-                    className="input"
-                    placeholder="Reply as the Oxxy team (inside the 24-hour window)"
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        send();
-                      }
-                    }}
-                  />
-                  <button
-                    className="btn pri"
-                    disabled={!draft.trim() || reply.isPending}
-                    onClick={send}
-                  >
-                    Send
-                  </button>
+              ) : optedOut && !active.open_booking ? (
+                <div className="panel-b small" style={{ background: "var(--sunk)" }}>
+                  Customer opted out and has no open booking request: messages are blocked.
                 </div>
-              ) : (
+              ) : !open ? (
                 <div className="panel-b small" style={{ background: "var(--sunk)" }}>
                   The 24-hour reply window is closed. Only approved templates can be sent now.
                 </div>
+              ) : optedOut ? (
+                <>
+                  <div
+                    className="panel-b small"
+                    style={{ background: "var(--warn-soft)", color: "var(--warn)" }}
+                  >
+                    Customer opted out. Reply only about the open booking request.
+                  </div>
+                  {composer}
+                </>
+              ) : (
+                composer
               )}
             </>
           )}
@@ -345,19 +487,35 @@ export default function LiveChat() {
                   <dt>Product</dt>
                   <dd>{productOf(active) ?? <span className="muted">Not chosen</span>}</dd>
                   <dt>24-hour window</dt>
-                  <dd>{open ? <Pill tone="ok">Open</Pill> : <Pill>Closed</Pill>}</dd>
+                  <dd>
+                    {open ? (
+                      <>
+                        <Pill tone="ok">Open</Pill>
+                        <div className="small muted">
+                          until{" "}
+                          {fmtTime(
+                            new Date(
+                              new Date(active.last_customer_message_at!).getTime() + DAY,
+                            ).toISOString(),
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <Pill>Closed</Pill>
+                    )}
+                  </dd>
                 </dl>
               </div>
               <div>
                 <div className="eyebrow">Rules for this chat</div>
                 <div style={{ marginTop: 8 }}>
                   {[
-                    ["One product per customer", true],
-                    ["Bookings stay pending until the sales team confirms", true],
-                    ["Never call Oxxy insurance", true],
-                    ["STOP ends every automated message", true],
-                  ].map(([t]) => (
-                    <div key={String(t)} className="check">
+                    "One product per customer",
+                    "Bookings stay pending until the sales team confirms",
+                    "Never call Oxxy insurance",
+                    "STOP ends every automated message",
+                  ].map((t) => (
+                    <div key={t} className="check">
                       <i className="y">✓</i>
                       <span>{t}</span>
                     </div>
@@ -368,7 +526,9 @@ export default function LiveChat() {
           )}
         </aside>
       </div>
-      {recordFor && <CustomerRecordDrawer customerId={recordFor} onClose={() => setRecordFor(null)} />}
+      {recordFor && (
+        <CustomerRecordDrawer customerId={recordFor} onClose={() => setRecordFor(null)} />
+      )}
     </>
   );
 }

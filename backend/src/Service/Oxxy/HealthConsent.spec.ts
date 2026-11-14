@@ -37,7 +37,7 @@ describe("healthConsentStatus: validity is tied to the notice version", () => {
     expect(healthConsentStatus({ ...granted, health_data_consent: false })).toBe("none"));
   it("consent given under an OLD version is not valid: a new notice needs fresh consent", () => {
     expect(healthConsentStatus({ ...granted, notice_version: "dpdp-health-v0" })).toBe("none");
-    expect(healthConsentStatus(granted, "dpdp-health-v2")).toBe("none");
+    expect(healthConsentStatus(granted, "dpdp-health-v9")).toBe("none");
   });
   it("NO for the current version -> refused; for an old version -> asked again", () => {
     const refused = { health_data_consent: false, health_refused_at: now, health_refused_version: NOTICE_VERSION };

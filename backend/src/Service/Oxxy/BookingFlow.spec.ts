@@ -1,5 +1,5 @@
 // Playbook 11 / 11.1 booking capture helpers
-import { bookingSavedText, dateProblemText, nextStep, parseCustomerDate, readDraft, showDate, writeDraft } from "./BookingFlow";
+import { asksToBook, asksForSuggestion, looksLikeCentreName, bookingSavedText, dateProblemText, nextStep, parseCustomerDate, readDraft, showDate, writeDraft } from "./BookingFlow";
 
 const now = new Date("2026-11-14T06:00:00Z"); // 14 Nov 2026, 11:30 IST
 
@@ -14,6 +14,16 @@ describe("parseCustomerDate (Asia/Kolkata, day before month)", () => {
     ["on 5 jan", "2027-01-05"], // already past this year -> next year
     ["tomorrow", "2026-11-15"],
     ["today", "2026-11-14"],
+    // Hindi / Devanagari
+    ["20 नवंबर", "2026-11-20"],
+    ["२० नवम्बर २०२६", "2026-11-20"],
+    ["5 जनवरी को", "2027-01-05"],
+    ["12 फ़रवरी 2027", "2027-02-12"],
+    ["3 सितंबर 2027", "2027-09-03"],
+    ["कल", "2026-11-15"],
+    ["परसों", "2026-11-16"],
+    ["आज", "2026-11-14"],
+    ["२०/११/२०२६", "2026-11-20"],
   ])("%s -> %s", (t, iso) => expect(parseCustomerDate(t, now)).toBe(iso));
   it.each(["next week sometime", "31/02/2027", "hello"])("%s -> null", (t) => expect(parseCustomerDate(t, now)).toBeNull());
 });
@@ -56,4 +66,42 @@ describe("texts", () => {
     );
     expect(showDate("2027-02-28")).toBe("28 Feb 2027");
   });
+});
+
+describe("the answer to 'share the centre and branch': a name or not", () => {
+  it.each([
+    "No give me at your suggestion.",
+    "you suggest",
+    "please recommend one",
+    "any good hospital nearby",
+    "I don't know, you choose",
+    "not sure",
+    "aap batao",
+    "koi bhi",
+  ])("'%s' asks for a suggestion, it is not a centre", (t) => {
+    expect(asksForSuggestion(t)).toBe(true);
+    expect(looksLikeCentreName(t)).toBe(false);
+  });
+
+  it.each(["Give it for villapuram area.", "I would require on tomorrow.", "ok book it for me please", "what do you mean"])(
+    "'%s' is a sentence, not a centre name",
+    (t) => expect(looksLikeCentreName(t)).toBe(false),
+  );
+
+  it.each(["Apollo, Greams Road", "Meenakshi Mission Hospital", "I want Apollo Hospital in Madurai", "Vadamalayan", "Dr Mohan's Diabetes Centre, Villapuram"])(
+    "'%s' is a centre name",
+    (t) => {
+      expect(asksForSuggestion(t)).toBe(false);
+      expect(looksLikeCentreName(t)).toBe(true);
+    },
+  );
+});
+
+describe("asked for a booking in so many words", () => {
+  it.each(["please book an appointment at PSG hospital", "need a slot tomorrow", "booking chahiye", "appointment fix karo"])("yes: %s", (t) =>
+    expect(asksToBook(t)).toBe(true),
+  );
+  it.each(["We are consulting in psg hosiptal", "my mother goes to Apollo", "PSG Hospital, Peelamedu"])("no: %s", (t) =>
+    expect(asksToBook(t)).toBe(false),
+  );
 });

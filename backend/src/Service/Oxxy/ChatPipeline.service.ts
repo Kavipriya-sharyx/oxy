@@ -1,4 +1,15 @@
 import { Injectable, Logger, Optional } from "@nestjs/common";
+import { freshCallContext } from "@Helper/CallContext";
+import { faqAnswer, matchFaq, withoutClosingQuestion, faqNeedsPerson } from "@Helper/FaqReplies";
+import { centreListText, parseRadius, RADIUS_Q } from "@Helper/CentreReplies";
+import { toBubbles } from "@Helper/Bubbles";
+import { detectRescueSignal, readRescue, rescueLine } from "@Helper/RescueReplies";
+import { REBOOK_DECLINED_T } from "@Helper/CentreReplies";
+import { oneQuestion } from "@Helper/OneQuestion";
+import { singleExpenseSignal } from "@Helper/NeedSignals";
+import { knownSpecialisation, normaliseSpecialisation } from "./CentreSearch.service";
+import { todayIST } from "./DateWindow.service";
+import { activeProductBlock, SERVICE_ESCALATE, serviceSummaryText } from "@Helper/ServiceReplies";
 import { ILike, In } from "typeorm";
 import { customer } from "@Database/Table/Oxxy/customer";
 import { consent } from "@Database/Table/Oxxy/consent";
@@ -51,6 +62,9 @@ import {
   parseCustomerDate,
   readDraft,
   writeDraft,
+  asksForSuggestion,
+  asksToBook,
+  looksLikeCentreName,
 } from "./BookingFlow";
 import {
   asksMedicine,
@@ -111,7 +125,18 @@ import {
 } from "./CmbGate";
 import { FollowUpSchedulerService } from "./FollowUpScheduler.service";
 import { OutboundMessage } from "@Helper/WhatsappMessage";
-import { matchMenuRow, menuReply, openingList, WELCOME } from "@Helper/OpeningMenu";
+import {
+  LEAD_ROWS,
+  LEAD_SUMMARY,
+  leadPriority,
+  matchLeadRow,
+  matchMenuRow,
+  MENU_ROWS,
+  MenuRow,
+  menuReply,
+  openingList,
+  WELCOME,
+} from "@Helper/OpeningMenu";
 import { ConversationState } from "@Helper/Enum/ConversationState";
 import { TaskType } from "@Helper/Enum/TaskType";
 import { TaskPriority } from "@Helper/Enum/TaskPriority";
@@ -120,8 +145,8 @@ import { ActivationStatus } from "@Helper/Enum/ActivationStatus";
 import { PaymentStatus } from "@Helper/Enum/PaymentStatus";
 import { ProductType } from "@Helper/Enum/ProductType";
 import { BillingCycle } from "@Helper/Enum/BillingCycle";
-import { GuardrailService, GuardrailHit } from "./Guardrail.service";
-import { ClaudeService, ChatTurn, ClaudeResult } from "./Claude.service";
+import { GuardrailService, GuardrailHit, isOptIn } from "./Guardrail.service";
+import { AnswerReading, AnswerStep, ClaudeService, ChatTurn, ClaudeResult } from "./Claude.service";
 import { ReplyValidatorService } from "./ReplyValidator.service";
 import { WhatsappClient } from "./WhatsappClient.service";
 import { ValueCheckService } from "./ValueCheck.service";
@@ -132,6 +157,20 @@ import { DataSource } from "typeorm";
 import { CrmOutboxService } from "@Service/Crm/CrmOutbox.service";
 import { CrmAction } from "@Helper/Enum/CrmAction";
 import { ConversationRepository } from "./ConversationRepository.service";
+import { isPlaceholder, planProblems, planReady } from "@Helper/GoLive";
+import { hasQuestion, statedYearlySpend, tidyDraft } from "@Helper/ReplyTidy";
+import { isNoCentreText, noCentreText } from "@Helper/PlanReplies";
+import {
+  CALLBACK_OUTSIDE_HOURS_T,
+  callbackOptions,
+  callbackQuestion,
+  callbackSavedText,
+  caseRef,
+  packWindows,
+  parseCallbackChoice,
+  teamHours,
+  unpackWindows,
+} from "./CallbackFlow";
 import { canTransition, InvalidTransitionError } from "./ConversationStateMachine";
 import { NEEDS_SHOWN, TriggerDecision, TriggerEngineService } from "./TriggerEngine.service";
 import {
@@ -148,30 +187,78 @@ export const HOLDING_MESSAGE_T: L = {
 };
 export const HOLDING_MESSAGE = HOLDING_MESSAGE_T.en;
 
-// Inline system texts (English approved; Hindi / Hinglish drafts, see Helper/Lang.ts)
-const T: Record<"activeProduct" | "centresHead" | "centresFoot" | "spendFirst" | "pickNumber", L> = {
-  activeProduct: {
-    en: "You already have an active product with us, so I can help only with that one.",
-    hi: "आपके पास पहले से हमारा एक सक्रिय प्रोडक्ट है, इसलिए मैं केवल उसी में मदद कर सकता हूँ।",
-    hinglish: "Aapke paas pehle se hamara ek active product hai, isliye main sirf usi mein madad kar sakta hoon.",
-  },
-  centresHead: { en: "Centres near you:", hi: "आपके पास के केंद्र:", hinglish: "Aapke paas ke centres:" },
-  centresFoot: {
-    en: "Reply with 1-5, or send the name of another centre you prefer.",
-    hi: "1-5 में से कोई नंबर लिखें, या अपनी पसंद के किसी दूसरे केंद्र का नाम भेजें।",
-    hinglish: "1-5 mein se number likhein, ya apni pasand ke kisi dusre centre ka naam bhejein.",
-  },
-  spendFirst: {
-    en: "Happy to help. To suggest the right plan, roughly how much does your family spend on healthcare in a year?",
-    hi: "मदद करके खुशी होगी। सही प्लान सुझाने के लिए, आपका परिवार साल में स्वास्थ्य पर लगभग कितना खर्च करता है?",
-    hinglish: "Madad karke khushi hogi. Sahi plan suggest karne ke liye, aapki family saal mein healthcare par lagbhag kitna kharcha karti hai?",
-  },
-  pickNumber: {
-    en: "Please reply with a number from 1 to {n}, or send the name of another centre you prefer.",
-    hi: "कृपया 1 से {n} तक का कोई नंबर लिखें, या अपनी पसंद के किसी दूसरे केंद्र का नाम भेजें।",
-    hinglish: "Kripya 1 se {n} tak ka number likhein, ya apni pasand ke kisi dusre centre ka naam bhejein.",
-  },
+// While a person handles the case (Playbook 3 ESCALATED: "give callback expectation without promising exact
+// resolution") or a safety event is open (PAUSE). Sent once. [CONFIRM] wording.
+export const PARKED_ACK = "parked_ack";
+export const ESCALATED_ACK_T: L = {
+  en: "Thank you. Our team has your request and will contact you.",
+  hi: "धन्यवाद। हमारी टीम के पास आपकी रिक्वेस्ट है और वे आपसे संपर्क करेंगे।",
+  hinglish: "Dhanyavaad. Hamari team ke paas aapki request hai aur woh aapse contact karenge.",
 };
+// Trigger O, the reason for the callback before the time options. Wording from Playbook 16.4:
+// "I want to give you a precise answer rather than guess. I will arrange an authorised callback."
+export const CALLBACK_REASON_T: L = {
+  en: "I want to give you a precise answer rather than guess. I will arrange an authorised callback.",
+  hi: "मैं अंदाज़ा लगाने के बजाय आपको सही जवाब देना चाहता हूँ। मैं एक अधिकृत कॉलबैक की व्यवस्था करूँगा।",
+  hinglish:
+    "Main guess karne ke bajay aapko sahi jawab dena chahta hoon. Main ek authorised callback arrange karunga.",
+};
+// need columns handed to the LLM as "already known" (the free-text condition is never sent)
+const KNOWN_NEED_FIELDS = [
+  "beneficiary",
+  "healthcare_need",
+  "need_pattern",
+  "specialisation",
+  "city",
+  "locality",
+  "postcode",
+  "travel_radius_km",
+  "service_date",
+  "expected_bill",
+  "annual_medical_spend",
+  "insurance_status",
+  "urgency",
+  "pre_existing",
+];
+export const PAUSE_ACK_T: L = {
+  en: "The Oxxy team will contact you. If this is an emergency, please call 112 (or 108 for an ambulance) now.",
+  hi: "Oxxy टीम आपसे संपर्क करेगी। अगर यह इमरजेंसी है, तो कृपया अभी 112 पर कॉल करें (एम्बुलेंस के लिए 108)।",
+  hinglish:
+    "Oxxy team aapse contact karegi. Agar yeh emergency hai, to kripya abhi 112 par call karein (ambulance ke liye 108).",
+};
+
+// Inline system texts (English approved; Hindi / Hinglish drafts, see Helper/Lang.ts)
+const T: Record<"activeProduct" | "centresHead" | "centresFoot" | "spendFirst" | "pickNumber", L> =
+  {
+    activeProduct: {
+      en: "You already have an active product with us, so I can help only with that one.",
+      hi: "आपके पास पहले से हमारा एक सक्रिय प्रोडक्ट है, इसलिए मैं केवल उसी में मदद कर सकता हूँ।",
+      hinglish:
+        "Aapke paas pehle se hamara ek active product hai, isliye main sirf usi mein madad kar sakta hoon.",
+    },
+    centresHead: {
+      en: "Centres near you:",
+      hi: "आपके पास के केंद्र:",
+      hinglish: "Aapke paas ke centres:",
+    },
+    centresFoot: {
+      en: "Reply with 1-5, or send the name of another centre you prefer.",
+      hi: "1-5 में से कोई नंबर लिखें, या अपनी पसंद के किसी दूसरे केंद्र का नाम भेजें।",
+      hinglish: "1-5 mein se number likhein, ya apni pasand ke kisi dusre centre ka naam bhejein.",
+    },
+    spendFirst: {
+      en: "Happy to help. To suggest the right plan, roughly how much does your family spend on healthcare in a year?",
+      hi: "मदद करके खुशी होगी। सही प्लान सुझाने के लिए, आपका परिवार साल में स्वास्थ्य पर लगभग कितना खर्च करता है?",
+      hinglish:
+        "Madad karke khushi hogi. Sahi plan suggest karne ke liye, aapki family saal mein healthcare par lagbhag kitna kharcha karti hai?",
+    },
+    pickNumber: {
+      en: "Please reply with a number from 1 to {n}, or send the name of another centre you prefer.",
+      hi: "कृपया 1 से {n} तक का कोई नंबर लिखें, या अपनी पसंद के किसी दूसरे केंद्र का नाम भेजें।",
+      hinglish:
+        "Kripya 1 se {n} tak ka number likhein, ya apni pasand ke kisi dusre centre ka naam bhejein.",
+    },
+  };
 
 export interface Inbound {
   waNumber: string;
@@ -183,15 +270,42 @@ export interface Inbound {
   location?: { latitude: number; longitude: number };
 }
 
+// Playbook 1.3 / Trigger layer 1.2: the decision journey [CONFIRM the 7 days, Playbook 22.2]
+export const JOURNEY_DAYS = Number(process.env.JOURNEY_DAYS || 7);
+
+/**
+ * True when the open conversation's journey is over: no customer message for JOURNEY_DAYS. Never for a
+ * case a person still holds (ESCALATED, PAUSE) or an opted-out chat (that state is kept as the record).
+ */
+export function journeyExpired(
+  c: { state?: string | null; last_customer_message_at?: Date | string | null },
+  now = Date.now(),
+): boolean {
+  if (!c.last_customer_message_at) return false;
+  if (
+    c.state === ConversationState.Escalated ||
+    c.state === ConversationState.Pause ||
+    c.state === ConversationState.OptedOut
+  )
+    return false;
+  return now - new Date(c.last_customer_message_at).getTime() > JOURNEY_DAYS * 24 * 3600 * 1000;
+}
+
 // Trigger Q: one reminder this long after the link, if it is still unpaid [CONFIRM] the delay
 export const TRIGGER_Q_DELAY_MS = Number(process.env.TRIGGER_Q_DELAY_HOURS || 4) * 60 * 60 * 1000;
 
 // A reply after the activation link (plan 12.5). Short messages only: a longer one is a question for Claude.
 export function paymentReplyKind(text: string): "done" | "failed" | "not_now" | null {
-  const t = (text || "").toLowerCase().replace(/[^\p{L}\p{M}\p{N}\s']/gu, " ").replace(/\s+/g, " ").trim();
+  const t = (text || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}\s']/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!t || t.split(" ").length > 8) return null;
   if (
-    /\b(payment|transaction|txn|paisa|paise|payment ho)\b.*\b(failed|fail|declined|not (gone|going|working)|nahi hua|nahi gaya|atak)\b/.test(t) ||
+    /\b(payment|transaction|txn|paisa|paise|payment ho)\b.*\b(failed|fail|declined|not (gone|going|working)|nahi hua|nahi gaya|atak)\b/.test(
+      t,
+    ) ||
     /\b(failed|declined)\b.*\b(payment|transaction)\b/.test(t) ||
     /पेमेंट (फेल|नहीं हुआ)/.test(t)
   )
@@ -202,13 +316,21 @@ export function paymentReplyKind(text: string): "done" | "failed" | "not_now" | 
     )
   )
     return "done";
-  if (/^(not now|later|maybe later|baad mein|baad me|abhi nahi|abhi nahin|बाद में|अभी नहीं)( please| ji)?$/.test(t))
+  if (
+    /^(not now|later|maybe later|baad mein|baad me|abhi nahi|abhi nahin|बाद में|अभी नहीं)( please| ji)?$/.test(
+      t,
+    )
+  )
     return "not_now";
   return null;
 }
 
 // true when the plan's activation time ("5 to 10 working days") ends after the requested date
-export function activationAfter(preferredDate: string, activationTime: string, now = new Date()): boolean {
+export function activationAfter(
+  preferredDate: string,
+  activationTime: string,
+  now = new Date(),
+): boolean {
   const nums = (activationTime.match(/\d+/g) || []).map(Number);
   if (!nums.length) return false;
   const n = Math.max(...nums);
@@ -247,8 +369,12 @@ export function hasInsurance(text: string): boolean {
   // "insurance kya hota hai?", "क्या यह बीमा है?" ask about insurance; they do not say the customer has it
   const question = /\?|\b(kya|kyun|kaise|kaun|what|is it)\b|क्या|कैसे/u.test(t);
   return (
-    /\b(i|we|my|mother|father|family)\b[^.?!]{0,30}\b(have|has|got|covered)\b[^.?!]{0,20}(insurance|bima)|my (health )?insurance|insurance (will|can) (pay|cover)/.test(t) ||
-    /\b(mere|mera|meri|hamare|humare|hamara|papa|mummy|maa|pitaji|family)\b[^.?!]{0,25}\b(paas|pass|ka|ki|ke)\b[^.?!]{0,15}\b(insurance|bima|policy)\b[^.?!]{0,10}\b(hai|he|hain)\b/.test(t) ||
+    /\b(i|we|my|mother|father|family)\b[^.?!]{0,30}\b(have|has|got|covered)\b[^.?!]{0,20}(insurance|bima)|my (health )?insurance|insurance (will|can) (pay|cover)/.test(
+      t,
+    ) ||
+    /\b(mere|mera|meri|hamare|humare|hamara|papa|mummy|maa|pitaji|family)\b[^.?!]{0,25}\b(paas|pass|ka|ki|ke)\b[^.?!]{0,15}\b(insurance|bima|policy)\b[^.?!]{0,10}\b(hai|he|hain)\b/.test(
+      t,
+    ) ||
     /(मेरे|हमारे|पापा|माँ|परिवार)[^.?!]{0,25}(बीमा|इंश्योरेंस)[^.?!]{0,10}है/u.test(t) ||
     (!question &&
       (/\b(insurance|bima)\b[^.?!]{0,10}\b(hai|he|hain|cover karega|se ho jayega)\b/.test(t) ||
@@ -315,8 +441,19 @@ export class ChatPipelineService {
       cust.first_name = m.profileName;
       await cust.save();
     }
-    const conv =
-      (await this._ConvRepo.findOpenByCustomer(cust.id)) ?? (await this._ConvRepo.openNew(cust.id));
+    let open = await this._ConvRepo.findOpenByCustomer(cust.id);
+    // Playbook 1.3: a decision journey ends after 7 days without a reply. The next message starts a new
+    // one, so triggers, the soft suggestion and the product choice can be offered again for a new need.
+    if (open && journeyExpired(open)) {
+      await conversation.update(open.id, {
+        closed_at: new Date(),
+        state: ConversationState.Closed,
+        outcome: open.outcome ?? "no_reply_7_days",
+        pending_action: null,
+      } as any);
+      open = null;
+    }
+    const conv = open ?? (await this._ConvRepo.openNew(cust.id));
     conv.last_customer_message_at = new Date();
     // update only this column: a full save() could overwrite the state the repository just wrote
     await conversation.update(conv.id, { last_customer_message_at: conv.last_customer_message_at });
@@ -352,7 +489,9 @@ export class ChatPipelineService {
       .where("o.conversation_id = :cid", { cid: m.conversation_id })
       .andWhere("o.direction = 'in'")
       .andWhere("o.id <> :id", { id: m.id })
-      .andWhere(`o.created_on > (SELECT x.created_on FROM "message" x WHERE x.id = :id)`, { id: m.id })
+      .andWhere(`o.created_on > (SELECT x.created_on FROM "message" x WHERE x.id = :id)`, {
+        id: m.id,
+      })
       .andWhere(
         `EXISTS (SELECT 1 FROM "message" r WHERE r.direction = 'out' AND r.reply_to_wa_message_id = o.wa_message_id)`,
       )
@@ -375,12 +514,21 @@ export class ChatPipelineService {
     replyTo: string,
   ) {
     if (await this.alreadyReplied(replyTo)) return;
-    const msg: OutboundMessage =
-      typeof content === "string" ? { kind: "text", body: content } : content;
+    // Playbook 1.1: YES / NO = reply buttons; long text = up to three bubbles. Only the first bubble carries
+    // the inbound wamid (that is what "already replied" checks); the others follow it.
+    const msgs: OutboundMessage[] = typeof content === "string" ? toBubbles(content) : [content];
     try {
-      await this._Wa.send(customerId, msg, "reply", replyTo);
+      await this._Wa.send(customerId, msgs[0], "reply", replyTo);
     } catch (e) {
       if (!isUniqueViolation(e)) throw e; // someone else already saved a reply: fine
+      return;
+    }
+    for (const extra of msgs.slice(1)) {
+      try {
+        await this._Wa.send(customerId, extra, "reply");
+      } catch (e) {
+        this.logger.warn(`follow-up bubble not sent: ${(e as Error).message}`);
+      }
     }
   }
 
@@ -414,8 +562,9 @@ export class ChatPipelineService {
     priority: TaskPriority,
     s: Saved,
     summary: string,
-    opts: { sendToCrm?: boolean } = {},
-  ) {
+    opts: { sendToCrm?: boolean; extra?: Record<string, unknown> } = {},
+  ): Promise<string> {
+    let taskId = "";
     const row = await this._DataSource.transaction(async (mg) => {
       const t = await mg.save(
         mg.create(task, {
@@ -427,6 +576,7 @@ export class ChatPipelineService {
           summary,
         } as any),
       );
+      taskId = String((t as any).id ?? "");
       if (opts.sendToCrm === false) return null;
       return await this._Outbox.enqueue(mg, CrmAction.CreateTask, s.customer.id, {
         task_id: (t as any).id,
@@ -434,9 +584,11 @@ export class ChatPipelineService {
         priority,
         summary,
         conversation_id: s.conversation.id,
+        ...opts.extra,
       });
     });
     await this._Outbox.dispatch(row);
+    return taskId;
   }
 
   // Task for a guardrail event. Stores only type, priority, and the inbound wamid (no message text,
@@ -445,8 +597,8 @@ export class ChatPipelineService {
     const exists = await task.findOne({
       where: { conversation_id: s.conversation.id, type, summary },
     });
-    if (exists) return;
-    await this.createTask(type, priority, s, summary);
+    if (exists) return String((exists as any).id ?? "");
+    return await this.createTask(type, priority, s, summary);
   }
 
   // An open booking request or an unpaid activation = a human must still follow up after STOP
@@ -505,6 +657,29 @@ export class ChatPipelineService {
     await this._Scheduler?.cancelAll(s.customer.id, "opt_out");
   }
 
+  // The customer wrote START after STOP: opt-out cleared, OPTED_OUT -> NEW, CRM told, one fixed reply.
+  // Marketing consent stays off (it needs its own yes); follow-ups cancelled at STOP are not brought back.
+  private async recordOptIn(m: Inbound, s: Saved, cons: consent) {
+    const row = await this._DataSource.transaction(async (mg) => {
+      await mg.update(consent, { customer_id: s.customer.id }, { opt_out_at: null });
+      cons.opt_out_at = null;
+      return await this._Outbox.enqueue(mg, CrmAction.SetOptIn, s.customer.id, {
+        customer_id: s.customer.id,
+        opt_in_at: new Date().toISOString(),
+      });
+    });
+    try {
+      const updated = await this._ConvRepo.optIn(s.conversation.id);
+      s.conversation.state = updated.state;
+    } catch (e) {
+      // the opt-out is cleared either way; a conversation that was not OPTED_OUT keeps its state
+      if (!(e instanceof InvalidTransitionError)) throw e;
+    }
+    await this._Outbox.dispatch(row);
+    await this.recordTrigger(s, "R", "opt_in");
+    await this.sendAndSave(s.customer.id, fixedReply("opt_in", s.customer.language), m.waMessageId);
+  }
+
   // Fixed replies, no Claude. Each branch: task first (once per wamid), then state, then the reply
   // last, so a retried job after a failed send still ends with the reply and no second task.
   private async handleGuardrail(hit: GuardrailHit, m: Inbound, s: Saved, cons: consent | null) {
@@ -540,7 +715,10 @@ export class ChatPipelineService {
       }
       await this.sendAndSave(
         s.customer.id,
-        fixedReply(open.booking ? "opt_out_booking" : "opt_out", lang),
+        fixedReply(
+          open.booking ? "opt_out_booking" : open.payment ? "opt_out_payment" : "opt_out",
+          lang,
+        ),
         m.waMessageId,
       );
       return;
@@ -565,7 +743,7 @@ export class ChatPipelineService {
     }
 
     if (hit.kind === "complaint") {
-      await this.createTaskOnce(
+      const taskId = await this.createTaskOnce(
         TaskType.Escalation,
         TaskPriority.Urgent,
         s,
@@ -573,12 +751,16 @@ export class ChatPipelineService {
       );
       await this.recordTrigger(s, "O", "complaint or payment dispute");
       await this.setState(s, [ConversationState.Escalated]);
-      await this.sendAndSave(s.customer.id, fixedReply("complaint", lang), m.waMessageId);
+      await this.sendAndSave(
+        s.customer.id,
+        await this.withCallbackOptions(s, taskId, fixedReply("complaint", lang)),
+        m.waMessageId,
+      );
       return;
     }
 
     // talk to a person
-    await this.createTaskOnce(
+    const taskId = await this.createTaskOnce(
       TaskType.Escalation,
       TaskPriority.Normal,
       s,
@@ -586,7 +768,67 @@ export class ChatPipelineService {
     );
     await this.recordTrigger(s, "O", "asked for a person");
     await this.setState(s, [ConversationState.Escalated]);
-    await this.sendAndSave(s.customer.id, fixedReply("escalation", lang), m.waMessageId);
+    await this.sendAndSave(
+      s.customer.id,
+      await this.withCallbackOptions(s, taskId, fixedReply("escalation", lang)),
+      m.waMessageId,
+    );
+  }
+
+  // Trigger O: the escalation reply also offers callback windows inside team hours; the answer is read
+  // by handleCallbackTime. The windows shown are stored with the task id, so "2" means what was shown.
+  private async withCallbackOptions(
+    s: Saved,
+    taskId: string | undefined,
+    text: string,
+  ): Promise<string> {
+    const options = callbackOptions();
+    if (!taskId || !options.length) return text;
+    await this.setPending(s, `callback_time:${taskId}:${packWindows(options)}`);
+    return [text, callbackQuestion(options, s.customer.language)].filter(Boolean).join("\n\n");
+  }
+
+  // The customer's answer to the callback options. Anything else stays with the team (bot quiet while ESCALATED).
+  private async handleCallbackTime(m: Inbound, s: Saved): Promise<boolean> {
+    const hit = (s.conversation.pending_action ?? "").match(/^callback_time:([^:]+):(.*)$/);
+    if (!hit) return false;
+    const taskId = hit[1];
+    const choice = parseCallbackChoice(m.text, unpackWindows(hit[2]));
+    if (!choice) return false;
+    const lang = s.customer.language;
+    if ("outside" in choice) {
+      const fresh = callbackOptions();
+      await this.setPending(s, `callback_time:${taskId}:${packWindows(fresh)}`);
+      await this.sendAndSave(
+        s.customer.id,
+        `${say(CALLBACK_OUTSIDE_HOURS_T(teamHours()), lang)}\n\n${callbackQuestion(fresh, lang)}`,
+        m.waMessageId,
+      );
+      return true;
+    }
+    const w = choice.window;
+    const t = await task.findOne({ where: { id: taskId } });
+    const row = await this._DataSource.transaction(async (mg) => {
+      if (t)
+        await mg.update(
+          task,
+          { id: taskId },
+          { callback_from: w.from, callback_to: w.to, due_at: w.from },
+        );
+      return await this._Outbox.enqueue(mg, CrmAction.SetCallbackWindow, s.customer.id, {
+        task_id: taskId,
+        crm_task_id: (t as any)?.crm_task_id ?? null,
+        callback_window: { from: w.from.toISOString(), to: w.to.toISOString() },
+      });
+    });
+    await this._Outbox.dispatch(row);
+    await this.setPending(s, null);
+    await this.sendAndSave(
+      s.customer.id,
+      callbackSavedText(w, caseRef(taskId), lang),
+      m.waMessageId,
+    );
+    return true;
   }
 
   // DPDP consent step. Ends the turn. No Claude call, no health question, no other text than the fixed replies.
@@ -602,6 +844,16 @@ export class ChatPipelineService {
     const customerId = s.customer.id;
 
     if (status === "none") {
+      // Playbook 4.2 then 16.3: the greeting and the opening list come first (no health question in them);
+      // the notice comes with the customer's next message, before the first health question. The row the
+      // customer picked is remembered and answered right after their YES.
+      if (s.conversation.state === ConversationState.New) {
+        await this.sendAndSave(customerId, openingList(lang), m.waMessageId);
+        await this.setState(s, [ConversationState.IntentMenu]);
+        return;
+      }
+      const row = matchMenuRow(m.text);
+      if (row) await this.setPending(s, `after_consent:${row.id}`);
       await this.sendAndSave(customerId, fixedReply("health_notice", lang), m.waMessageId);
       await this.saveConsentRow(customerId, cons, (c) => {
         c.notice_sent_at = new Date();
@@ -621,8 +873,24 @@ export class ChatPipelineService {
         c.health_refused_at = null;
         c.health_refused_version = null;
       });
+      await this.crmEvent(s, "consent", {
+        health_data_consent: true,
+        notice_version: NOTICE_VERSION,
+      });
       const ack = fixedReply("health_consent_yes", lang);
-      if (s.conversation.state === ConversationState.New) {
+      const picked = this.rowAfterConsent(s);
+      if (picked) {
+        await this.setPending(s, null);
+        await this.sendAndSave(
+          customerId,
+          `${ack} ${await this.rowReply(picked, s)}`,
+          m.waMessageId,
+        );
+        await this.enterRow(picked, s);
+      } else if (
+        s.conversation.state === ConversationState.New ||
+        s.conversation.state === ConversationState.IntentMenu
+      ) {
         // the first thing after consent: welcome + the 4-row opening list
         await this.sendAndSave(customerId, openingList(lang, ack), m.waMessageId);
         await this.setState(s, [ConversationState.IntentMenu]);
@@ -641,10 +909,177 @@ export class ChatPipelineService {
         c.health_refused_at = new Date();
         c.health_refused_version = NOTICE_VERSION;
       });
+      await this.crmEvent(s, "consent", {
+        health_data_consent: false,
+        notice_version: NOTICE_VERSION,
+      });
+      if (this.rowAfterConsent(s)) await this.setPending(s, null);
       await this.sendAndSave(customerId, fixedReply("health_consent_no", lang), m.waMessageId);
     } else {
       await this.sendAndSave(customerId, fixedReply("health_consent_unclear", lang), m.waMessageId);
     }
+  }
+
+  // ---- Opening list rows (Playbook 4.2, state machine 3) ----
+
+  /** The row the customer picked before the health-data notice, if any */
+  private rowAfterConsent(s: Saved): MenuRow | null {
+    const p = s.conversation.pending_action;
+    if (!p?.startsWith("after_consent:")) return null;
+    const id = p.slice("after_consent:".length);
+    return [...MENU_ROWS, ...LEAD_ROWS].find((r) => r.id === id) ?? null;
+  }
+
+  /** The reply to a row. "Existing customer help" looks the customer up first (SERVICE_OR_ESCALATION). */
+  private async rowReply(row: MenuRow, s: Saved, noHealth = false): Promise<string> {
+    const l = s.customer.language;
+    if (row.id === "menu_service") return await this.serviceReply(s);
+    // health consent refused: the discovery row would ask a health question
+    if (noHealth && row.id === "menu_need") return fixedReply("health_consent_no", l);
+    if (noHealth && row.id === "menu_explain") return withoutClosingQuestion(menuReply(row, l));
+    return menuReply(row, l);
+  }
+
+  // One acknowledgement while ESCALATED / PAUSE (marker PARKED_ACK in pending_action, cleared when the
+  // conversation is back in a normal state). Quiet while a person has the chat, while callback options are
+  // waiting for an answer, and after the first acknowledgement.
+  private async acknowledgeWhileParked(m: Inbound, s: Saved) {
+    const conv = s.conversation;
+    if (conv.taken_over_by_id) return;
+    if (conv.pending_action === PARKED_ACK || conv.pending_action?.startsWith("callback_time:"))
+      return;
+    const key = conv.state === ConversationState.Pause ? PAUSE_ACK_T : ESCALATED_ACK_T;
+    await this.setPending(s, PARKED_ACK);
+    await this.sendAndSave(s.customer.id, say(key, s.customer.language), m.waMessageId);
+  }
+
+  // SERVICE_OR_ESCALATION (Playbook 3): look the customer up and say what is on record
+  private async serviceReply(s: Saved): Promise<string> {
+    const c = s.customer;
+    const open = await booking_request.find({
+      where: { customer_id: c.id, booking_status: BookingStatus.PendingConfirmation },
+      relations: { centre: true },
+      take: 3,
+    });
+    const link = await activation.findOne({
+      where: {
+        customer_id: c.id,
+        payment_status: PaymentStatus.Pending,
+        activation_status: ActivationStatus.LinkSent,
+      },
+    });
+    const openCase = await task.findOne({
+      where: {
+        customer_id: c.id,
+        task_status: In([TaskStatus.Open, TaskStatus.InProgress]),
+        type: In([
+          TaskType.Escalation,
+          TaskType.HumanHandoff,
+          TaskType.PaymentIssue,
+          TaskType.Servicing,
+          TaskType.VerifyActivation,
+        ]),
+      },
+    });
+    return serviceSummaryText(
+      {
+        product: c.active_product ?? null,
+        plan: c.active_plan ?? null,
+        bookings: open.map((b) => ({ centre: b.centre?.name ?? "", date: b.preferred_date })),
+        linkPending: !!link,
+        openCase: !!openCase,
+      },
+      c.language,
+    );
+  }
+
+  // The customer's question after "Existing customer help": a person answers it (Playbook 3, 16.4).
+  // Approved FAQ answers were already given before this point.
+  private async handleServiceRequest(m: Inbound, s: Saved): Promise<boolean> {
+    if (s.conversation.state !== ConversationState.ServiceOrEscalation) return false;
+    // no message text in the task: it may hold health or payment details (Playbook 16.3)
+    const taskId = await this.createTaskOnce(
+      TaskType.Servicing,
+      TaskPriority.Normal,
+      s,
+      `wamid:${m.waMessageId} existing customer help request`,
+    );
+    await this.setState(s, [ConversationState.Escalated]);
+    const text = await this.withCallbackOptions(
+      s,
+      taskId,
+      say(SERVICE_ESCALATE, s.customer.language),
+    );
+    await this.sendAndSave(s.customer.id, text, m.waMessageId);
+    return true;
+  }
+
+  // Playbook 3.1: an active product blocks another activation; the team gets a servicing task
+  private async blockOtherProduct(s: Saved): Promise<string> {
+    await this.createTaskOnce(
+      TaskType.Servicing,
+      TaskPriority.Normal,
+      s,
+      `active ${s.customer.active_product} customer asked for another activation`,
+    );
+    return activeProductBlock(
+      s.customer.active_product ?? null,
+      s.customer.active_plan ?? null,
+      s.customer.language,
+    );
+  }
+
+  // Replies to the outbound lead template (Playbook 4.1) and to the 4.5 priority question
+  private async handleLead(
+    m: Inbound,
+    s: Saved,
+    consentStatus: string,
+    cons: consent | null,
+  ): Promise<boolean> {
+    const p = s.conversation.pending_action;
+    const l = s.customer.language;
+    if (p === "lead_priority") {
+      const k = leadPriority(m.text);
+      if (!k) {
+        if (/\?\s*$/.test(m.text.trim())) {
+          await this.setPending(s, null); // a question: answered normally
+          return false;
+        }
+        await this.sendAndSave(s.customer.id, menuReply(LEAD_ROWS[1], l), m.waMessageId);
+        return true;
+      }
+      await this.setPending(s, null);
+      await this.sendAndSave(s.customer.id, LEAD_SUMMARY[k][lang(l)], m.waMessageId);
+      return true;
+    }
+    if (p !== "lead_intro") return false;
+    const row = matchLeadRow(m.text);
+    await this.setPending(s, null);
+    if (!row) return false; // anything else: a normal first message
+    if (row.id === "lead_yes" && (consentStatus === "none" || consentStatus === "awaiting")) {
+      // discovery asks about health: the notice first, then question 1 right after the YES (16.3)
+      await this.setPending(s, "after_consent:lead_yes");
+      await this.sendAndSave(s.customer.id, fixedReply("health_notice", l), m.waMessageId);
+      await this.saveConsentRow(s.customer.id, cons, (c) => {
+        c.notice_sent_at = new Date();
+        c.notice_sent_version = NOTICE_VERSION;
+      });
+      return true;
+    }
+    const text =
+      row.id === "lead_yes" && consentStatus === "refused"
+        ? fixedReply("health_consent_no", l)
+        : menuReply(row, l);
+    await this.sendAndSave(s.customer.id, text, m.waMessageId);
+    await this.enterRow(row, s);
+    return true;
+  }
+
+  private async enterRow(row: MenuRow, s: Saved) {
+    // FOLLOW_UP_TIME is reached through INTENT_MENU from a brand-new chat (state machine, Playbook 3)
+    await this.setState(s, [ConversationState.IntentMenu, row.state]);
+    if (row.id === "lead_details") await this.setPending(s, "lead_priority");
+    if (row.state === ConversationState.FollowUpTime) await this.setPending(s, "follow_up_time");
   }
 
   // One transaction; throws when it cannot save (fail closed)
@@ -663,9 +1098,28 @@ export class ChatPipelineService {
   // Pipeline: guardrails -> consent gate -> last 20 messages -> Claude -> validator -> send -> save
   // One customer message: the turn, then the rescue alarm if the customer goes quiet (Playbook 15)
   async process(m: Inbound, s: Saved): Promise<void> {
+    await this.lookupInCrm(s);
     await this.customerReplied(s);
     await this.processTurn(m, s);
     await this.afterTurn(m, s);
+    await this.markHandledWithoutReply(m, s);
+  }
+
+  // The turn finished without a reply on purpose (opted out, a person has the case, already acknowledged,
+  // ...). Marked so the lost-message recovery does not requeue it every minute: those requeues block the
+  // one-at-a-time inbound queue for every other customer. A turn that failed never gets here (it stays
+  // "received" and is retried / recovered as before).
+  private async markHandledWithoutReply(m: Inbound, s: Saved) {
+    if (!s.message?.id) return;
+    try {
+      if (await this.alreadyReplied(m.waMessageId)) return;
+      await message.update(
+        { id: s.message.id, message_status: "received" },
+        { message_status: "no_reply" },
+      );
+    } catch (e) {
+      this.logger.debug(`message status not updated: ${(e as Error).message}`);
+    }
   }
 
   private async processTurn(m: Inbound, s: Saved): Promise<void> {
@@ -692,7 +1146,11 @@ export class ChatPipelineService {
       return;
     }
 
-    if (cons?.opt_out_at) return; // opted out: no messages at all
+    if (cons?.opt_out_at) {
+      // "START" (whole message) is the only way back in; anything else gets no reply at all
+      if (isOptIn(m.text)) await this.recordOptIn(m, s, cons);
+      return;
+    }
 
     // 1a. Strict order (plan 12.10). A retried or recovered job can reach us after a NEWER message from
     // the same customer was already answered. Running it now would read an old "yes" or "hi" as the
@@ -705,17 +1163,31 @@ export class ChatPipelineService {
       return;
     }
 
+    // ESCALATED: the one answer the bot still reads is the callback time it offered (Trigger O)
+    if (
+      s.conversation.state === ConversationState.Escalated &&
+      (await this.handleCallbackTime(m, s))
+    )
+      return;
     if (
       s.conversation.state === ConversationState.Pause ||
       s.conversation.state === ConversationState.Escalated
     ) {
-      return; // bot stays quiet while paused or handed off to a human
+      // Playbook 3: ESCALATED gives a callback expectation. One short acknowledgement per escalation (or
+      // safety pause), never while a person has taken the chat over, never a second time: the bot stays quiet.
+      await this.acknowledgeWhileParked(m, s);
+      return;
     }
+    if (s.conversation.pending_action === PARKED_ACK) await this.setPending(s, null); // resolved meanwhile
 
     // 1b. DPDP health-data consent gate. Server-side, before any context is loaded and before Claude is
     // called, so no health question can be asked (or even generated) until YES is saved for the CURRENT
     // notice version. Only the customer's own words decide it, never Claude. Any other state fails closed.
     const consentStatus = healthConsentStatus(cons);
+    // Playbook 4.1 / 4.5 and FOLLOW_UP_TIME: steps with no health question run before the consent gate
+    if (await this.handleLead(m, s, consentStatus, cons)) return;
+    if (s.conversation.pending_action === "follow_up_time" && (await this.handleFollowUpTime(m, s)))
+      return;
     if (consentStatus === "none" || consentStatus === "awaiting") {
       await this.handleConsentStep(consentStatus, m, s, cons);
       return;
@@ -724,13 +1196,16 @@ export class ChatPipelineService {
 
     // 1c. Opening list (plan 12.2). A new conversation gets the welcome + 4-row list (state INTENT_MENU).
     // A tap on a row goes to that row's state with a fixed reply. Anything else is a normal conversation.
-    if (consentStatus === "granted") {
+    if (consentStatus === "granted" || healthBlocked) {
       const row = matchMenuRow(m.text);
       const tapped = !!row && m.text.trim().toLowerCase() === row.id; // a list tap sends the row id
       if (row && (tapped || s.conversation.state === ConversationState.IntentMenu)) {
-        await this.sendAndSave(s.customer.id, menuReply(row, s.customer.language), m.waMessageId);
-        await this.setState(s, [row.state]);
-        if (row.state === ConversationState.FollowUpTime) await this.setPending(s, "follow_up_time");
+        await this.sendAndSave(
+          s.customer.id,
+          await this.rowReply(row, s, healthBlocked),
+          m.waMessageId,
+        );
+        await this.enterRow(row, s);
         return;
       }
       if (s.conversation.state === ConversationState.New) {
@@ -742,6 +1217,8 @@ export class ChatPipelineService {
 
     // 1d. Answers the system is waiting for, and questions with an approved fixed answer (no Claude)
     if (await this.handleCmbGate(m, s)) return;
+    if (await this.handleCentreRadius(m, s)) return;
+    if (await this.handleRebookOffer(m, s)) return;
     if (await this.handleCentrePick(m, s)) return;
     if (await this.handleBooking(m, s)) return;
     if (await this.handleFollowUpTime(m, s)) return;
@@ -752,9 +1229,12 @@ export class ChatPipelineService {
     if (await this.handlePaymentReply(m, s)) return;
     if (await this.handleInsurance(m, s)) return;
     if (await this.handleCentreSaving(m, s)) return;
+    if (await this.handleFaq(m, s, healthBlocked)) return;
+    if (await this.handleServiceRequest(m, s)) return;
     if (await this.handleBarrier(m, s)) return;
     if (await this.handleMedicine(m, s, healthBlocked)) return;
     if (await this.handleObjection(m, s, healthBlocked)) return;
+    if (await this.handleRescueSignal(m, s, healthBlocked)) return;
 
     // the first message of a conversation starts the discovery
     await this.setState(s, [ConversationState.Discovery]);
@@ -776,7 +1256,7 @@ export class ChatPipelineService {
     if (history[history.length - 1].role !== "user")
       history.push({ role: "user", content: m.text });
 
-    const context = this.describe(s.customer, cons, !healthBlocked, s.conversation);
+    const context = this.describe(s.customer, cons, !healthBlocked, s.conversation, await this.knownFacts(s, !healthBlocked));
 
     // 3. Claude + validator (retry once)
     let result: ClaudeResult | null = null;
@@ -810,7 +1290,7 @@ export class ChatPipelineService {
       this.logger.warn(
         `conversation ${s.conversation.id}: draft replaced by the fixed holding message: ${feedback ?? "n/a"}`,
       );
-      await this.createTask(
+      const holdTaskId = await this.createTask(
         TaskType.HoldingMessage,
         TaskPriority.High,
         s,
@@ -819,9 +1299,17 @@ export class ChatPipelineService {
       // a human picks it up (the task above). ESCALATED, not PAUSE: PAUSE is the safety state and
       // would be counted as an emergency in the trigger suppression and the KPIs
       await this.setState(s, [ConversationState.Escalated]);
-      await this.sendAndSave(s.customer.id, say(HOLDING_MESSAGE_T, s.customer.language), m.waMessageId);
+      // Playbook 16.4: a callback the customer can choose, not an open-ended wait
+      await this.sendAndSave(
+        s.customer.id,
+        await this.withCallbackOptions(s, holdTaskId, say(HOLDING_MESSAGE_T, s.customer.language)),
+        m.waMessageId,
+      );
       return;
     }
+
+    // Playbook 1.1: one question per message, enforced (the LLM sometimes asks two)
+    result = { ...result, reply_text: oneQuestion(result.reply_text) };
 
     // 4. Apply extracted fields + system-built additions (prices, links, centres come from the DB)
     if (healthBlocked) {
@@ -832,6 +1320,24 @@ export class ChatPipelineService {
         intent: result.intent === "recommend" ? "other" : result.intent,
       };
     }
+    // "Monthly 20,000": the yearly spend is worked out here (x 12), not left to the LLM, and it brings the
+    // value check in this same turn instead of another "would you like to explore a plan?"
+    const statedSpend = healthBlocked ? null : statedYearlySpend(m.text);
+    if (statedSpend) {
+      result = {
+        ...result,
+        extracted_fields: { ...(result.extracted_fields || {}), annual_medical_spend: statedSpend },
+        intent: ["collect_needs", "other", "greeting"].includes(result.intent)
+          ? "recommend"
+          : result.intent,
+      };
+    }
+    // CENTRE_SEARCH (the "Find or book a centre" row): the answer to "which city and locality" is a centre search
+    if (
+      s.conversation.state === ConversationState.CentreSearch &&
+      ["collect_needs", "other", "greeting"].includes(result.intent)
+    )
+      result = { ...result, intent: "find_centre" };
     const shown = new Set<string>();
     const extras = await this.applyResult(result, s, m, shown);
     // One trigger per turn, decided now and recorded only AFTER the reply went out, so a failed send
@@ -852,7 +1358,12 @@ export class ChatPipelineService {
       if (trig && NEEDS_SHOWN.includes(trig) && !shown.has(trig)) trig = null;
       if (!trig && shown.has("F")) trig = "F";
       if (trig === "C" && !this.canWhyActivate(s)) trig = null;
-      decision = await this._Triggers.decide(s.customer.id, s.conversation, trig, s.customer.active_product);
+      decision = await this._Triggers.decide(
+        s.customer.id,
+        s.conversation,
+        trig,
+        s.customer.active_product,
+      );
       if (decision && !decision.suppression) {
         const lang = s.customer.language;
         if (decision.id === "A") {
@@ -881,19 +1392,37 @@ export class ChatPipelineService {
     if (shown.has("G")) replaceReply = true;
     // a question interrupted the gate or the booking: answer it, then ask the same question again (12.2)
     const back = extras.length ? [] : this.pendingBack(s);
-    const finalText = [replaceReply ? null : result.reply_text, ...extras, contentText, ...back]
-      .filter((x): x is string => !!x)
-      .join("\n\n");
-
+    // the draft loses its own question when the system asks one, any "please hold on" promise, and a
+    // "Thank you for sharing" opener right after another one (Helper/ReplyTidy.ts)
+    let callbackText = "";
     if (result.needs_human) {
-      await this.createTask(
+      const taskId = await this.createTask(
         TaskType.HumanHandoff,
         TaskPriority.Normal,
         s,
-        result.reply_text.slice(0, 500),
+        // no message text: it may hold health or payment details and this summary goes to the CRM (Playbook 16.3)
+        `wamid:${m.waMessageId} the assistant could not answer confidently (intent ${result.intent}); read the chat`,
       );
       await this.setState(s, [ConversationState.Escalated]);
+      // Trigger O: why a callback, then the options (never the bare list)
+      callbackText = await this.withCallbackOptions(
+        s,
+        taskId,
+        say(CALLBACK_REASON_T, s.customer.language),
+      );
     }
+    const systemParts = [...extras, contentText, ...back, callbackText].filter(
+      (x): x is string => !!x,
+    );
+    const draftText = replaceReply
+      ? null
+      : tidyDraft(result.reply_text, {
+          // the callback options ask for a choice too (they end with "Reply 1, 2 or 3", no question mark)
+          systemAsks: !!callbackText || systemParts.some((x) => hasQuestion(x)),
+          previousBotText:
+            [...history].reverse().find((t) => t.role === "assistant")?.content ?? null,
+        });
+    const finalText = [draftText, ...systemParts].filter((x): x is string => !!x).join("\n\n");
     await this.sendAndSave(s.customer.id, finalText, m.waMessageId);
     if (decision)
       await this._Triggers!.record(s.customer.id, s.conversation, decision, result.intent, {
@@ -939,7 +1468,11 @@ export class ChatPipelineService {
 
   private async whyActivateFor(s: Saved, asset: approved_asset | null): Promise<string> {
     const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
-    return whyActivateText(whyActivateVariant(n, s.customer.age ?? null), asset, s.customer.language);
+    return whyActivateText(
+      whyActivateVariant(n, s.customer.age ?? null),
+      asset,
+      s.customer.language,
+    );
   }
 
   // Barriers with approved wording, answered without Claude (Trigger layer 3, 5, 7 and 14.1):
@@ -952,12 +1485,19 @@ export class ChatPipelineService {
     const reply = async (body: string) =>
       this.sendAndSave(s.customer.id, [body, ...this.pendingBack(s)].join("\n\n"), m.waMessageId);
     const decide = async (id: "A" | "C" | "E") =>
-      (await this._Triggers?.decide(s.customer.id, s.conversation, id, s.customer.active_product)) ?? null;
+      (await this._Triggers?.decide(
+        s.customer.id,
+        s.conversation,
+        id,
+        s.customer.active_product,
+      )) ?? null;
 
     if (asksTrust(text)) {
       const d = await decide("A");
       const first = this._Triggers ? !!d && !d.suppression : true;
-      const assets = first ? trustPackAssets(await pickAssets("A", lang, s.conversation.id, 4)) : [];
+      const assets = first
+        ? trustPackAssets(await pickAssets("A", lang, s.conversation.id, 4))
+        : [];
       await reply(trustPackText(assets, first, s.customer.language));
       if (d)
         await this._Triggers!.record(s.customer.id, s.conversation, d, "trust doubt", {
@@ -1000,15 +1540,17 @@ export class ChatPipelineService {
   private async comparison(s: Saved, n: need | null): Promise<string | null> {
     const rows = await plan_catalog.find({ where: { product: ProductType.Oxxy, status: true } });
     if (!rows.length) return null;
-    const table: ComparisonRow[] = PLAN_ORDER.filter((p) => rows.some((r) => r.plan === p)).map((p) => {
-      const of = (b: string) => rows.find((r) => r.plan === p && r.billing === b);
-      return {
-        plan: p,
-        monthly: of(BillingCycle.Monthly)?.price ?? null,
-        yearly: of(BillingCycle.Yearly)?.price ?? null,
-        age_limit: (of(BillingCycle.Yearly) ?? of(BillingCycle.Monthly))?.age_limit ?? null,
-      };
-    });
+    const table: ComparisonRow[] = PLAN_ORDER.filter((p) => rows.some((r) => r.plan === p)).map(
+      (p) => {
+        const of = (b: string) => rows.find((r) => r.plan === p && r.billing === b);
+        return {
+          plan: p,
+          monthly: of(BillingCycle.Monthly)?.price ?? null,
+          yearly: of(BillingCycle.Yearly)?.price ?? null,
+          age_limit: (of(BillingCycle.Yearly) ?? of(BillingCycle.Monthly))?.age_limit ?? null,
+        };
+      },
+    );
     const conv = s.conversation;
     let rec = conv.recommended_plan;
     let ask: string | null = null;
@@ -1069,6 +1611,7 @@ export class ChatPipelineService {
     cons: consent | null,
     healthQuestionsAllowed: boolean,
     conv?: conversation,
+    known?: Record<string, unknown>,
   ): string {
     return JSON.stringify({
       first_name: c.first_name,
@@ -1077,9 +1620,55 @@ export class ChatPipelineService {
       active_product: c.active_product,
       whatsapp_consent: cons?.whatsapp_consent,
       health_questions_allowed: healthQuestionsAllowed,
+      // what the customer already told us and where the conversation stands: never asked again
+      ...(known ?? {}),
       // the human agent's hand-back note (Full Plan 12.9), for a week after the hand-back
       ...(teamNote(conv) ? { team_note: teamNote(conv) } : {}),
+      // what the customer already told the voice AI on the phone (StartConversation), for a week
+      ...(freshCallContext(conv) ? { call_context: freshCallContext(conv) } : {}),
     });
+  }
+
+  // What is already stored about this customer, for the LLM: without it the bot only "remembers" what is
+  // still inside the last 20 messages and asks again for the city, the patient or the spend it already has.
+  //  known            = the answers of THIS conversation (need row) + where it stands (state, plan, booking)
+  //  from_earlier_chat = city / locality of the customer's previous conversation (to confirm, not to re-ask)
+  // Health fields are left out when the customer refused the health-data consent.
+  private async knownFacts(s: Saved, healthAllowed: boolean): Promise<Record<string, unknown>> {
+    const out: Record<string, unknown> = {};
+    const pick = (row: Record<string, any> | null, keys: string[]) => {
+      const o: Record<string, unknown> = {};
+      for (const k of keys) if (row?.[k] != null && row[k] !== "") o[k] = row[k];
+      return healthAllowed ? o : withoutHealthFields(o);
+    };
+    try {
+      const conv = s.conversation;
+      const n = await need.findOne({ where: { conversation_id: conv.id } });
+      const known = pick(n as any, KNOWN_NEED_FIELDS);
+      if (conv.selected_product) known.selected_product = conv.selected_product;
+      if (conv.recommended_plan) known.recommended_plan = conv.recommended_plan;
+      if (conv.objection) known.objection = conv.objection;
+      if (conv.outcome) known.outcome = conv.outcome;
+      const b = await booking_request.findOne({
+        where: { conversation_id: conv.id, booking_status: In([BookingStatus.PendingConfirmation, BookingStatus.Confirmed]) },
+      });
+      if (b) known.booking_request = { status: (b as any).booking_status, preferred_date: (b as any).preferred_date };
+      if (Object.keys(known).length) out.known = known;
+      out.conversation_state = conv.state;
+      if (!n) {
+        const earlier = await need
+          .createQueryBuilder("n")
+          .innerJoin(conversation, "c", "c.id = n.conversation_id")
+          .where("c.customer_id = :cid AND c.id <> :cur", { cid: s.customer.id, cur: conv.id })
+          .orderBy("n.created_on", "DESC")
+          .getOne();
+        const before = pick(earlier as any, ["city", "locality", "postcode"]);
+        if (Object.keys(before).length) out.from_earlier_chat = before;
+      }
+    } catch (e) {
+      this.logger.debug(`known facts not loaded: ${(e as Error).message}`);
+    }
+    return out;
   }
 
   // `shown` collects the triggers whose content this reply really carries (D list, E plan / disclosure)
@@ -1093,6 +1682,10 @@ export class ChatPipelineService {
     const extras: string[] = [];
     const c = s.customer;
     const conv = s.conversation;
+    // what the CRM had before this turn: an upsert goes out only when something changed
+    const crmBefore = JSON.stringify(
+      this.crmFields(s, await need.findOne({ where: { conversation_id: conv.id } })),
+    );
 
     // customer fields
     if (f.first_name) c.first_name = String(f.first_name);
@@ -1104,17 +1697,27 @@ export class ChatPipelineService {
     let wantsCmb = false;
     if (f.selected_product && Object.values(ProductType).includes(f.selected_product)) {
       if (c.active_product && c.active_product !== f.selected_product) {
-        extras.push(
-          say(T.activeProduct, s.customer.language),
-        );
+        extras.push(await this.blockOtherProduct(s));
       } else if (f.selected_product === ProductType.CutMediBills) {
         wantsCmb = conv.selected_product !== ProductType.CutMediBills;
       } else {
         conv.selected_product = f.selected_product;
       }
     }
-    if (asksForCmb(m.text) && !c.active_product && conv.selected_product !== ProductType.CutMediBills)
+    if (
+      asksForCmb(m.text) &&
+      !c.active_product &&
+      conv.selected_product !== ProductType.CutMediBills
+    )
       wantsCmb = true;
+    // an active product blocks any other activation (Playbook 3.1): say so once and give the team a task
+    const blockActive =
+      !!c.active_product &&
+      !extras.length &&
+      (r.intent === "activate" ||
+        (asksForCmb(m.text) && c.active_product !== ProductType.CutMediBills) ||
+        (f.selected_product === ProductType.Oxxy && c.active_product === ProductType.CutMediBills));
+    if (blockActive) extras.push(await this.blockOtherProduct(s));
     await c.save();
 
     // consent
@@ -1143,7 +1746,9 @@ export class ChatPipelineService {
     ];
     const needData: any = {};
     for (const k of needKeys) if (f[k] != null && f[k] !== "") needData[k] = f[k];
-    if (["ongoing", "single_expense"].includes(f.need_pattern)) needData.need_pattern = f.need_pattern;
+    if (["ongoing", "single_expense"].includes(f.need_pattern))
+      needData.need_pattern = f.need_pattern;
+    else if (singleExpenseSignal(m.text)) needData.need_pattern = "single_expense"; // the LLM often leaves it out
     if (typeof f.pre_existing === "boolean") needData.pre_existing = f.pre_existing;
     let n = await need.findOne({ where: { conversation_id: conv.id } });
     const prevBill = n?.expected_bill != null ? Number(n.expected_bill) : null;
@@ -1169,13 +1774,15 @@ export class ChatPipelineService {
         const named = f.centre_name ? String(f.centre_name).trim() : null;
         const otherCentre =
           !!named && named.toLowerCase() !== (gate?.centre_name || "").trim().toLowerCase();
-        if (!gate || (!gateFailed(gate) && !gateComplete(gate)) || (gateFailed(gate) && otherCentre)) {
+        if (
+          !gate ||
+          (!gateFailed(gate) && !gateComplete(gate)) ||
+          (gateFailed(gate) && otherCentre)
+        ) {
           extras.push(await this.startCmbGate(s, n, named));
           routedToCmb = true;
         } else if (gateFailed(gate) && wantsCmb) {
-          extras.push(
-            say(GATE_FAILED_BEFORE_T, s.customer.language),
-          );
+          extras.push(say(GATE_FAILED_BEFORE_T, s.customer.language));
           routedToCmb = true;
         }
       }
@@ -1219,7 +1826,13 @@ export class ChatPipelineService {
                 pick.saving,
                 s.customer.language,
               )
-            : honestText(pick.plan, prices.yearly ?? pick.price, prices.monthly, spend, s.customer.language),
+            : honestText(
+                pick.plan,
+                prices.yearly ?? pick.price,
+                prices.monthly,
+                spend,
+                s.customer.language,
+              ),
         );
       }
     }
@@ -1241,7 +1854,12 @@ export class ChatPipelineService {
       let rate = 30;
       if (conv.recommended_plan) {
         const row = await plan_catalog.findOne({
-          where: { product: ProductType.Oxxy, plan: conv.recommended_plan, billing: BillingCycle.Yearly, status: true },
+          where: {
+            product: ProductType.Oxxy,
+            plan: conv.recommended_plan,
+            billing: BillingCycle.Yearly,
+            status: true,
+          },
         });
         const r2 = Number(row?.illustration_pct ?? row?.max_saving_pct);
         if (Number.isFinite(r2) && r2 > 0) rate = Math.min(30, r2);
@@ -1270,44 +1888,35 @@ export class ChatPipelineService {
 
     if (r.intent === "find_centre" && !m.location && !n?.city) {
       extras.push(say(ASK_CITY_T, s.customer.language)); // never list centres from another city
+    } else if (
+      r.intent === "find_centre" &&
+      !n?.travel_radius_km &&
+      !m.location &&
+      !conv.pending_action
+    ) {
+      // Playbook 10.1: collect the travel radius before suggesting centres
+      conv.pending_action = "centre_radius";
+      extras.push(say(RADIUS_Q, s.customer.language));
     } else if (r.intent === "find_centre") {
-      const list = await this._CentreSearch.search({
-        latitude: m.location?.latitude,
-        longitude: m.location?.longitude,
-        radiusKm: n?.travel_radius_km ?? 10,
-        specialisation: n?.specialisation,
-        city: n?.city,
-      });
-      if (n) {
-        // Provider group: exactly the directory ids shown, in order (never names the model wrote)
-        n.suggested_centre_ids = list.map((x) => x.id);
-        await n.save();
-      }
-      if (list.length) {
-        shown.add("D");
-        if (!conv.pending_action) conv.pending_action = "centre_pick"; // "2" = the second centre
-        extras.push(
-          `${say(T.centresHead, s.customer.language)}\n` +
-            list
-              .map(
-                (x, i) =>
-                  `${i + 1}. ${x.name}${x.branch ? ", " + x.branch : ""} (${x.locality || x.city})`,
-              )
-              .join("\n") +
-            `\n\n${say(T.centresFoot, s.customer.language)}`,
-        );
-      } else {
-        extras.push(say(NO_CENTRE_T, s.customer.language));
-      }
+      const text = await this.centreSuggestions(s, n, m.location);
+      if (text.shown) shown.add("D");
+      if (text.shown && !conv.pending_action) conv.pending_action = "centre_pick"; // "2" = the second centre
+      extras.push(text.text);
     }
 
     // Trigger G (Playbook 11): the step-by-step booking request, prefilled with what Claude read
-    if (r.intent === "book" && !isBookingPending(conv.pending_action) && !gateOpen && !routedToCmb) {
+    if (
+      r.intent === "book" &&
+      !isBookingPending(conv.pending_action) &&
+      !gateOpen &&
+      !routedToCmb
+    ) {
       extras.push(
         ...(await this.startBooking(s, {
           centreName: f.centre_name ? String(f.centre_name) : null,
           date: f.preferred_date ? String(f.preferred_date) : null,
           time: f.preferred_time ? String(f.preferred_time) : null,
+          asked: asksToBook(m.text),
         })),
       );
       shown.add("G");
@@ -1316,11 +1925,16 @@ export class ChatPipelineService {
     // Activation (12.5): price, GST and renewal first, then ask; the link goes only after a YES
     // (handleActivationAnswer). One product per customer.
     if (r.intent === "activate" && !c.active_product && !routedToCmb && !gateOpen) {
-      const billing = f.billing || (/\bmonthly\b|\bmahina|\bmonth\b/i.test(m.text) ? "monthly" : undefined);
+      const billing =
+        f.billing || (/\bmonthly\b|\bmahina|\bmonth\b/i.test(m.text) ? "monthly" : undefined);
       let cat = await this.activationRow(conv, billing);
       // "Send me the link" with no plan picked yet (Trigger layer 15): ONE plan by need and age, its
       // price in the disclosure, no catalogue and no savings claim. No age yet = ask it first.
-      if (!cat && !conv.recommended_plan && (conv.selected_product || ProductType.Oxxy) === ProductType.Oxxy) {
+      if (
+        !cat &&
+        !conv.recommended_plan &&
+        (conv.selected_product || ProductType.Oxxy) === ProductType.Oxxy
+      ) {
         const plans = await plan_catalog.find({
           where: { product: ProductType.Oxxy, billing: BillingCycle.Yearly, status: true },
         });
@@ -1328,11 +1942,17 @@ export class ChatPipelineService {
         if (p?.status === "ask_age") extras.push(say(ASK_AGE_T, s.customer.language));
         else if (p?.status === "plan") {
           await this.saveRecommendation(s, p.plan);
-          extras.push(needRecommendationText(p.plan, planReason(p.plan, s.customer.language), s.customer.language));
+          extras.push(
+            needRecommendationText(
+              p.plan,
+              planReason(p.plan, s.customer.language),
+              s.customer.language,
+            ),
+          );
           cat = await this.activationRow(conv, billing);
         }
       }
-      if (cat?.activation_link) {
+      if (planReady(cat)) {
         conv.pending_action = `send_activation_link:${cat.id}`;
         await this.setState(s, this.activationPath(cat.product));
         shown.add("E");
@@ -1351,7 +1971,7 @@ export class ChatPipelineService {
           TaskType.Activation,
           TaskPriority.Normal,
           s,
-          "Activation link missing in plan_catalog",
+          `Plan not ready to sell, missing: ${planProblems(cat).join(", ")}`,
         );
       }
     }
@@ -1367,7 +1987,80 @@ export class ChatPipelineService {
       last_intent: r.intent,
       outcome: conv.outcome ?? null,
     });
+    await this.syncCustomerToCrm(s, crmBefore, n);
     return extras;
+  }
+
+  // ---- CRM sync (Full Plan 3.2) ----
+
+  /** The customer fields the CRM keeps (no health details: those stay in the bot, Playbook 16.3) */
+  private crmFields(s: Saved, n?: need | null): Record<string, unknown> {
+    const c = s.customer;
+    const v = s.conversation;
+    return {
+      first_name: c.first_name ?? null,
+      language: c.language ?? null,
+      age: c.age ?? null,
+      lead_id: c.lead_id ?? null,
+      beneficiary: n?.beneficiary ?? null,
+      city: n?.city ?? null,
+      locality: n?.locality ?? null,
+      need_pattern: n?.need_pattern ?? null,
+      selected_product: v.selected_product ?? null,
+      recommended_plan: v.recommended_plan ?? null,
+    };
+  }
+
+  /** upsert_customer when a discovery field changed in this turn */
+  private async syncCustomerToCrm(s: Saved, before: string, n?: need | null) {
+    const now = this.crmFields(s, n);
+    if (JSON.stringify(now) === before) return;
+    await this._Outbox.emit?.(CrmAction.UpsertCustomer, s.customer.id, {
+      customer_id: s.customer.id,
+      whatsapp: `+${s.customer.wa_number}`,
+      ...now,
+    });
+  }
+
+  /** log_event: consent changes and other milestones the CRM record keeps */
+  private async crmEvent(s: Saved, event: string, data: Record<string, unknown>) {
+    await this._Outbox.emit?.(CrmAction.LogEvent, s.customer.id, {
+      event,
+      customer_id: s.customer.id,
+      conversation_id: s.conversation.id,
+      ...data,
+      at: new Date().toISOString(),
+    });
+  }
+
+  /**
+   * lookup_customer on the first message of a conversation (Full Plan 3.2): the CRM's active product,
+   * opt-out and id are copied in, so the one-product lock and STOP from a phone call hold in the chat too.
+   * Runs in the queue worker (never in the webhook request). CRM off or slow = nothing changes.
+   */
+  private async lookupInCrm(s: Saved) {
+    if (s.conversation.state !== ConversationState.New) return;
+    const found = await this._Outbox.lookupCustomer?.(s.customer.wa_number);
+    if (!found) return;
+    const c = s.customer;
+    const set: Record<string, unknown> = {};
+    if (found.id && !c.crm_customer_id) set.crm_customer_id = found.id;
+    if (found.active_product && !c.active_product) {
+      set.active_product = found.active_product;
+      set.active_plan = found.active_plan ?? null;
+    }
+    if (Object.keys(set).length) {
+      await customer.update(c.id, set);
+      Object.assign(c, set);
+    }
+    if (found.opted_out) {
+      const cons = await consent.findOne({ where: { customer_id: c.id } });
+      if (!cons?.opt_out_at)
+        await this.saveConsentRow(c.id, cons, (x) => {
+          x.opt_out_at = new Date();
+          x.marketing_consent = false;
+        });
+    }
   }
 
   // ---- Cut Medi Bills gate (plan 8.2, 12.3). pending_action = "cmb_gate:<step>:<eligibility id>" ----
@@ -1379,7 +2072,10 @@ export class ChatPipelineService {
     });
   }
 
-  private async cmbPrices(): Promise<{ monthly: plan_catalog | null; yearly: plan_catalog | null }> {
+  private async cmbPrices(): Promise<{
+    monthly: plan_catalog | null;
+    yearly: plan_catalog | null;
+  }> {
     const rows = await plan_catalog.find({
       where: { product: ProductType.CutMediBills, status: true },
     });
@@ -1420,9 +2116,7 @@ export class ChatPipelineService {
     const step: GateStep = name ? "booking" : "centre";
     s.conversation.pending_action = `cmb_gate:${step}:${(row as any).id}`;
     await this.setState(s, [ConversationState.Routing, ConversationState.CutMediBillsFit]);
-    return (
-      `${say(GATE_INTRO_T, s.customer.language)}\n\n${gateQuestion(step, s.customer.language)}`
-    );
+    return `${say(GATE_INTRO_T, s.customer.language)}\n\n${gateQuestion(step, s.customer.language)}`;
   }
 
   private async setPending(s: Saved, value: string | null) {
@@ -1459,7 +2153,9 @@ export class ChatPipelineService {
       const amount = parseAmount(m.text);
       if (!amount) {
         if (isQuestion) return false;
-        await reply(`${gateQuestion("bill_amount", s.customer.language)} ${say(ROUGH_AMOUNT_T, s.customer.language)}`);
+        await reply(
+          `${gateQuestion("bill_amount", s.customer.language)} ${say(ROUGH_AMOUNT_T, s.customer.language)}`,
+        );
         return true;
       }
       let n = await need.findOne({ where: { conversation_id: s.conversation.id } });
@@ -1516,7 +2212,12 @@ export class ChatPipelineService {
     const { monthly, yearly } = await this.cmbPrices();
     const value = await this.cmbValue(bill);
     if (!value) {
-      await this.createTask(TaskType.Activation, TaskPriority.Normal, s, "Cut Medi Bills price missing in plan_catalog");
+      await this.createTask(
+        TaskType.Activation,
+        TaskPriority.Normal,
+        s,
+        "Cut Medi Bills price missing in plan_catalog",
+      );
       return say(HOLDING_MESSAGE_T, s.customer.language);
     }
     if (!value.ok) {
@@ -1539,7 +2240,7 @@ export class ChatPipelineService {
       value.saving,
       monthly ? Number(monthly.price) : null,
       yearly ? Number(yearly.price) : null,
-      monthly?.activation_time ?? yearly?.activation_time ?? null,
+      [monthly?.activation_time, yearly?.activation_time].find((x) => !isPlaceholder(x)) ?? null,
       s.customer.language,
     );
   }
@@ -1586,22 +2287,33 @@ export class ChatPipelineService {
     await conversation.update(s.conversation.id, { pending_action: null });
     s.conversation.pending_action = null;
     if (answer === "no") {
-      await this.markTriggerResponse(s.conversation.id, "declined", { triggerId: "E", force: true });
+      await this.markTriggerResponse(s.conversation.id, "declined", {
+        triggerId: "E",
+        force: true,
+      });
       await conversation.update(s.conversation.id, { outcome: "activation_declined" });
       await this.setPending(s, "follow_up_time");
-      await this.sendAndSave(s.customer.id, `${say(LINK_DECLINED_T, s.customer.language)}\n\n${followUpQuestion(followUpOptions(), s.customer.language)}`, m.waMessageId);
+      await this.sendAndSave(
+        s.customer.id,
+        `${say(LINK_DECLINED_T, s.customer.language)}\n\n${followUpQuestion(followUpOptions(), s.customer.language)}`,
+        m.waMessageId,
+      );
       return true;
     }
     await this.markTriggerResponse(s.conversation.id, "clicked", { triggerId: "E", force: true });
     const cat = await plan_catalog.findOne({ where: { id: pending.split(":")[1], status: true } });
-    if (!cat?.activation_link || s.customer.active_product) {
+    if (!cat || !planReady(cat) || s.customer.active_product) {
       await this.createTask(
         TaskType.Activation,
         TaskPriority.Normal,
         s,
         "Activation link could not be sent",
       );
-      await this.sendAndSave(s.customer.id, say(HOLDING_MESSAGE_T, s.customer.language), m.waMessageId);
+      await this.sendAndSave(
+        s.customer.id,
+        say(HOLDING_MESSAGE_T, s.customer.language),
+        m.waMessageId,
+      );
       return true;
     }
     const actRow = await this._DataSource.transaction(async (mg) => {
@@ -1640,7 +2352,11 @@ export class ChatPipelineService {
     });
     await this._Outbox.dispatch(actRow);
     await this.setState(s, [ConversationState.AwaitingPayment]);
-    await this.sendAndSave(s.customer.id, linkText(cat.activation_link, s.customer.language), m.waMessageId);
+    await this.sendAndSave(
+      s.customer.id,
+      linkText(cat.activation_link, s.customer.language),
+      m.waMessageId,
+    );
     // Trigger Q: one reminder if the link is still unpaid (the scheduler re-checks everything at send time)
     await this._Scheduler?.create({
       customerId: s.customer.id,
@@ -1681,7 +2397,9 @@ export class ChatPipelineService {
           : { product, status: true },
     });
     const caution =
-      cat?.activation_time && activationAfter(preferredDate, cat.activation_time)
+      cat?.activation_time &&
+      !isPlaceholder(cat.activation_time) &&
+      activationAfter(preferredDate, cat.activation_time)
         ? timingCaution(cat.activation_time, s.customer.language)
         : null;
     await trigger_event.save(
@@ -1693,15 +2411,45 @@ export class ChatPipelineService {
       } as any),
     );
     await this.setPending(s, "soft_activation");
+    // Playbook 11.2 backend action: activation incomplete and not declined -> a human follow-up that may
+    // answer activation questions (a decline turns it into booking confirmation only, no pitch)
+    await this.createTask(
+      TaskType.ActivationFollowUp,
+      TaskPriority.Normal,
+      s,
+      `Booking recorded, activation not done: follow up on the booking and answer activation questions (${product === ProductType.CutMediBills ? "Cut Medi Bills" : `Oxxy${s.conversation.recommended_plan ? ` ${s.conversation.recommended_plan}` : ""}`})`,
+      { extra: { selected_product: product, activation_pitch_allowed: true } },
+    );
     const plan = s.conversation.recommended_plan;
     const planName =
-      product === ProductType.Oxxy && plan ? `${plan.charAt(0).toUpperCase()}${plan.slice(1)}` : null;
+      product === ProductType.Oxxy && plan
+        ? `${plan.charAt(0).toUpperCase()}${plan.slice(1)}`
+        : null;
     return softActivationText(
       product === ProductType.CutMediBills ? "cut_medi_bills" : "oxxy",
       planName,
       caution,
       s.customer.language,
     );
+  }
+
+  // Declined after booking (Playbook 11.2 / 22.1): the follow-up covers booking confirmation only. The open
+  // activation follow-up is closed and the CRM told not to pitch.
+  private async stopActivationPitch(s: Saved) {
+    const open = await task.find({
+      where: {
+        conversation_id: s.conversation.id,
+        type: TaskType.ActivationFollowUp,
+        task_status: TaskStatus.Open,
+      } as any,
+    });
+    for (const t of open ?? []) {
+      await task.update((t as any).id, {
+        task_status: TaskStatus.Done,
+        outcome: "customer declined activation: booking confirmation only, no activation pitch",
+      } as any);
+    }
+    await this.crmEvent(s, "activation_declined", { activation_pitch_allowed: false });
   }
 
   // The answer to the soft activation suggestion. YES = disclosure (12.5), NO = booking stays recorded.
@@ -1714,18 +2462,37 @@ export class ChatPipelineService {
     if (answer === "no") {
       await conversation.update(s.conversation.id, { outcome: "activation_declined" });
       s.conversation.outcome = "activation_declined";
-      await this.markTriggerResponse(s.conversation.id, "declined", { triggerId: "E", force: true });
-      await this.sendAndSave(s.customer.id, say(SOFT_ACTIVATION_DECLINED_T, s.customer.language), m.waMessageId);
+      await this.markTriggerResponse(s.conversation.id, "declined", {
+        triggerId: "E",
+        force: true,
+      });
+      await this.stopActivationPitch(s);
+      await this.sendAndSave(
+        s.customer.id,
+        say(SOFT_ACTIVATION_DECLINED_T, s.customer.language),
+        m.waMessageId,
+      );
       return true;
     }
     const cat = await this.activationRow(s.conversation);
-    if (!cat?.activation_link) {
-      // no plan picked yet: the value check needs the yearly spend first
+    if (cat && !planReady(cat)) {
+      // the official link / terms of this plan are not in the catalogue yet: never a placeholder, a person helps
+      await this.createTaskOnce(
+        TaskType.Activation,
+        TaskPriority.Normal,
+        s,
+        `Plan not ready to sell, missing: ${planProblems(cat).join(", ")}`,
+      );
       await this.sendAndSave(
         s.customer.id,
-        say(T.spendFirst, s.customer.language),
+        say(HOLDING_MESSAGE_T, s.customer.language),
         m.waMessageId,
       );
+      return true;
+    }
+    if (!cat) {
+      // no plan picked yet: the value check needs the yearly spend first
+      await this.sendAndSave(s.customer.id, say(T.spendFirst, s.customer.language), m.waMessageId);
       return true;
     }
     await conversation.update(s.conversation.id, {
@@ -1772,7 +2539,11 @@ export class ChatPipelineService {
       );
       await this.recordTrigger(s, "P", "customer said done");
       await this.setState(s, [ConversationState.FollowUp]);
-      await this.sendAndSave(s.customer.id, say(PAYMENT_DONE_T, s.customer.language), m.waMessageId);
+      await this.sendAndSave(
+        s.customer.id,
+        say(PAYMENT_DONE_T, s.customer.language),
+        m.waMessageId,
+      );
       return true;
     }
     if (kind === "failed") {
@@ -1783,12 +2554,20 @@ export class ChatPipelineService {
         `Payment failed (activation ${(open as any).id})`,
       );
       await this.setState(s, [ConversationState.Escalated]);
-      await this.sendAndSave(s.customer.id, say(PAYMENT_FAILED_T, s.customer.language), m.waMessageId);
+      await this.sendAndSave(
+        s.customer.id,
+        say(PAYMENT_FAILED_T, s.customer.language),
+        m.waMessageId,
+      );
       return true;
     }
     await this.setState(s, [ConversationState.FollowUp]);
     await this.setPending(s, "follow_up_time");
-    await this.sendAndSave(s.customer.id, `${say(PAYMENT_NOT_NOW_T, s.customer.language)}\n\n${followUpQuestion(followUpOptions(), s.customer.language)}`, m.waMessageId);
+    await this.sendAndSave(
+      s.customer.id,
+      `${say(PAYMENT_NOT_NOW_T, s.customer.language)}\n\n${followUpQuestion(followUpOptions(), s.customer.language)}`,
+      m.waMessageId,
+    );
     return true;
   }
 
@@ -1807,7 +2586,8 @@ export class ChatPipelineService {
       if (opts.triggerId) qb.andWhere("t.trigger_id = :id", { id: opts.triggerId });
       const last = await qb.orderBy("t.created_on", "DESC").getOne();
       if (!last || (last.response && !opts.force)) return;
-      if (Date.now() - new Date(last.created_on).getTime() > 24 * 60 * 60 * 1000 && !opts.force) return;
+      if (Date.now() - new Date(last.created_on).getTime() > 24 * 60 * 60 * 1000 && !opts.force)
+        return;
       await trigger_event.update(last.id, { response });
     } catch (e) {
       this.logger.debug(`trigger response not saved: ${(e as Error).message}`);
@@ -1848,11 +2628,17 @@ export class ChatPipelineService {
     //  otherwise B: "I have insurance" -> keep it, Oxxy complements it; "Is Oxxy insurance?" -> plainly no
     const product = s.customer.active_product || s.conversation.selected_product;
     const trig = has && product === ProductType.CutMediBills ? "J" : "B";
-    const text =
-      say(trig === "J" ? INSURANCE_COORDINATION_T : has ? INSURANCE_HAS_ANSWER_T : INSURANCE_ANSWER_T, s.customer.language);
+    const text = say(
+      trig === "J" ? INSURANCE_COORDINATION_T : has ? INSURANCE_HAS_ANSWER_T : INSURANCE_ANSWER_T,
+      s.customer.language,
+    );
     const decision =
-      (await this._Triggers?.decide(s.customer.id, s.conversation, trig, s.customer.active_product)) ??
-      null;
+      (await this._Triggers?.decide(
+        s.customer.id,
+        s.conversation,
+        trig,
+        s.customer.active_product,
+      )) ?? null;
     // B adds its approved comparison when one is approved and not yet sent in this journey
     const asset =
       decision?.id === "B" && !decision.suppression
@@ -1868,7 +2654,11 @@ export class ChatPipelineService {
         s.customer.id,
         s.conversation,
         decision,
-        trig === "J" ? "has insurance, Cut Medi Bills route" : has ? "has insurance" : "is Oxxy insurance",
+        trig === "J"
+          ? "has insurance, Cut Medi Bills route"
+          : has
+            ? "has insurance"
+            : "is Oxxy insurance",
         { assets: asset ? [asset.id] : [], cta: asset?.url ?? null },
       );
     if (asset) await this.logAssetSend(s, asset, m.waMessageId);
@@ -1878,6 +2668,48 @@ export class ChatPipelineService {
   // "Do I get a discount at this hospital?" (Playbook 10, Trigger layer 6 and acceptance tests): the
   // neutral savings line, never a tie-up or an implied saving. Fixed text, so it is never a rejected
   // Claude draft. During the Cut Medi Bills gate the same gate question follows.
+  // Playbook 13 FAQ, 4.3, 4.4 and 16.2: the approved answer, word for word (never an LLM rewording).
+  // A question asked in the middle of the gate or the booking is answered, then the same step is asked
+  // again; the answer's own closing question is dropped then, so the customer gets one question (1.1).
+  private async handleFaq(m: Inbound, s: Saved, noHealth: boolean): Promise<boolean> {
+    const key = matchFaq(m.text);
+    if (!key) return false;
+    const product = s.customer.active_product || s.conversation.selected_product || null;
+    const lang = s.customer.language;
+    const unsure = faqNeedsPerson(key, product);
+    if (unsure) {
+      // 16.4: "I want to give you a precise answer rather than guess", with callback windows
+      const taskId = await this.createTaskOnce(
+        TaskType.Escalation,
+        TaskPriority.Normal,
+        s,
+        `Question needs a person: ${unsure}`,
+      );
+      await this.recordTrigger(s, "O", unsure);
+      await this.setState(s, [ConversationState.Escalated]);
+      await this.sendAndSave(
+        s.customer.id,
+        await this.withCallbackOptions(s, taskId, say(SERVICE_ESCALATE, lang)),
+        m.waMessageId,
+      );
+      return true;
+    }
+    if (key === "early_activation") {
+      // the customer asked, so the review is requested (never promised, never used for urgency)
+      await this.createTaskOnce(
+        TaskType.Activation,
+        TaskPriority.Normal,
+        s,
+        "Customer asked for a senior review for earlier activation",
+      );
+    }
+    let answer = faqAnswer(key, { product, noHealth }, lang);
+    const back = this.pendingBack(s);
+    if (back.length) answer = withoutClosingQuestion(answer);
+    await this.sendAndSave(s.customer.id, [answer, ...back].join("\n\n"), m.waMessageId);
+    return true;
+  }
+
   private async handleCentreSaving(m: Inbound, s: Saved): Promise<boolean> {
     if (!asksCentreSaving(m.text)) return false;
     await this.sendAndSave(
@@ -1899,7 +2731,8 @@ export class ChatPipelineService {
   private async resolveCentre(name: string): Promise<Pick<BookingDraft, "c" | "cn" | "u">> {
     const clean = name.trim().slice(0, 80);
     const ctr = await this.findVerifiedCentre(clean);
-    if (ctr) return { c: ctr.id, cn: ctr.branch ? `${ctr.name}, ${ctr.branch}` : ctr.name, u: false };
+    if (ctr)
+      return { c: ctr.id, cn: ctr.branch ? `${ctr.name}, ${ctr.branch}` : ctr.name, u: false };
     // never rejected because we did not suggest it: the team checks it (plan 12.4, Playbook 10.2)
     return { c: null, cn: clean, u: true };
   }
@@ -1907,16 +2740,33 @@ export class ChatPipelineService {
   /** Starts the request with what is already known; returns the next question (or the saved request) */
   private async startBooking(
     s: Saved,
-    pre: { centreName?: string | null; date?: string | null; time?: string | null },
+    pre: {
+      centreName?: string | null;
+      date?: string | null;
+      time?: string | null;
+      asked?: boolean;
+    },
   ): Promise<string[]> {
-    const d: BookingDraft = { step: "centre", ok: true, ns: await this.noHealthQuestions(s) };
+    // "we are consulting in PSG hospital" names a centre, it does not ask for a booking: the offer
+    // ("May I do your booking at ...?") comes first. Asked in so many words = no second asking.
+    const d: BookingDraft = {
+      step: "centre",
+      ok: pre.asked !== false,
+      ns: await this.noHealthQuestions(s),
+    };
     if (pre.centreName?.trim()) Object.assign(d, await this.resolveCentre(pre.centreName));
+    let dateNote: string | null = null;
     if (pre.date) {
       const iso = parseCustomerDate(pre.date);
-      if (iso && this._DateWindow.validate(iso).valid) d.d = iso;
+      const chk = iso ? this._DateWindow.validate(iso) : null;
+      if (iso && chk?.valid) d.d = iso;
+      // "tomorrow" is outside the booking window: said at once, never dropped silently
+      else if (iso && chk)
+        dateNote = dateProblemText(String(chk.reason), undefined, s.customer.language);
     }
     if (pre.time?.trim()) d.t = pre.time.trim().slice(0, 40);
-    return await this.advanceBooking(s, d);
+    const parts = await this.advanceBooking(s, d);
+    return dateNote ? [dateNote, ...parts] : parts;
   }
 
   /** Asks the next unanswered question, or records the request when nothing is missing */
@@ -1961,7 +2811,14 @@ export class ChatPipelineService {
         await n.save();
       }
       await this.setState(s, [ConversationState.BookingCapture, ConversationState.BookingRecorded]);
-      text = bookingSavedText({ date, time, centre: ctr?.name ?? d.cn ?? "", branch: ctr?.branch, specialisation: spec, lang: s.customer.language });
+      text = bookingSavedText({
+        date,
+        time,
+        centre: ctr?.name ?? d.cn ?? "",
+        branch: ctr?.branch,
+        specialisation: spec,
+        lang: s.customer.language,
+      });
     } else {
       // a booking row needs a directory centre: the team checks the centre, then makes the booking
       await this.createTaskOnce(
@@ -1970,17 +2827,157 @@ export class ChatPipelineService {
         s,
         `Booking request at a centre not in the directory: ${d.cn} (near ${d.l ?? "?"}) on ${date}, ${time}`,
       );
-      text = bookingSavedText({ date, time, centre: d.cn ?? "", specialisation: spec, unverified: true, lang: s.customer.language });
+      text = bookingSavedText({
+        date,
+        time,
+        centre: d.cn ?? "",
+        specialisation: spec,
+        unverified: true,
+        lang: s.customer.language,
+      });
     }
     await conversation.update(s.conversation.id, { outcome: "booking_requested" });
     s.conversation.outcome = "booking_requested";
-    await this.recordTrigger(s, "H", d.c ? "booking request saved" : "booking request, centre to be verified");
+    await this.recordTrigger(
+      s,
+      "H",
+      d.c ? "booking request saved" : "booking request, centre to be verified",
+    );
     const soft = await this.softActivationOffer(s, date);
     return soft ? [text, soft] : [text];
   }
 
   // After the centre list: "2" picks the second centre shown, then the booking offer (Trigger G).
   // Anything else ends the wait and is answered normally.
+  // Up to five verified private centres for the customer's area and need (Playbook 10.1, Trigger D).
+  // The ids shown are kept (Provider group), so "2" picks the second one.
+  private async centreSuggestions(
+    s: Saved,
+    n: need | null,
+    location?: { latitude: number; longitude: number },
+    exclude?: string[],
+  ): Promise<{ text: string; shown: boolean }> {
+    const list = await this._CentreSearch.search({
+      exclude,
+      latitude: location?.latitude,
+      longitude: location?.longitude,
+      radiusKm: n?.travel_radius_km ?? 10,
+      specialisation: n?.specialisation,
+      city: n?.city,
+      locality: n?.locality,
+    });
+    if (n) {
+      n.suggested_centre_ids = list.map((x) => x.id);
+      await n.save();
+    }
+    if (!list.length) return { text: await this.noCentreReply(s, n), shown: false };
+    const spec = normaliseSpecialisation(n?.specialisation) ?? null;
+    return { text: centreListText(list, spec, s.customer.language), shown: true };
+  }
+
+  // No verified centre for this place. First time: say so and ask for another centre and branch (this or
+  // another location). Asked again right after: never the same sentence in a loop; the team gets a task
+  // to check the options there and the customer is told so.
+  private async noCentreReply(s: Saved, n: need | null): Promise<string> {
+    const l = s.customer.language;
+    const place =
+      [n?.locality, n?.city]
+        .map((x) => String(x ?? "").trim())
+        .filter(Boolean)
+        .join(", ") || null;
+    const last = await message.findOne({
+      where: { conversation_id: s.conversation.id, direction: "out" },
+      order: { created_on: "DESC" } as any,
+    });
+    if (!isNoCentreText((last as any)?.body)) return noCentreText(place, false, l);
+    await this.createTaskOnce(
+      TaskType.DirectoryVerification,
+      TaskPriority.Normal,
+      s,
+      `No verified centre${place ? ` for ${place}` : ""}: the customer needs options`,
+    );
+    return noCentreText(place, true, l);
+  }
+
+  // The answer to the radius question: then the list (Trigger D). A question returns false (answered normally).
+  private async handleCentreRadius(m: Inbound, s: Saved): Promise<boolean> {
+    if (s.conversation.pending_action !== "centre_radius") return false;
+    const km = parseRadius(m.text);
+    if (km == null) {
+      if (/\?\s*$/.test(m.text.trim())) return false;
+      await this.sendAndSave(s.customer.id, say(RADIUS_Q, s.customer.language), m.waMessageId);
+      return true;
+    }
+    let n = await need.findOne({ where: { conversation_id: s.conversation.id } });
+    if (!n) n = need.create({ conversation_id: s.conversation.id } as any);
+    n.travel_radius_km = km;
+    await n.save();
+    await this.setPending(s, null);
+    const res = await this.centreSuggestions(s, n);
+    const decision = res.shown
+      ? ((await this._Triggers?.decide(
+          s.customer.id,
+          s.conversation,
+          "D",
+          s.customer.active_product,
+        )) ?? null)
+      : null;
+    if (res.shown) await this.setPending(s, "centre_pick");
+    await this.sendAndSave(s.customer.id, res.text, m.waMessageId);
+    if (decision)
+      await this._Triggers!.record(
+        s.customer.id,
+        s.conversation,
+        decision,
+        "centre list after the radius",
+      );
+    return true;
+  }
+
+  // CRM booking.cancelled (Full Plan 3.3): the booking_cancelled template asked once whether to suggest
+  // another centre. YES = a fresh list without the cancelled centre (Trigger D); NO = a kind close.
+  private async handleRebookOffer(m: Inbound, s: Saved): Promise<boolean> {
+    const pa = s.conversation.pending_action || "";
+    if (!pa.startsWith("rebook_offer:")) return false;
+    const answer = parseConsentAnswer(m.text);
+    await this.setPending(s, null);
+    if (answer === "unclear") return false; // a question or a new request: answered normally
+    const l = s.customer.language;
+    if (answer === "no") {
+      await this.sendAndSave(s.customer.id, say(REBOOK_DECLINED_T, l), m.waMessageId);
+      return true;
+    }
+    const cancelled = await booking_request.findOne({
+      where: { id: pa.slice("rebook_offer:".length) },
+    });
+    const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
+    await this.setState(s, [ConversationState.CentreSearch]);
+    const res = await this.centreSuggestions(
+      s,
+      n,
+      undefined,
+      cancelled?.centre_id ? [cancelled.centre_id] : undefined,
+    );
+    const decision = res.shown
+      ? ((await this._Triggers?.decide(
+          s.customer.id,
+          s.conversation,
+          "D",
+          s.customer.active_product,
+        )) ?? null)
+      : null;
+    if (res.shown) await this.setPending(s, "centre_pick");
+    await this.sendAndSave(s.customer.id, res.text, m.waMessageId);
+    if (decision)
+      await this._Triggers!.record(
+        s.customer.id,
+        s.conversation,
+        decision,
+        "another centre after a cancelled booking",
+      );
+    return true;
+  }
+
   private async handleCentrePick(m: Inbound, s: Saved): Promise<boolean> {
     if (s.conversation.pending_action !== "centre_pick") return false;
     const pick = m.text.trim().match(/^(?:option|no\.?|number|centre|center)?\s*([1-9])\s*\.?$/i);
@@ -2013,10 +3010,82 @@ export class ChatPipelineService {
       ns: await this.noHealthQuestions(s),
     };
     const decision =
-      (await this._Triggers?.decide(s.customer.id, s.conversation, "G", s.customer.active_product)) ?? null;
-    await this.sendAndSave(s.customer.id, (await this.advanceBooking(s, d)).join("\n\n"), m.waMessageId);
-    if (decision) await this._Triggers!.record(s.customer.id, s.conversation, decision, "centre picked from the list");
+      (await this._Triggers?.decide(
+        s.customer.id,
+        s.conversation,
+        "G",
+        s.customer.active_product,
+      )) ?? null;
+    await this.sendAndSave(
+      s.customer.id,
+      (await this.advanceBooking(s, d)).join("\n\n"),
+      m.waMessageId,
+    );
+    if (decision)
+      await this._Triggers!.record(
+        s.customer.id,
+        s.conversation,
+        decision,
+        "centre picked from the list",
+      );
     return true;
+  }
+
+  // The LLM reads one unclear booking answer (never writes the reply). null = no LLM, an error, or the
+  // health questions are not allowed for this customer: the caller falls back to the word rules.
+  private async readAnswer(
+    step: AnswerStep,
+    d: BookingDraft,
+    s: Saved,
+    text: string,
+  ): Promise<AnswerReading | null> {
+    if (typeof this._Claude?.classifyAnswer !== "function") return null;
+    try {
+      return await this._Claude.classifyAnswer(
+        step,
+        bookingQuestion(step, d, "en"),
+        text,
+        todayIST(),
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  // "Suggest one for me" while the bot waits for a centre name: the booking capture stops and the centre
+  // search takes over (Trigger D): city first, then the travel radius, then up to five verified centres.
+  // Picking one from the list starts the booking again with that centre.
+  private async suggestInsteadOfBooking(m: Inbound, s: Saved, n: need | null) {
+    const l = s.customer.language;
+    await this.setPending(s, null);
+    await this.setState(s, [ConversationState.CentreSearch]);
+    if (!n?.city && !m.location) {
+      await this.sendAndSave(s.customer.id, say(ASK_CITY_T, l), m.waMessageId);
+      return;
+    }
+    if (!n?.travel_radius_km && !m.location) {
+      await this.setPending(s, "centre_radius");
+      await this.sendAndSave(s.customer.id, say(RADIUS_Q, l), m.waMessageId);
+      return;
+    }
+    const res = await this.centreSuggestions(s, n, m.location);
+    const decision = res.shown
+      ? ((await this._Triggers?.decide(
+          s.customer.id,
+          s.conversation,
+          "D",
+          s.customer.active_product,
+        )) ?? null)
+      : null;
+    if (res.shown) await this.setPending(s, "centre_pick");
+    await this.sendAndSave(s.customer.id, res.text, m.waMessageId);
+    if (decision)
+      await this._Triggers!.record(
+        s.customer.id,
+        s.conversation,
+        decision,
+        "asked for a suggestion at the booking step",
+      );
   }
 
   // One booking answer per turn. A question returns false: answered normally, then the same step again.
@@ -2025,7 +3094,8 @@ export class ChatPipelineService {
     if (!d) return false;
     const text = (m.text || "").trim();
     if (!text || /\?\s*$/.test(text)) return false;
-    const reply = (parts: string[]) => this.sendAndSave(s.customer.id, parts.join("\n\n"), m.waMessageId);
+    const reply = (parts: string[]) =>
+      this.sendAndSave(s.customer.id, parts.join("\n\n"), m.waMessageId);
 
     if (d.step === "offer" || d.step === "centre") {
       const answer = parseConsentAnswer(text);
@@ -2039,23 +3109,84 @@ export class ChatPipelineService {
         const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
         const k = text.match(/^([1-9])\.?$/);
         const listed = k ? n?.suggested_centre_ids?.[Number(k[1]) - 1] : null;
-        const ctr = listed ? await centre.findOne({ where: { id: listed, verified: true, active: true } }) : null;
-        if (ctr) Object.assign(d, { c: ctr.id, cn: ctr.branch ? `${ctr.name}, ${ctr.branch}` : ctr.name, u: false });
+        const ctr = listed
+          ? await centre.findOne({ where: { id: listed, verified: true, active: true } })
+          : null;
+        if (ctr)
+          Object.assign(d, {
+            c: ctr.id,
+            cn: ctr.branch ? `${ctr.name}, ${ctr.branch}` : ctr.name,
+            u: false,
+          });
         else if (answer === "yes") {
           await reply([bookingQuestion(d.step, d, s.customer.language)]);
           return true;
-        } else Object.assign(d, { l: null }, await this.resolveCentre(text));
+        } else if (asksForSuggestion(text)) {
+          // no centre in mind: suggest verified centres instead of saving the sentence as a centre name
+          await this.suggestInsteadOfBooking(m, s, n);
+          return true;
+        } else if (await this.findVerifiedCentre(text.slice(0, 80))) {
+          Object.assign(d, { l: null }, await this.resolveCentre(text)); // a centre from the directory: no doubt
+        } else {
+          // not in the directory: a real centre name the team must check, or just a sentence? The LLM reads
+          // it; without an LLM answer the word rules decide.
+          const r = await this.readAnswer("centre", d, s, text);
+          if (r?.kind === "wants_suggestion") {
+            await this.suggestInsteadOfBooking(m, s, n);
+            return true;
+          }
+          if (r?.kind === "decline") {
+            await this.setPending(s, null);
+            await reply([say(BOOKING_OFFER_DECLINED_T, s.customer.language)]);
+            return true;
+          }
+          const name = r
+            ? r.kind === "answer"
+              ? r.value
+              : null
+            : looksLikeCentreName(text)
+              ? text
+              : null;
+          if (!name) return false; // a sentence, not a name: answered normally, then the same question again
+          Object.assign(d, { l: null }, await this.resolveCentre(name));
+        }
       }
       d.ok = true;
     } else if (d.step === "landmark") {
-      d.l = text.slice(0, 120);
+      // a short place name is taken as it is; a sentence is read first ("no, suggest another one for me")
+      const plain = text.split(/\s+/).length <= 4 && !asksForSuggestion(text);
+      const r = plain ? null : await this.readAnswer("landmark", d, s, text);
+      if (r?.kind === "wants_suggestion" || (!r && asksForSuggestion(text))) {
+        await this.suggestInsteadOfBooking(
+          m,
+          s,
+          await need.findOne({ where: { conversation_id: s.conversation.id } }),
+        );
+        return true;
+      }
+      if (r && r.kind !== "answer") return false;
+      d.l = (r?.value ?? text).slice(0, 120);
     } else if (d.step === "specialisation") {
       let n = await need.findOne({ where: { conversation_id: s.conversation.id } });
       if (!n) n = need.create({ conversation_id: s.conversation.id } as any);
-      n.specialisation = text.slice(0, 80);
+      // words the directory knows are kept; anything else ("orthi") is read and corrected by the LLM
+      let spec = text;
+      if (!knownSpecialisation(text)) {
+        const r = await this.readAnswer("specialisation", d, s, text);
+        if (r && r.kind !== "answer") return false; // not a specialisation: answered normally, asked again
+        if (r?.value) spec = r.value;
+      }
+      n.specialisation = spec.slice(0, 80);
       await n.save();
     } else if (d.step === "date") {
-      const iso = parseCustomerDate(text);
+      let iso = parseCustomerDate(text);
+      if (!iso) {
+        // "coming friday", "next month 5th": the LLM works the date out; the window check below still decides
+        const r = await this.readAnswer("date", d, s, text);
+        if (r?.kind === "answer" && /^\d{4}-\d{2}-\d{2}$/.test(r.value ?? ""))
+          iso = parseCustomerDate(r.value!);
+        else if (r && r.kind !== "answer" && r.kind !== "other") return false;
+      }
       if (!iso) {
         await reply([dateProblemText("invalid_date", undefined, s.customer.language)]);
         return true;
@@ -2067,7 +3198,9 @@ export class ChatPipelineService {
       }
       d.d = iso;
       // "20 Nov at 10 am": the time came with the date
-      const tm = text.match(/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\b(?:morning|afternoon|evening)\b/i);
+      const tm = text.match(
+        /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\b(?:morning|afternoon|evening)\b/i,
+      );
       if (tm && !d.t) d.t = tm[0];
     } else if (d.step === "time") {
       d.t = text.slice(0, 40);
@@ -2081,7 +3214,11 @@ export class ChatPipelineService {
   // The customer wrote: a pending rescue is no longer needed and the "two in a row" count starts again
   private async customerReplied(s: Saved) {
     try {
-      await this._Scheduler?.cancelForConversation(s.conversation.id, ["rescue"], "customer_replied");
+      await this._Scheduler?.cancelForConversation(
+        s.conversation.id,
+        ["rescue"],
+        "customer_replied",
+      );
       if ((s.conversation.rescue_count ?? 0) > 0) {
         await conversation.update(s.conversation.id, { rescue_count: 0 });
         s.conversation.rescue_count = 0;
@@ -2104,7 +3241,8 @@ export class ChatPipelineService {
       if (done >= MAX_RESCUES) return;
       const cons = await consent.findOne({ where: { customer_id: s.customer.id } });
       if (cons?.opt_out_at || cons?.privacy_request_at) return;
-      if (await this._Scheduler.hasScheduled(conv.id, ["rescue", "agreed_follow_up", "trigger_q"])) return;
+      if (await this._Scheduler.hasScheduled(conv.id, ["rescue", "agreed_follow_up", "trigger_q"]))
+        return;
       await this._Scheduler.create({
         customerId: s.customer.id,
         conversationId: conv.id,
@@ -2121,38 +3259,67 @@ export class ChatPipelineService {
   }
 
   private busyWithQuestion(s: Saved): boolean {
-    return isBookingPending(s.conversation.pending_action) || !!s.conversation.pending_action?.startsWith("cmb_gate:");
+    return (
+      isBookingPending(s.conversation.pending_action) ||
+      !!s.conversation.pending_action?.startsWith("cmb_gate:")
+    );
   }
 
   // The 3-line summary (no health detail when health consent was refused)
   private async summary(s: Saved, noHealth: boolean): Promise<string> {
     const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
     const b = await booking_request.findOne({
-      where: { conversation_id: s.conversation.id, booking_status: BookingStatus.PendingConfirmation },
+      where: {
+        conversation_id: s.conversation.id,
+        booking_status: BookingStatus.PendingConfirmation,
+      },
     });
-    return summaryLines({
-      need: noHealth ? null : (n?.healthcare_need ?? "").slice(0, 80) || null,
-      product: s.conversation.selected_product,
-      plan: s.conversation.recommended_plan,
-      reason: s.conversation.recommended_plan
-        ? planReason(s.conversation.recommended_plan, s.customer.language)
-        : s.conversation.recommendation_reason,
-      booking: !!b,
-    }, s.customer.language);
+    return summaryLines(
+      {
+        need: noHealth ? null : (n?.healthcare_need ?? "").slice(0, 80) || null,
+        product: s.conversation.selected_product,
+        plan: s.conversation.recommended_plan,
+        reason: s.conversation.recommended_plan
+          ? planReason(s.conversation.recommended_plan, s.customer.language)
+          : s.conversation.recommendation_reason,
+        booking: !!b,
+      },
+      s.customer.language,
+    );
   }
 
   // Playbook 9.2 value check on the yearly spend, then the recommendation or the honest answer
   private async valueAnswer(s: Saved, n: need | null, spend: number): Promise<string | null> {
-    const pick = await this._ValueCheck.recommend(spend, s.customer.age ?? null, n?.healthcare_need, ProductType.Oxxy);
+    const pick = await this._ValueCheck.recommend(
+      spend,
+      s.customer.age ?? null,
+      n?.healthcare_need,
+      ProductType.Oxxy,
+    );
     if (!pick) return null;
     if (pick.status === "ask_age") return say(ASK_AGE_T, s.customer.language);
     const prices = await this._ValueCheck.prices(ProductType.Oxxy, pick.plan);
     await this.saveRecommendation(s, pick.plan);
-    await conversation.update(s.conversation.id, { value_check_passed: pick.status === "recommend" });
+    await conversation.update(s.conversation.id, {
+      value_check_passed: pick.status === "recommend",
+    });
     s.conversation.value_check_passed = pick.status === "recommend";
     return pick.status === "recommend"
-      ? recommendText(pick.plan, prices.yearly ?? pick.price, prices.monthly, spend, pick.saving, s.customer.language)
-      : honestText(pick.plan, prices.yearly ?? pick.price, prices.monthly, spend, s.customer.language);
+      ? recommendText(
+          pick.plan,
+          prices.yearly ?? pick.price,
+          prices.monthly,
+          spend,
+          pick.saving,
+          s.customer.language,
+        )
+      : honestText(
+          pick.plan,
+          prices.yearly ?? pick.price,
+          prices.monthly,
+          spend,
+          s.customer.language,
+        );
   }
 
   // Trigger M: one objection, one resolution (Trigger layer 9, Playbook 14). Trust and expected use
@@ -2160,24 +3327,35 @@ export class ChatPipelineService {
   private async handleObjection(m: Inbound, s: Saved, noHealth: boolean): Promise<boolean> {
     const kind = detectObjection(m.text);
     if (!kind) return false;
-    if (kind === "price" && s.conversation.selected_product === ProductType.CutMediBills) return false;
+    if (kind === "price" && s.conversation.selected_product === ProductType.CutMediBills)
+      return false;
     await conversation.update(s.conversation.id, { objection: kind });
     s.conversation.objection = kind;
     const decision =
-      (await this._Triggers?.decide(s.customer.id, s.conversation, "M", s.customer.active_product)) ?? null;
+      (await this._Triggers?.decide(
+        s.customer.id,
+        s.conversation,
+        "M",
+        s.customer.active_product,
+      )) ?? null;
     const busy = this.busyWithQuestion(s);
     let body: string;
     let pending: string | null = null;
     if (kind === "price") {
       const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
       const spend = Number(n?.annual_medical_spend);
-      if (noHealth) body = `${say(UNDERSTAND_T, s.customer.language)} ${say(PRICE_BUDGET_QUESTION_T, s.customer.language)}`; // the yearly spend is a health question
+      if (noHealth)
+        body = `${say(UNDERSTAND_T, s.customer.language)} ${say(PRICE_BUDGET_QUESTION_T, s.customer.language)}`; // the yearly spend is a health question
       else if (!spend) {
         body = say(PRICE_ASK_T, s.customer.language);
         pending = "price_spend";
       } else {
         const v = await this.valueAnswer(s, n, spend);
-        body = v ? (/\?\s*$/.test(v) ? v : `${v} ${say(PRICE_BUDGET_QUESTION_T, s.customer.language)}`) : say(PRICE_ASK_T, s.customer.language);
+        body = v
+          ? /\?\s*$/.test(v)
+            ? v
+            : `${v} ${say(PRICE_BUDGET_QUESTION_T, s.customer.language)}`
+          : say(PRICE_ASK_T, s.customer.language);
       }
     } else if (kind === "not_interested") {
       body = say(NOT_INTERESTED_ASK_T, s.customer.language);
@@ -2185,13 +3363,50 @@ export class ChatPipelineService {
     } else if (kind === "no_provider") {
       body = say(NO_PROVIDER_ANSWER_T, s.customer.language);
     } else {
-      body = objectionReply(kind, await this.summary(s, noHealth), followUpOptions(), s.customer.language);
+      body = objectionReply(
+        kind,
+        await this.summary(s, noHealth),
+        followUpOptions(),
+        s.customer.language,
+      );
       pending = "follow_up_time";
     }
     // a booking or gate question is still open: keep it, and ask it again after this answer
     if (pending && !busy) await this.setPending(s, pending);
-    await this.sendAndSave(s.customer.id, [body, ...(busy ? this.pendingBack(s) : [])].join("\n\n"), m.waMessageId);
-    if (decision) await this._Triggers!.record(s.customer.id, s.conversation, decision, `objection: ${kind}`);
+    await this.sendAndSave(
+      s.customer.id,
+      [body, ...(busy ? this.pendingBack(s) : [])].join("\n\n"),
+      m.waMessageId,
+    );
+    if (decision)
+      await this._Triggers!.record(s.customer.id, s.conversation, decision, `objection: ${kind}`);
+    return true;
+  }
+
+  // Playbook 15 in-chat rescue: one-word replies, "I don't know", "you are repeating". Two attempts per
+  // signal (the second "I don't know" asks for a spend bucket and reads the answer as the yearly spend),
+  // then the summary / follow-up / closure offer. Another kind of message resets the count.
+  private async handleRescueSignal(m: Inbound, s: Saved, noHealth: boolean): Promise<boolean> {
+    if (s.conversation.pending_action) return false; // a question is waiting: its own handler reads the answer
+    let signal = detectRescueSignal(m.text);
+    const prev = readRescue(s.conversation.objection);
+    if (!signal) {
+      if (prev) await conversation.update(s.conversation.id, { objection: null });
+      return false;
+    }
+    if (signal === "dont_know" && noHealth) signal = "one_word"; // the spend questions are health questions
+    const attempts = prev?.signal === signal ? prev.attempts + 1 : 1;
+    const marker = `rescue:${signal}:${attempts}`;
+    await conversation.update(s.conversation.id, { objection: marker });
+    s.conversation.objection = marker;
+    const l = s.customer.language;
+    if (attempts >= 3) {
+      await this.setPending(s, "close_offer");
+      await this.sendAndSave(s.customer.id, say(NOT_INTERESTED_ASK_T, l), m.waMessageId);
+      return true;
+    }
+    if (signal === "dont_know" && attempts === 2) await this.setPending(s, "price_spend");
+    await this.sendAndSave(s.customer.id, rescueLine(signal, attempts as 1 | 2, l), m.waMessageId);
     return true;
   }
 
@@ -2207,7 +3422,11 @@ export class ChatPipelineService {
     await n.save();
     const v = await this.valueAnswer(s, n, amount);
     if (!v) return false;
-    await this.sendAndSave(s.customer.id, /\?\s*$/.test(v) ? v : `${v} ${say(PRICE_BUDGET_QUESTION_T, s.customer.language)}`, m.waMessageId);
+    await this.sendAndSave(
+      s.customer.id,
+      /\?\s*$/.test(v) ? v : `${v} ${say(PRICE_BUDGET_QUESTION_T, s.customer.language)}`,
+      m.waMessageId,
+    );
     return true;
   }
 
@@ -2222,11 +3441,16 @@ export class ChatPipelineService {
     const options = followUpOptions();
     const reply = (body: string) => this.sendAndSave(s.customer.id, body, m.waMessageId);
     if (/\bsummary\b/i.test(text)) {
-      await reply(`${await this.summary(s, await this.noHealthQuestions(s))}\n\n${followUpQuestion(options, s.customer.language)}`);
+      await reply(
+        `${await this.summary(s, await this.noHealthQuestions(s))}\n\n${followUpQuestion(options, s.customer.language)}`,
+      );
       return true;
     }
     const answer = parseConsentAnswer(text);
-    if (answer === "no" || /\b(no need|not needed|i will message|i'll message|i will contact|i'll contact)\b/i.test(text)) {
+    if (
+      answer === "no" ||
+      /\b(no need|not needed|i will message|i'll message|i will contact|i'll contact)\b/i.test(text)
+    ) {
       await this.setPending(s, null);
       await reply(say(FOLLOW_UP_NOT_WANTED_T, s.customer.language));
       return true;
@@ -2252,7 +3476,8 @@ export class ChatPipelineService {
 
   private async scheduleAgreedFollowUp(s: Saved, when: Date) {
     await this.setPending(s, null);
-    const product = s.customer.active_product || s.conversation.selected_product || ProductType.Oxxy;
+    const product =
+      s.customer.active_product || s.conversation.selected_product || ProductType.Oxxy;
     const reason = `agreed in chat${s.conversation.objection ? ` (${s.conversation.objection})` : ""}`;
     if (this._Scheduler) {
       await this._Scheduler.create({
@@ -2271,9 +3496,18 @@ export class ChatPipelineService {
           product === ProductType.CutMediBills ? "Cut Medi Bills" : "Oxxy",
         ],
       });
-      await this._Scheduler.cancelForConversation(s.conversation.id, ["rescue"], "agreed_follow_up");
+      await this._Scheduler.cancelForConversation(
+        s.conversation.id,
+        ["rescue"],
+        "agreed_follow_up",
+      );
     } else {
-      await this.createTask(TaskType.HumanHandoff, TaskPriority.Normal, s, `Agreed follow-up at ${when.toISOString()}`);
+      await this.createTask(
+        TaskType.HumanHandoff,
+        TaskPriority.Normal,
+        s,
+        `Agreed follow-up at ${when.toISOString()}`,
+      );
     }
     await conversation.update(s.conversation.id, { follow_up_at: when });
     await this.setState(s, [ConversationState.FollowUp]);
@@ -2295,13 +3529,22 @@ export class ChatPipelineService {
       return true;
     }
     const answer = parseConsentAnswer(text);
-    if (answer === "unclear" && !/\b(close|end|bye|stop it|that's all|thats all)\b/i.test(text)) return false;
-    await this._Scheduler?.cancelForConversation(s.conversation.id, ["rescue", "agreed_follow_up", "trigger_q"], "closed");
+    if (answer === "unclear" && !/\b(close|end|bye|stop it|that's all|thats all)\b/i.test(text))
+      return false;
+    await this._Scheduler?.cancelForConversation(
+      s.conversation.id,
+      ["rescue", "agreed_follow_up", "trigger_q"],
+      "closed",
+    );
     await conversation.update(s.conversation.id, { outcome: "declined" });
     s.conversation.outcome = "declined";
     await this.markTriggerResponse(s.conversation.id, "declined", { force: true });
     // the reply first: a closed conversation cannot send any more
-    await this.sendAndSave(s.customer.id, say(CLOSED_POLITELY_T, s.customer.language), m.waMessageId);
+    await this.sendAndSave(
+      s.customer.id,
+      say(CLOSED_POLITELY_T, s.customer.language),
+      m.waMessageId,
+    );
     await this.setState(s, [ConversationState.FollowUp, ConversationState.Closed]);
     return true;
   }
@@ -2309,13 +3552,22 @@ export class ChatPipelineService {
   // Trigger K: medicines, naming only the selected product (default Oxxy), once per journey
   private async handleMedicine(m: Inbound, s: Saved, noHealth: boolean): Promise<boolean> {
     if (!asksMedicine(m.text)) return false;
-    const d = (await this._Triggers?.decide(s.customer.id, s.conversation, "K", s.customer.active_product)) ?? null;
+    const d =
+      (await this._Triggers?.decide(
+        s.customer.id,
+        s.conversation,
+        "K",
+        s.customer.active_product,
+      )) ?? null;
     if (this._Triggers && (!d || d.suppression)) return false; // explained already: Claude answers
     const cmb =
       (s.customer.active_product || s.conversation.selected_product) === ProductType.CutMediBills;
     await this.sendAndSave(
       s.customer.id,
-      [medicineText(cmb ? "Cut Medi Bills" : "Oxxy", !noHealth, s.customer.language), ...this.pendingBack(s)].join("\n\n"),
+      [
+        medicineText(cmb ? "Cut Medi Bills" : "Oxxy", !noHealth, s.customer.language),
+        ...this.pendingBack(s),
+      ].join("\n\n"),
       m.waMessageId,
     );
     if (d) await this._Triggers!.record(s.customer.id, s.conversation, d, "medicine requirement");

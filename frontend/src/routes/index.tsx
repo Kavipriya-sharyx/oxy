@@ -12,8 +12,10 @@ import Reports from "../pages/Reports";
 import Triggers from "../pages/Triggers";
 import PrivacyRequests from "../pages/PrivacyRequests";
 import Settings from "../pages/Settings";
+import Developer from "../pages/Developer";
 import FollowUps from "../pages/FollowUps";
 import Templates from "../pages/Templates";
+import GoLive from "../pages/GoLive";
 import Content from "../pages/Content";
 import Users from "../pages/Users";
 import NoAccess from "../pages/NoAccess";
@@ -69,9 +71,11 @@ export default function AppRoutes() {
         <Route path="/roles" element={guard("/roles", <Roles />)} />
         <Route path="/no-access" element={<NoAccess />} />
         <Route path="/settings" element={guard("/settings", <Settings />)} />
+        <Route path="/developer" element={guard("/developer", <Developer />)} />
         <Route path="/content" element={guard("/content", <Content />)} />
         <Route path="/follow-ups" element={guard("/follow-ups", <FollowUps />)} />
         <Route path="/templates" element={guard("/templates", <Templates />)} />
+        <Route path="/go-live" element={guard("/go-live", <GoLive />)} />
       </Route>
       <Route path="*" element={<Landing />} />
     </Routes>

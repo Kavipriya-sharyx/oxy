@@ -1,10 +1,12 @@
 import { RoleEnum } from "@Helper/Enum/RoleEnum";
-import { Injectable, Logger, Optional } from "@nestjs/common";
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
+import { Queue, Worker } from "bullmq";
+import { queuePrefix, redisConnection } from "@Root/Config/Redis";
 import { AnalyticsService } from "./Analytics.service";
 import { FollowUpSchedulerService } from "@Service/Oxxy/FollowUpScheduler.service";
 import { conversation } from "@Database/Table/Oxxy/conversation";
 import { randomBytes } from "crypto";
-import { DataSource, IsNull } from "typeorm";
+import { DataSource, IsNull, LessThan } from "typeorm";
 import { crm_webhook_event } from "@Database/Table/Crm/crm_webhook_event";
 import { booking_request } from "@Database/Table/Oxxy/booking_request";
 import { activation } from "@Database/Table/Oxxy/activation";
@@ -23,13 +25,19 @@ import { ConversationRepository } from "@Service/Oxxy/ConversationRepository.ser
 import { InvalidTransitionError } from "@Service/Oxxy/ConversationStateMachine";
 import { DateWindowService } from "@Service/Oxxy/DateWindow.service";
 import { WhatsappClient } from "@Service/Oxxy/WhatsappClient.service";
+import { normaliseWa } from "@Service/Crm/BotActions.service";
+import { ChangeFeedService } from "@Service/Crm/ChangeFeed.service";
 
 type Data = Record<string, unknown>;
+const QUEUE = "crm-webhook";
+const ATTEMPTS = 3;
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
 
 @Injectable()
-export class CrmWebhookService {
+export class CrmWebhookService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CrmWebhookService.name);
+  private queue: Queue | null = null;
+  private worker: Worker | null = null;
 
   constructor(
     private readonly _Encryption: EncryptionService,
@@ -39,7 +47,102 @@ export class CrmWebhookService {
     private readonly _DateWindow: DateWindowService,
     @Optional() private readonly _Analytics?: AnalyticsService,
     @Optional() private readonly _Scheduler?: FollowUpSchedulerService,
+    @Optional() private readonly _Feed?: ChangeFeedService,
   ) {}
+
+  /**
+   * The same changes as the signed webhooks, called directly by the Actions API for a CRM that pulls instead of
+   * pushing (booking confirmed / rescheduled / cancelled, payment result, task done). Throws on bad data:
+   * "… not found", "missing preferred_date", "date out of window: …".
+   */
+  async apply(type: string, data: Data): Promise<void> {
+    await this.process(type, data);
+  }
+
+  private feed(type: string, customerId: string | null, data: Data) {
+    return this._Feed?.record(null, type, customerId, { ...data, at: new Date().toISOString() });
+  }
+
+  // Full Plan 3.3: store -> 200 -> BullMQ. One worker (concurrency 1) keeps the CRM's order, 3 attempts with
+  // backoff, and a sweeper re-queues anything stored but never processed (Redis loss, crash). Without Redis
+  // (tests) the event is processed inline as before.
+  async onModuleInit() {
+    if (process.env.NODE_ENV === "test") return;
+    const connection = redisConnection();
+    const prefix = queuePrefix();
+    this.queue = new Queue(QUEUE, { connection, prefix });
+    this.worker = new Worker(
+      QUEUE,
+      async (job) => {
+        if (job.name === "sweep") return await this.sweep();
+        const last = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+        return await this.processStored(String(job.data.eventId), { rethrow: !last });
+      },
+      { connection, prefix, concurrency: 1 },
+    );
+    this.worker.on("error", (e) => this.logger.error(`webhook worker error: ${e.message}`));
+    await this.queue.upsertJobScheduler("crm-webhook-sweep", { every: 60_000 }, { name: "sweep" });
+  }
+
+  async onModuleDestroy() {
+    await this.worker?.close();
+    await this.queue?.close();
+  }
+
+  /** stored more than a minute ago, never processed, no error: the queue lost it */
+  async sweep(): Promise<number> {
+    const lost = await crm_webhook_event.find({
+      where: {
+        processed_at: IsNull(),
+        error: IsNull(),
+        received_at: LessThan(new Date(Date.now() - 60_000)),
+      },
+      order: { received_at: "ASC" } as any,
+      take: 50,
+    });
+    for (const ev of lost) await this.enqueue(ev.event_id);
+    return lost.length;
+  }
+
+  private async enqueue(eventId: string): Promise<boolean> {
+    if (!this.queue) return false;
+    try {
+      await this.queue.add(
+        "event",
+        { eventId },
+        {
+          jobId: eventId,
+          attempts: ATTEMPTS,
+          backoff: { type: "exponential", delay: 5_000 },
+          removeOnComplete: true,
+          removeOnFail: 500,
+        },
+      );
+      return true;
+    } catch (e) {
+      this.logger.warn(`webhook enqueue failed, processing inline: ${(e as Error).message}`);
+      return false;
+    }
+  }
+
+  /** run one stored event; a processed one is skipped (a resend or a second job is harmless) */
+  async processStored(eventId: string, opts: { rethrow?: boolean } = {}): Promise<void> {
+    const ev = await crm_webhook_event.findOne({ where: { event_id: eventId } });
+    if (!ev || ev.processed_at) return;
+    try {
+      await this.process(ev.event_type, (ev.payload ?? {}) as Data);
+      ev.processed_at = new Date();
+      ev.error = null;
+    } catch (e) {
+      ev.error = String((e as Error).message).slice(0, 1000);
+      this.logger.error(`CRM event ${eventId} (${ev.event_type}) failed: ${ev.error}`);
+      if (opts.rethrow) {
+        await ev.save();
+        throw e;
+      }
+    }
+    await ev.save();
+  }
 
   // Store first, then process. A resend of the same event_id is ignored.
   async handle(body: {
@@ -64,14 +167,8 @@ export class CrmWebhookService {
     } catch {
       return "duplicate"; // two requests raced on the primary key
     }
-    try {
-      await this.process(type, (body.data ?? {}) as Data);
-      ev.processed_at = new Date();
-    } catch (e) {
-      ev.error = String((e as Error).message).slice(0, 1000);
-      this.logger.error(`CRM event ${eventId} (${type}) failed: ${ev.error}`);
-    }
-    await ev.save();
+    if (await this.enqueue(ev.event_id)) return "ok";
+    await this.processStored(ev.event_id);
     return "ok";
   }
 
@@ -87,7 +184,7 @@ export class CrmWebhookService {
         return await this.activationPaid(d);
       case "activation.failed":
       case "activation.refunded":
-        return await this.activationFailed(d);
+        return await this.activationFailed(d, type);
       case "customer.opted_out":
         return await this.customerOptedOut(d);
       case "customer.owner_changed":
@@ -114,7 +211,7 @@ export class CrmWebhookService {
     return { b, crmId };
   }
 
-  private async sendBookingTemplate(b: booking_request, templateName: string) {
+  private async sendBookingTemplate(b: booking_request, templateName: string): Promise<boolean> {
     try {
       await this._Wa.send(
         b.customer_id,
@@ -126,10 +223,12 @@ export class CrmWebhookService {
         },
         "proactive",
       );
+      return true;
     } catch (e) {
       this.logger.warn(
         `CRM webhook WhatsApp send (${templateName}) failed: ${(e as Error).message}`,
       );
+      return false;
     }
   }
 
@@ -141,9 +240,18 @@ export class CrmWebhookService {
     const u = crmUser ? await user.findOne({ where: { crm_user_id: crmUser } }) : null;
     b.booking_status = BookingStatus.Confirmed;
     b.confirmed_by_id = u?.id ?? null;
+    b.confirmed_by_name = str(d.confirmed_by_name) ?? b.confirmed_by_name ?? null;
     b.updated_on = new Date();
     if (crmId && !b.crm_booking_id) b.crm_booking_id = crmId;
     await b.save();
+    await this.feed("booking.confirmed", b.customer_id, {
+      booking_id: b.id,
+      crm_booking_id: b.crm_booking_id ?? null,
+      preferred_date: b.preferred_date,
+      preferred_time: b.preferred_time ?? null,
+      confirmed_by: b.confirmed_by_name ?? crmUser ?? null,
+      source: str(d.source) ?? "crm",
+    });
     await this.sendBookingTemplate(b, "booking_confirmed");
   }
 
@@ -154,7 +262,24 @@ export class CrmWebhookService {
     b.updated_on = new Date();
     if (crmId && !b.crm_booking_id) b.crm_booking_id = crmId;
     await b.save();
-    await this.sendBookingTemplate(b, "booking_cancelled");
+    await this.feed("booking.cancelled", b.customer_id, {
+      booking_id: b.id,
+      crm_booking_id: b.crm_booking_id ?? null,
+      reason: str(d.reason),
+      source: str(d.source) ?? "crm",
+    });
+    // Full Plan 3.3: tell the customer and offer another centre ONCE per conversation. A later
+    // cancellation only informs (booking_cancelled_info has no question).
+    const earlier = await booking_request.count({
+      where: { conversation_id: b.conversation_id, booking_status: BookingStatus.Cancelled },
+    });
+    const offer = earlier <= 1 && !!b.conversation_id;
+    const sent = await this.sendBookingTemplate(
+      b,
+      offer ? "booking_cancelled" : "booking_cancelled_info",
+    );
+    if (sent && offer)
+      await conversation.update(b.conversation_id, { pending_action: `rebook_offer:${b.id}` });
   }
 
   private async bookingRescheduled(d: Data) {
@@ -168,6 +293,13 @@ export class CrmWebhookService {
     b.updated_on = new Date();
     if (crmId && !b.crm_booking_id) b.crm_booking_id = crmId;
     await b.save();
+    await this.feed("booking.rescheduled", b.customer_id, {
+      booking_id: b.id,
+      crm_booking_id: b.crm_booking_id ?? null,
+      preferred_date: b.preferred_date,
+      preferred_time: b.preferred_time ?? null,
+      source: str(d.source) ?? "crm",
+    });
     await this.sendBookingTemplate(b, "booking_rescheduled");
   }
 
@@ -185,10 +317,21 @@ export class CrmWebhookService {
       active_product: a.product,
       active_plan: a.plan,
     });
+    await this.feed("activation.paid", a.customer_id, {
+      activation_id: a.id,
+      crm_activation_id: a.crm_activation_id ?? null,
+      product: a.product,
+      plan: a.plan ?? null,
+      billing: a.billing,
+      source: str(d.source) ?? "crm",
+    });
     // conversion attribution (Trigger layer 13); no more reminders for this product
     await this._Analytics?.attributeConversion(a.id);
     await this._Scheduler?.cancelAll(a.customer_id, "product_active");
-    await conversation.update({ customer_id: a.customer_id, closed_at: IsNull() }, { outcome: "activated" });
+    await conversation.update(
+      { customer_id: a.customer_id, closed_at: IsNull() },
+      { outcome: "activated" },
+    );
     // Trigger P (plan 3.3): tell the customer the activation is verified
     try {
       await this._Wa.send(
@@ -197,23 +340,34 @@ export class CrmWebhookService {
           kind: "template",
           name: "activation_confirmed",
           languageCode: "en",
-          params: [a.product === "cut_medi_bills" ? "Cut Medi Bills" : `Oxxy ${a.plan ?? ""}`.trim()],
+          params: [
+            a.product === "cut_medi_bills" ? "Cut Medi Bills" : `Oxxy ${a.plan ?? ""}`.trim(),
+          ],
         },
         "proactive",
       );
     } catch (e) {
-      this.logger.warn(`CRM webhook WhatsApp send (activation_confirmed) failed: ${(e as Error).message}`);
+      this.logger.warn(
+        `CRM webhook WhatsApp send (activation_confirmed) failed: ${(e as Error).message}`,
+      );
     }
   }
 
-  private async activationFailed(d: Data) {
+  private async activationFailed(d: Data, type = "activation.failed") {
     const id = str(d.activation_id);
     const crmId = str(d.crm_activation_id);
     const a = await activation.findOne({ where: id ? { id } : { crm_activation_id: crmId ?? "" } });
     if (!a) throw new Error("activation not found");
     a.payment_status = PaymentStatus.Failed;
     a.activation_status = ActivationStatus.Failed;
+    if (crmId && !a.crm_activation_id) a.crm_activation_id = crmId;
     await a.save();
+    await this.feed(type, a.customer_id, {
+      activation_id: a.id,
+      crm_activation_id: a.crm_activation_id ?? null,
+      product: a.product,
+      source: str(d.source) ?? "crm",
+    });
   }
 
   private async customerOwnerChanged(d: Data) {
@@ -225,7 +379,8 @@ export class CrmWebhookService {
   private async customerOptedOut(d: Data) {
     const id = str(d.customer_id);
     const crmId = str(d.crm_customer_id);
-    const wa = str(d.whatsapp) ?? str(d.wa_number);
+    // "+91 98400 12345", "09840012345" and "919840012345" all find the same customer
+    const wa = normaliseWa(str(d.whatsapp) ?? str(d.wa_number));
     const c = id
       ? await customer.findOne({ where: { id } })
       : crmId
@@ -278,8 +433,16 @@ export class CrmWebhookService {
         : null;
     if (!t) throw new Error("task not found");
     t.task_status = TaskStatus.Done;
+    if (str(d.outcome)) t.outcome = str(d.outcome);
     t.updated_on = new Date();
     await t.save();
+    await this.feed("task.completed", t.customer_id, {
+      task_id: t.id,
+      crm_task_id: t.crm_task_id ?? null,
+      type: t.type,
+      outcome: t.outcome ?? null,
+      source: str(d.source) ?? "crm",
+    });
 
     if (!t.conversation_id) return;
     const conv = await this._ConvRepo.findById(t.conversation_id);

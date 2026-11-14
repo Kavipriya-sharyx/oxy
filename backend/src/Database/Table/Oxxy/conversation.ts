@@ -1,6 +1,7 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne } from "typeorm";
 import { BaseTable } from "../BaseTable";
 import { customer } from "./customer";
+import { encrypted } from "./encrypted.transformer";
 
 @Entity()
 @Index("uq_conversation_one_open", ["customer_id"], { unique: true, where: '"closed_at" IS NULL' })
@@ -82,4 +83,12 @@ export class conversation extends BaseTable {
 
   @Column({ type: "text", nullable: true }) // shown to Claude as team_note on the next turns
   handback_note: string | null;
+
+  // What the customer already told the voice AI on the phone (StartConversation context). Shown to the LLM
+  // as call_context for 7 days so the chat does not ask the same questions again.
+  @Column({ type: "text", nullable: true, transformer: encrypted }) // may hold health details: encrypted
+  call_context: string | null;
+
+  @Column({ type: "timestamp", nullable: true })
+  call_context_at: Date | null;
 }

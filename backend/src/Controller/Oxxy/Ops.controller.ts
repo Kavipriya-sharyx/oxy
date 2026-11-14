@@ -13,6 +13,7 @@ import { CrmReconciliationService } from "@Service/Ops/CrmReconciliation.service
 import { RetentionService, retentionDays } from "@Service/Ops/Retention.service";
 import { PlanChangeService } from "@Service/Ops/PlanChange.service";
 import { TemplatesService } from "@Service/Ops/Templates.service";
+import { GoLiveService } from "@Service/Ops/GoLive.service";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const id = (v: string) => {
@@ -30,8 +31,16 @@ export class OpsController extends JWTAuthController {
     private readonly _Retention: RetentionService,
     private readonly _Plans: PlanChangeService,
     private readonly _Templates: TemplatesService,
+    private readonly _GoLive: GoLiveService,
   ) {
     super();
+  }
+
+  // ---- Go-live check: real state of settings, plans, centres, content, templates, logins ----
+  @Permission("settings.manage")
+  @Get("GoLive")
+  async GoLive() {
+    return this.SendResponseData(await this._GoLive.run());
   }
 
   // ---- Follow-ups (agreed follow-ups, rescues, Trigger Q, booking updates) ----
