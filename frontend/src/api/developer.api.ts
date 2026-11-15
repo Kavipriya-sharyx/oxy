@@ -50,3 +50,47 @@ export function apiOrigin(): string {
     return window.location.origin;
   }
 }
+
+// ---- API logs (Super Admin): every call the client's CRM / voice agent made to the Oxxy API ----
+export interface ApiLogRow {
+  id: string;
+  created_on: string;
+  method: string;
+  path: string;
+  endpoint: string;
+  status_code: number;
+  duration_ms: number;
+  key_id: string | null;
+  key_label: string;
+  ip: string | null;
+  user_agent: string | null;
+  error_message: string | null;
+  detail: Record<string, unknown> | null;
+}
+export interface ApiLogFilter {
+  result?: string;
+  key?: string;
+  endpoint?: string;
+  q?: string;
+  before?: string;
+  limit?: number;
+}
+export interface ApiLogStats {
+  hours: number;
+  calls: number;
+  errors: number;
+  auth_failures: number;
+  avg_ms: number;
+  p95_ms: number;
+  last_call_at: string | null;
+  endpoints: { endpoint: string; calls: number; errors: number; avg_ms: number; last_call_at: string }[];
+  keys: { key_id: string | null; key_label: string; calls: number; errors: number; last_call_at: string }[];
+}
+export const listApiLogs = async (f: ApiLogFilter) =>
+  (
+    await client.get<{ rows: ApiLogRow[]; has_more: boolean }>("/Developer/ApiLogs", {
+      params: Object.fromEntries(Object.entries(f).filter(([, v]) => v !== "" && v != null)),
+    })
+  ).data;
+export const getApiLogStats = async (hours: number) =>
+  (await client.get<ApiLogStats>("/Developer/ApiLogs/Stats", { params: { hours } })).data;

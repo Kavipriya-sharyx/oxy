@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { ServeStaticModule } from "@nestjs/serve-static";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { APP_FILTER } from "@nestjs/core";
@@ -57,6 +57,7 @@ import { TriggerEngineService } from "./Service/Oxxy/TriggerEngine.service";
 import { FollowUpSchedulerService } from "./Service/Oxxy/FollowUpScheduler.service";
 import { SystemConfigService } from "./Service/Admin/SystemConfig.service";
 import { ApiKeyService } from "./Service/Admin/ApiKey.service";
+import { ApiLogMiddleware, ApiLogService } from "./Service/Admin/ApiLog.service";
 import { ChangeFeedService } from "./Service/Crm/ChangeFeed.service";
 import { CrmPullService } from "./Service/Crm/CrmPull.service";
 import { DeveloperController } from "./Controller/Admin/Developer.controller";
@@ -152,6 +153,7 @@ import { HealthController, HealthDetailsController } from "./Controller/Ops/Heal
     OpsController,
   ],
   providers: [
+    ApiLogService,
     AuthService,
     UserService,
     UserRoleService,
@@ -219,4 +221,9 @@ import { HealthController, HealthDetailsController } from "./Controller/Ops/Heal
   ],
   exports: [AuthService, EncryptionService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  // every call to the Oxxy API (the client's CRM / voice agent) is logged for the Super Admin
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(ApiLogMiddleware).forRoutes(ActionsController);
+  }
+}

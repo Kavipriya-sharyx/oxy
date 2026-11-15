@@ -502,6 +502,12 @@ Reported from real WhatsApp chats; every case below is a regression test (the me
 - Prompt rules added (`SYSTEM_PROMPT`): one question about one person, no opener in every message, no
   "activation date", no medicine names, yearly spend = monthly x 12 with intent recommend, the oldest patient's
   age when several need care, never ask again for what is in `known`.
+- **Booking confirmed in the console, but no WhatsApp message (16 Nov).** `BookingService.confirm` sent the
+  `booking_confirmed` template as "proactive" and swallowed every error, so in quiet hours (before 09:00 / after
+  21:00 IST) the message was dropped for good and nobody was told. Now: quiet hours = queued for 09:00 IST
+  (`status_update` follow-up, like the CRM webhook path); any other failure keeps the booking confirmed and the
+  console shows why (`sendProblem`: template not approved, paused, wrong variable count, expired token ...).
+  The reply text says which of the three happened.
 - A long reply arrives as up to three WhatsApp bubbles (`toBubbles`, Playbook 1.1): that is why a plan line or
   the callback options can look like a separate message. Not a bug.
 - Console: Live Chat shows "Tapped: Understand Oxxy" instead of the raw row id (`TAP_LABELS`); a Light / Dark

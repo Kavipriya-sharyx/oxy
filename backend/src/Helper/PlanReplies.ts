@@ -203,19 +203,19 @@ export function honestText(
       return (
         `आपकी बताई जानकारी के अनुसार ${title(plan)} प्लान सबसे उपयुक्त है, ${price} और लागू GST पर। ` +
         `लगभग ${inr(spend)} सालाना खर्च पर, सिर्फ़ बचत से इसकी कीमत शायद पूरी न हो। ` +
-        `मैं फिर भी बिना किसी शुल्क के केंद्र ढूँढने या बुकिंग अनुरोध लेने में मदद कर सकता हूँ।`
+        `मैं फिर भी बिना किसी शुल्क के केंद्र ढूँढने या बुकिंग अनुरोध लेने में मदद कर सकता हूँ। आप प्लान की जानकारी चाहेंगे या केंद्र ढूँढने में मदद?`
       );
     case "hinglish":
       return (
         `Aapki batayi jaankari ke hisaab se ${title(plan)} plan sabse sahi hai, ${price} plus applicable GST par. ` +
         `Lagbhag ${inr(spend)} yearly kharche par, sirf bachat se iski price shayad poori na ho. ` +
-        `Main phir bhi bina kisi charge ke centre dhoondhne ya booking request lene mein madad kar sakta hoon.`
+        `Main phir bhi bina kisi charge ke centre dhoondhne ya booking request lene mein madad kar sakta hoon. Aap plan details chahenge ya centre dhoondhne mein madad?`
       );
     default:
       return (
         `Based on what you shared, the ${title(plan)} plan fits best, at ${price} plus applicable GST. ` +
         `At about ${inr(spend)} a year, it may not pay for itself in savings alone. ` +
-        `I can still help you find a centre or take a booking request at no cost.`
+        `I can still help you find a centre or take a booking request at no cost. Would you like the plan details or help finding a centre?`
       );
   }
 }
@@ -392,4 +392,92 @@ export function unknownCentreText(name: string): string {
     `Thank you. "${name}" is not in our directory yet, so our team will check it. ` +
     "Please share its address or a nearby landmark, and your preferred date."
   );
+}
+
+// ---- Price questions (Playbook 7 / 12.1): the price comes from plan_catalog, never "the team will share it" ----
+
+/**
+ * "What is the price?", "how much", "kitna hai": a question about OUR plan price. Not "too expensive" (an
+ * objection), not a saving or discount question, and not a centre, doctor or booking fee (those are the
+ * centre's charges).
+ */
+export function asksPrice(text: string): boolean {
+  const t = (text || "").toLowerCase();
+  if (/\b(expensive|costly|pricey|afford|mehe?nga|discounts?|cheaper|savings?|concession|refund|charged twice)\b|too high/.test(t))
+    return false;
+  if (/\b(book\w*|appointment|consult\w*|doctor|hospital|centre|center|clinic|test|scan|surgery|operation|family|members?|wife|husband|parents?)\b/.test(t))
+    return false;
+  return /\b(prices?|pricing|costs?|how much|fees?|charges?|kitna|kitne|kitni|rate|amount)\b|कीमत|दाम|कितना|कितने/u.test(t);
+}
+
+/** "yes", "ok", "sure", "haan": a short yes (to the bot's last question) */
+export function isShortYes(text: string): boolean {
+  const t = (text || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  return /^(yes|yeah|yep|yup|ya|y|ok|okay|okk|k|sure|fine|haan|han|ha|ji|haan ji|yes please|ok please|please|tell me|go ahead|हाँ|हां|जी)( please| sir| madam| ji)?$/u.test(t);
+}
+
+/** The bot's last question was about the price ("Would you like to know the price now?") */
+export function askedAboutPrice(lastBotText: string | null | undefined): boolean {
+  const t = String(lastBotText ?? "");
+  const q = t.slice(t.lastIndexOf("\n") + 1);
+  return /\?/.test(q) && /\b(price|cost|pricing|how much)\b|कीमत/i.test(q);
+}
+
+/** One plan's price, then the Playbook 7 question */
+export function planPriceText(
+  plan: string,
+  yearly: number,
+  monthly: number | null,
+  l: string | null = "en",
+): string {
+  const p = title(plan);
+  const price = priceText(yearly, monthly, l || "en");
+  switch (lang(l)) {
+    case "hi":
+      return `${p} प्लान की मौजूदा कीमत ${price} और लागू GST है। क्या आप प्लान की आधिकारिक जानकारी चाहेंगे या इसे एक्टिवेट करने में मदद?`;
+    case "hinglish":
+      return `${p} plan ki current price ${price} plus applicable GST hai. Kya aap official plan details chahenge ya activate karne mein madad?`;
+    default:
+      return `The current price of the ${p} plan is ${price} plus applicable GST. Would you like the official plan details or help activating it?`;
+  }
+}
+
+/** Playbook 8.3: Cut Medi Bills prices with their renewal terms */
+export function cmbPriceText(monthly: number | null, yearly: number | null, l: string | null = "en"): string {
+  const parts: string[] = [];
+  const g = lang(l);
+  if (monthly)
+    parts.push(
+      g === "hi"
+        ? `मासिक: ${inr(monthly)} और GST, हर महीने अपने-आप रिन्यू होता है जब तक आप रद्द न करें।`
+        : g === "hinglish"
+          ? `Monthly: ${inr(monthly)} plus GST, har mahine automatically renew hota hai jab tak aap cancel na karein.`
+          : `Monthly: ${inr(monthly)} plus GST, renews automatically every month until you cancel.`,
+    );
+  if (yearly)
+    parts.push(
+      g === "hi"
+        ? `वार्षिक: ${inr(yearly)} और GST, एक बार का भुगतान, एक साल के लिए, अपने-आप रिन्यू नहीं होता।`
+        : g === "hinglish"
+          ? `Annual: ${inr(yearly)} plus GST, ek baar ka payment, ek saal ke liye, automatically renew nahi hota.`
+          : `Annual: ${inr(yearly)} plus GST, a one-time payment valid for one year, with no automatic renewal.`,
+    );
+  const ask =
+    g === "hi"
+      ? "आप कौन-सा विकल्प चाहेंगे?"
+      : g === "hinglish"
+        ? "Aap kaunsa option chahenge?"
+        : "Which option would you prefer?";
+  return [...parts, ask].join("\n");
+}
+
+/** "50+", "52", "he is 60 years", "around 45": the patient's age. null = not an age. */
+export function parsePatientAge(text: string): number | null {
+  const t = (text || "").toLowerCase().trim();
+  if (t.split(/\s+/).length > 8) return null;
+  if (/\d\s*(k|l|lakh|lac|thousand|rs|₹|inr|km)\b|₹/.test(t)) return null;
+  const m = t.match(/(?:^|\D)(\d{1,3})(?:\s*\+|\s*(?:plus|years?|yrs?|yr|y\/o|saal|sal))?(?!\d)/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 1 && n <= 120 ? n : null;
 }

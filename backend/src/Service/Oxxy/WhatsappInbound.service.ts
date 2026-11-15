@@ -1,4 +1,5 @@
 import { FREQUENCY_CAP_CODES } from "@Helper/WhatsappErrors";
+import { deliveryFailureReason } from "@Helper/WhatsappFailure";
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { message } from "@Database/Table/Oxxy/message";
@@ -94,6 +95,8 @@ export class WhatsappInboundService implements OnModuleInit {
       // Meta's marketing limit arrives here, after the send was accepted: frequency_cap, not an error to retry
       const capped = (st.errors ?? []).some((x) => FREQUENCY_CAP_CODES.includes(Number(x.code)));
       row.message_status = capped ? "frequency_cap" : "failed";
+      const first = (st.errors ?? [])[0];
+      row.error_reason = deliveryFailureReason(first?.code ?? null, first?.title ?? null);
       this.logger.warn(
         `Meta delivery failed for message ${st.id} (status: failed): ${JSON.stringify(st.errors ?? [])}`,
       );

@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { deliveryFailureReason, UNCERTAIN_REASON } from "@Helper/WhatsappFailure";
 import { ConfigService } from "@nestjs/config";
 import axios from "axios";
 import { conversation } from "@Database/Table/Oxxy/conversation";
@@ -30,6 +31,8 @@ export function mapMetaError(e: unknown): Error {
   if (!err?.response) {
     return new WhatsappApiError(`WhatsApp did not answer (${err?.code ?? text})`, {
       retryable: true,
+      // refused / no DNS = never reached Meta; a timeout may have been delivered all the same
+      maybeSent: !["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"].includes(String(err?.code ?? "")),
     });
   }
   if (code === 131047) return new WindowClosedError();
@@ -103,7 +106,60 @@ export class WhatsappClient implements OnModuleInit {
       await assertTemplateUsable(msg.name, msg.languageCode);
     }
 
-    const wamid = await this.callApi(cust.wa_number, msg);
+    let wamid: string;
+    try {
+      wamid = await this.callApi(cust.wa_number, msg);
+    } catch (e) {
+      // A reply Meta may have delivered (timeout) is saved as "uncertain" with its reply tag: the retry of this
+      // job and the lost-message recovery then see a reply and never send it a second time (the customer saw
+      // the same message twice). The console shows it, so a person can check.
+      if (replyToWaMessageId && e instanceof WhatsappApiError && e.maybeSent) {
+        await message
+          .save(
+            message.create({
+              conversation_id: conv.id,
+              direction: "out",
+              sender: opts.sender ?? "bot",
+              created_by_id: opts.actorId ?? null,
+              wa_message_id: null,
+              type: msg.kind,
+              body: msg.kind === "template" ? null : msg.body,
+              template_name: msg.kind === "template" ? msg.name : null,
+              reply_to_wa_message_id: replyToWaMessageId,
+              message_status: "uncertain",
+              error_reason: UNCERTAIN_REASON,
+            }),
+          )
+          .catch(() => undefined);
+      } else if (
+        (e instanceof WhatsappApiError && !e.retryable) ||
+        e instanceof WindowClosedError
+      ) {
+        // Meta refused it for good (window closed, not on WhatsApp, template problem …): kept as "failed" with
+        // the reason, so the team sees it in Conversations; a retry would fail the same way
+        await message
+          .save(
+            message.create({
+              conversation_id: conv.id,
+              direction: "out",
+              sender: opts.sender ?? "bot",
+              created_by_id: opts.actorId ?? null,
+              wa_message_id: null,
+              type: msg.kind,
+              body: msg.kind === "template" ? null : msg.body,
+              template_name: msg.kind === "template" ? msg.name : null,
+              reply_to_wa_message_id: replyToWaMessageId ?? null,
+              message_status: "failed",
+              error_reason:
+                e instanceof WindowClosedError
+                  ? deliveryFailureReason(131047)
+                  : deliveryFailureReason(e.metaCode ?? null, e.message),
+            }),
+          )
+          .catch(() => undefined);
+      }
+      throw e;
+    }
 
     await message.save(
       message.create({

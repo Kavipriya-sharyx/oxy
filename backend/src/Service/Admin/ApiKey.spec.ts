@@ -99,6 +99,7 @@ describe("Actions API guard", () => {
     }) as never;
   const keys = (valid: boolean, active = 0) => ({
     verify: jest.fn(async () => valid),
+    identify: jest.fn(async () => (valid ? { id: "k1", name: "CRM live", prefix: "oxk_test" } : null)),
     activeCount: jest.fn(async () => active),
   });
 
@@ -112,6 +113,18 @@ describe("Actions API guard", () => {
     await expect(
       new ActionsApiKeyGuard(config(), keys(true, 1) as never).canActivate(ctx("oxk_test_x")),
     ).resolves.toBe(true);
+  });
+
+  it("tells the API log who called: the key's name and prefix, or the server key", async () => {
+    const req: any = { headers: { "x-api-key": "oxk_test_x" } };
+    const c = { switchToHttp: () => ({ getRequest: () => req }) } as never;
+    await new ActionsApiKeyGuard(config(), keys(true, 1) as never).canActivate(c);
+    expect(req.oxxyApiCaller).toEqual({ id: "k1", label: "CRM live (oxk_test…)" });
+    const req2: any = { headers: { "x-api-key": "env-key" } };
+    await new ActionsApiKeyGuard(config({ "Actions.ApiKey": "env-key" }), keys(false) as never).canActivate({
+      switchToHttp: () => ({ getRequest: () => req2 }),
+    } as never);
+    expect(req2.oxxyApiCaller).toEqual({ id: null, label: "Server key (ACTIONS_API_KEY)" });
   });
 
   it("401 for a wrong key, 503 when no key exists at all", async () => {

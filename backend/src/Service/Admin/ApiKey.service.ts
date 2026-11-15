@@ -42,7 +42,10 @@ export function keyState(
 @Injectable()
 export class ApiKeyService {
   // hash -> {id, expires_at, checked}: saves a database read on every Actions call
-  private cache = new Map<string, { id: string; expires: number | null; at: number }>();
+  private cache = new Map<
+    string,
+    { id: string; name: string; prefix: string; expires: number | null; at: number }
+  >();
   private touched = new Map<string, number>();
 
   constructor(
@@ -114,7 +117,14 @@ export class ApiKeyService {
 
   /** true when the given key is an active console key. Records when it was last used (at most once a minute). */
   async verify(given: string | undefined): Promise<boolean> {
-    if (!given || !given.startsWith("oxk_")) return false;
+    return !!(await this.identify(given));
+  }
+
+  /** The active console key behind the given value (its id, name and prefix), else null */
+  async identify(
+    given: string | undefined,
+  ): Promise<{ id: string; name: string; prefix: string } | null> {
+    if (!given || !given.startsWith("oxk_")) return null;
     const hash = hashKey(given);
     const now = Date.now();
     let hit = this.cache.get(hash);
@@ -126,21 +136,23 @@ export class ApiKeyService {
         .getOne();
       if (!row) {
         this.cache.delete(hash);
-        return false;
+        return null;
       }
       hit = {
         id: row.id,
+        name: row.name,
+        prefix: row.prefix,
         expires: row.expires_at ? new Date(row.expires_at).getTime() : null,
         at: now,
       };
       this.cache.set(hash, hit);
     }
-    if (hit.expires !== null && hit.expires <= now) return false;
+    if (hit.expires !== null && hit.expires <= now) return null;
     if (now - (this.touched.get(hit.id) ?? 0) > TOUCH_MS) {
       this.touched.set(hit.id, now);
       api_key.update(hit.id, { last_used_at: new Date(now) }).catch(() => undefined);
     }
-    return true;
+    return { id: hit.id, name: hit.name, prefix: hit.prefix };
   }
 
   /** Makes a new CRM webhook signing secret, saves it like the Configuration page does, returns it once. */

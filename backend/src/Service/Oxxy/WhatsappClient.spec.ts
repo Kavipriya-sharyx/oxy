@@ -220,7 +220,7 @@ describe("WhatsappClient.send", () => {
     expect(t.post).not.toHaveBeenCalled();
   });
 
-  it("maps a Meta error from the API and saves nothing", async () => {
+  it("maps a Meta error from the API and keeps the message as failed, with the reason", async () => {
     const t = setup(recent());
     t.post.mockRejectedValueOnce(metaErr(401, 190));
     await expect(t.client.send("c1", { kind: "text", body: "hi" }, "reply")).rejects.toMatchObject({
@@ -228,6 +228,17 @@ describe("WhatsappClient.send", () => {
       retryable: false,
       message: "WHATSAPP_ACCESS_TOKEN expired or invalid",
     });
+    expect(t.saved[0]).toMatchObject({
+      message_status: "failed",
+      body: "hi",
+      error_reason: "Meta 190: The WhatsApp access token expired or is wrong. Update it in Configuration.",
+    });
+  });
+
+  it("a 5xx may work on the retry: nothing saved", async () => {
+    const t = setup(recent());
+    t.post.mockRejectedValueOnce(metaErr(503, 131016));
+    await expect(t.client.send("c1", { kind: "text", body: "hi" }, "reply", "wamid.IN1")).rejects.toThrow();
     expect(t.saved).toHaveLength(0);
   });
 });
@@ -238,5 +249,52 @@ describe("Meta marketing limit (Playbook 15.1)", () => {
     const { FrequencyCapError } = jest.requireActual("@Helper/WhatsappErrors");
     const e = mapMetaError({ response: { status: 400, data: { error: { code: 131049, message: "healthy ecosystem" } } } });
     expect(e).toBeInstanceOf(FrequencyCapError);
+  });
+});
+
+// Reported: the booking confirmation reached the customer twice. A timeout after Meta delivered it made the
+// job retry and send it again. Now the reply is kept as "uncertain" with its tag, so nothing sends it twice.
+describe("a reply Meta may have delivered is never sent twice", () => {
+  const recent = () => new Date(Date.now() - 3600_000);
+  const timeout = { isAxiosError: true, code: "ECONNABORTED", message: "timeout of 10000ms exceeded" };
+
+  it("timeout: saved as uncertain with the reply tag, then the error goes up (the retry finds the reply)", async () => {
+    const t = setup(recent());
+    t.post.mockRejectedValueOnce(timeout);
+    await expect(
+      t.client.send("c1", { kind: "text", body: "Your booking request has been made" }, "reply", "wamid.IN1"),
+    ).rejects.toBeInstanceOf(WhatsappApiError);
+    expect(t.saved[0]).toMatchObject({
+      message_status: "uncertain",
+      reply_to_wa_message_id: "wamid.IN1",
+      wa_message_id: null,
+    });
+  });
+
+  it("connection refused never reached Meta: nothing saved, the retry may send it", async () => {
+    const t = setup(recent());
+    t.post.mockRejectedValueOnce({ isAxiosError: true, code: "ECONNREFUSED", message: "refused" });
+    await expect(
+      t.client.send("c1", { kind: "text", body: "hi" }, "reply", "wamid.IN1"),
+    ).rejects.toBeInstanceOf(WhatsappApiError);
+    expect(t.saved).toHaveLength(0);
+  });
+
+  it("a Meta refusal (4xx) is final: kept as failed with Meta's reason, so the retry stops", async () => {
+    const t = setup(recent());
+    t.post.mockRejectedValueOnce(metaErr(400, 131026, "Message undeliverable"));
+    await expect(t.client.send("c1", { kind: "text", body: "hi" }, "reply", "wamid.IN1")).rejects.toThrow();
+    expect(t.saved[0]).toMatchObject({
+      message_status: "failed",
+      reply_to_wa_message_id: "wamid.IN1",
+      error_reason: expect.stringMatching(/^Meta 131026: The customer cannot receive it/),
+    });
+  });
+
+  it("the timeout row says why it was not resent", async () => {
+    const t = setup(recent());
+    t.post.mockRejectedValueOnce({ isAxiosError: true, code: "ECONNABORTED", message: "timeout" });
+    await expect(t.client.send("c1", { kind: "text", body: "hi" }, "reply", "wamid.IN1")).rejects.toThrow();
+    expect(t.saved[0].error_reason).toMatch(/did not answer within 10 seconds/);
   });
 });

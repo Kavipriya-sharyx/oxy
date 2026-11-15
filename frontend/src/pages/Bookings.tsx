@@ -43,8 +43,12 @@ export default function Bookings() {
 
   const confirm = useMutation({
     mutationFn: confirmBooking,
-    onSuccess: async () => {
-      message.success("Booking confirmed. The customer is told on WhatsApp.");
+    onSuccess: async (res) => {
+      // the server says what really happened to the WhatsApp message: sent, waiting for 9 am, or not sent and why
+      const text = res?.Message || "Booking confirmed.";
+      if (/NOT sent/.test(text)) message.warning(text, 12);
+      else if (/quiet hours/.test(text)) message.info(text, 8);
+      else message.success(text);
       await qc.invalidateQueries({ queryKey: ["bookings"] });
     },
     onError: (e: Error) => message.error(e.message),

@@ -1392,3 +1392,80 @@ describe("booking answers the bot reads itself (no hand-over for basic questions
     expect(t.conv.pending_action).toMatch(/^booking:/);
   });
 });
+
+// Reported 16 Nov (client test): after the booking, the plan was recommended twice, "Okay" got "main benefit or
+// price first?", the price never came, and "I need know about price" ended in a callback. Replayed here.
+describe("plan choice and price after the booking (no repeats, no callback for the price)", () => {
+  const spend20k = () => ({ annual_medical_spend: 20000, healthcare_need: "consultations", save: async () => undefined });
+  const lastBot = (body: string) =>
+    jest
+      .spyOn(message, "findOne")
+      .mockImplementation((async (o: any) => (o?.where?.reply_to_wa_message_id ? null : { body })) as never);
+  const ageSaved = () =>
+    jest.spyOn(jest.requireActual("@Database/Table/Oxxy/customer").customer, "update").mockResolvedValue({} as never);
+
+  it('"20k" with no age: only the age question (the LLM\'s own "I recommend Vital" is not sent), then the answer is read', async () => {
+    const opts: Record<string, unknown> = { needRow: spend20k(), age: null, recommend: { status: "ask_age" } };
+    const t = setup(
+      [draft("Thanks. I recommend an Oxxy plan for ongoing support.", { intent: "recommend", extracted_fields: { annual_medical_spend: 20000 } })],
+      opts,
+    );
+    await t.run("20k");
+    expect(t.out).toEqual(["To suggest the right plan, may I know the patient's age?"]);
+    expect(t.conv.pending_action).toBe("plan_age");
+
+    // "50+": read here (no LLM), ONE plan with its price, and honest because 20k a year is below break-even
+    ageSaved();
+    opts.recommend = { status: "not_worth_it", plan: "vital", price: 20000, spend: 20000 };
+    t.out.length = 0;
+    await t.run("50+");
+    expect(t.generate).toHaveBeenCalledTimes(1);
+    expect(t.out).toHaveLength(1);
+    expect(t.out[0]).toMatch(/^Based on what you shared, the Vital plan fits best, at ₹999 monthly or ₹10,000 yearly plus applicable GST/);
+    expect(t.out[0]).toMatch(/may not pay for itself/);
+    expect(t.out[0]).toMatch(/\?$/); // one question at the end, so "Okay" next is an answer
+    expect(t.conv.recommended_plan).toBe("vital");
+  });
+
+  it('"Okay" right after a question is an answer (the normal reply), not the "main benefit or price first?" line', async () => {
+    const t = setup([draft("Great.")], { recommended: "vital" });
+    lastBot("Would you like to proceed with activating the Oxxy Vital plan?");
+    await t.run("Okay");
+    expect(t.generate).toHaveBeenCalled();
+    expect(t.out.join(" ")).not.toMatch(/main benefit or the price/);
+  });
+
+  it('"I need know about price": the price from the catalogue, no LLM, no callback', async () => {
+    const t = setup([], { recommended: "vital" });
+    await t.run("I need know about price");
+    expect(t.generate).not.toHaveBeenCalled();
+    expect(t.out[0]).toBe(
+      "The current price of the Vital plan is ₹999 monthly or ₹10,000 yearly plus applicable GST. Would you like the official plan details or help activating it?",
+    );
+    expect(t.out.join(" ")).not.toMatch(/precise answer|convenient time/);
+    expect(t.conv.state).not.toBe(S.Escalated);
+  });
+
+  it('"Yes" to the bot\'s "would you like to know the price now?" gets the price', async () => {
+    const t = setup([], { recommended: "vital" });
+    lastBot("No problem! The Vital plan helps with consultations. Would you like to know the price now?");
+    await t.run("Yes");
+    expect(t.generate).not.toHaveBeenCalled();
+    expect(t.out[0]).toMatch(/^The current price of the Vital plan is/);
+  });
+
+  it("word rules: price questions, ages", () => {
+    const { asksPrice, parsePatientAge, isShortYes } = jest.requireActual("@Helper/PlanReplies");
+    expect(asksPrice("I need know about price")).toBe(true);
+    expect(asksPrice("how much is vital plan")).toBe(true);
+    expect(asksPrice("too expensive")).toBe(false);
+    expect(asksPrice("is there any charge for this booking")).toBe(false); // the centre's fee, not ours
+    expect(asksPrice("price for my parents also?")).toBe(false); // family pricing has its own answer
+    expect(parsePatientAge("50+")).toBe(50);
+    expect(parsePatientAge("he is 62 years")).toBe(62);
+    expect(parsePatientAge("20k")).toBeNull();
+    expect(parsePatientAge("not sure")).toBeNull();
+    expect(isShortYes("Yes")).toBe(true);
+    expect(isShortYes("yes but later")).toBe(false);
+  });
+});

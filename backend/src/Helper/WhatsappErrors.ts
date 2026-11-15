@@ -36,15 +36,18 @@ export class WhatsappApiError extends Error {
   public readonly retryable: boolean;
   public readonly metaCode?: number;
   public readonly httpStatus?: number;
+  /** no answer from Meta (a timeout): the message may have gone out, so it must never be sent again */
+  public readonly maybeSent: boolean;
 
   constructor(
     message: string,
-    opts: { retryable: boolean; metaCode?: number; httpStatus?: number },
+    opts: { retryable: boolean; metaCode?: number; httpStatus?: number; maybeSent?: boolean },
   ) {
     super(message);
     this.name = "WhatsappApiError";
     this.retryable = opts.retryable;
     this.metaCode = opts.metaCode;
     this.httpStatus = opts.httpStatus;
+    this.maybeSent = !!opts.maybeSent;
   }
 }

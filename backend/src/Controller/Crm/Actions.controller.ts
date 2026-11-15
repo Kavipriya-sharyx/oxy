@@ -47,8 +47,15 @@ export class ActionsApiKeyGuard implements CanActivate {
     const expected = this._Config.get<string>("Actions.ApiKey");
     const req = context.switchToHttp().getRequest();
     const given = req.headers["x-api-key"];
-    if (validApiKey(given, expected)) return true;
-    if (await this._Keys.verify(given)) return true;
+    if (validApiKey(given, expected)) {
+      req.oxxyApiCaller = { id: null, label: "Server key (ACTIONS_API_KEY)" };
+      return true;
+    }
+    const key = await this._Keys.identify(given);
+    if (key) {
+      req.oxxyApiCaller = { id: key.id, label: `${key.name} (${key.prefix}…)` };
+      return true;
+    }
     if (!expected && (await this._Keys.activeCount()) === 0) {
       throw new ServiceUnavailableException(
         "Actions API is not configured (no API key: Admin > Developer)",
@@ -87,10 +94,12 @@ export class ActionsExceptionFilter implements ExceptionFilter {
         ? obj.message.join("; ")
         : String(obj.message ?? code);
       delete obj.message;
+      res.locals.oxxyApiError = message; // for the API log (Developer > API logs)
       res.status(status).json({ error: true, status, code, message, ...obj });
       return;
     }
-    // never leak details
+    // never leak details (the API log keeps the real reason for the Super Admin)
+    res.locals.oxxyApiError = `Internal error: ${String(e?.message ?? e).slice(0, 300)}`;
     res
       .status(500)
       .json({ error: true, status: 500, code: "internal_error", message: "Internal error" });

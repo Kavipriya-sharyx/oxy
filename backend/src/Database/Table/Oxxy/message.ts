@@ -43,4 +43,8 @@ export class message extends BaseTable {
 
   @Column({ default: "received" })
   message_status: string;
+
+  /** why WhatsApp did not deliver it (failed / uncertain), shown under the message in Conversations */
+  @Column({ type: "text", nullable: true })
+  error_reason: string | null;
 }

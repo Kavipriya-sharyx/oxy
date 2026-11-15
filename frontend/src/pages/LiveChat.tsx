@@ -166,12 +166,38 @@ function RichText({ text, find }: { text: string; find: string }) {
   );
 }
 
+// messages WhatsApp did not (or may not have) delivered: the reason shows under the bubble
+const NOT_DELIVERED = new Set(["failed", "uncertain", "frequency_cap"]);
+function failureText(m: Message): string {
+  if (m.error_reason) return m.error_reason;
+  if (m.message_status === "frequency_cap")
+    return "Meta held back this marketing message to protect the customer's experience (marketing limit). Try again later.";
+  if (m.message_status === "uncertain")
+    return "WhatsApp did not answer in time, so it was not sent again. It may or may not have reached the customer.";
+  return "WhatsApp did not say why (this message failed before reasons were recorded). Check the number and the 24-hour window, then try again.";
+}
+
 /** WhatsApp delivery state of a message we sent */
 function Ticks({ status }: { status: string }) {
   if (status === "failed")
     return (
       <span className="tick fail" title="Not delivered">
         ⚠ failed
+      </span>
+    );
+  if (status === "frequency_cap")
+    return (
+      <span className="tick fail" title="Held back by WhatsApp (marketing limit)">
+        ⚠ held back
+      </span>
+    );
+  if (status === "uncertain")
+    return (
+      <span
+        className="tick fail"
+        title="WhatsApp did not answer in time. It may or may not have reached the customer, so it was not sent again."
+      >
+        ⚠ not confirmed
       </span>
     );
   if (status === "read")
@@ -647,6 +673,18 @@ export default function LiveChat() {
             </span>
           )}
         </div>
+        {m.direction === "out" && NOT_DELIVERED.has(m.message_status) && (
+          <div className={`failwhy ${m.message_status === "uncertain" ? "maybe" : ""}`}>
+            <b>
+              {m.message_status === "uncertain"
+                ? "Delivery not confirmed"
+                : m.message_status === "frequency_cap"
+                  ? "Held back by WhatsApp"
+                  : "Not delivered"}
+            </b>
+            <span>{failureText(m)}</span>
+          </div>
+        )}
       </div>,
     );
     prev = m;

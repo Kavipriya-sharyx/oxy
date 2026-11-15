@@ -6,6 +6,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Req,
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
@@ -13,14 +14,33 @@ import { JWTAuthController } from "@Controller/JWTAuth.controller";
 import { Permission } from "@Helper/Permissions";
 import { buildPostmanCollection, buildVoicePostmanCollection } from "@Helper/PostmanCollection";
 import { ApiKeyService } from "@Service/Admin/ApiKey.service";
+import { ApiLogFilter, ApiLogService } from "@Service/Admin/ApiLog.service";
+import { Roles } from "@Helper/Roles.decorator";
+import { RoleEnum } from "@Helper/Enum/RoleEnum";
 
 // Console > Admin > Developer: API keys for the client's CRM / voice AI, the CRM webhook secret and the
 // Postman collection. A key or secret is shown once, when it is made.
 @Controller({ path: "Developer", version: "1" })
 @ApiTags("Developer")
 export class DeveloperController extends JWTAuthController {
-  constructor(private readonly _Keys: ApiKeyService) {
+  constructor(
+    private readonly _Keys: ApiKeyService,
+    private readonly _Logs: ApiLogService,
+  ) {
     super();
+  }
+
+  // API logs: every call the client's CRM / voice agent made. Super Admin only.
+  @Roles(RoleEnum.SuperAdmin)
+  @Get("ApiLogs")
+  async ApiLogs(@Query() q: ApiLogFilter) {
+    return this.SendResponseData(await this._Logs.list(q ?? {}));
+  }
+
+  @Roles(RoleEnum.SuperAdmin)
+  @Get("ApiLogs/Stats")
+  async ApiLogStats(@Query("hours") hours?: string) {
+    return this.SendResponseData(await this._Logs.stats(Number(hours) || 24));
   }
 
   @Permission("developer.manage")

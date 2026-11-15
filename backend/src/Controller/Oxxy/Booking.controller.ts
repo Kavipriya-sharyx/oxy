@@ -30,8 +30,25 @@ export class BookingController extends JWTAuthController {
   @Permission("bookings.confirm")
   @Put("Confirm/:Id")
   async Confirm(@Param("Id") Id: string, @CurrentUser() UserId: string) {
-    await this._BookingService.confirm(Id, UserId);
+    const b = await this._BookingService.confirm(Id, UserId);
     await audit({ action: "Confirm", table: "booking_request", recordId: Id, userId: UserId });
-    return this.SendResponse(ResponseEnum.Success, ResponseEnum.Updated);
+    const n = b.notice;
+    const at =
+      n.state === "scheduled"
+        ? new Date(n.at).toLocaleString("en-IN", {
+            timeZone: "Asia/Kolkata",
+            day: "numeric",
+            month: "short",
+            hour: "numeric",
+            minute: "2-digit",
+          })
+        : "";
+    const text =
+      n.state === "sent"
+        ? "Booking confirmed. The customer was told on WhatsApp."
+        : n.state === "scheduled"
+          ? `Booking confirmed. It is quiet hours now, so the WhatsApp message goes out at ${at} (see Follow-ups).`
+          : `Booking confirmed, but the WhatsApp message was NOT sent: ${n.problem}`;
+    return this.SendResponse(ResponseEnum.Success, text, { notice: n });
   }
 }

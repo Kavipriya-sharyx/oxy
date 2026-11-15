@@ -24,8 +24,11 @@ import {
 } from "../components/ui";
 import ApiDocs, { DOC_CSS, STANDALONE_TOKENS } from "../components/ApiDocs";
 import VoiceAgentDocs from "../components/VoiceAgentDocs";
+import ApiLogs from "../components/ApiLogs";
+import { usePermissions } from "../hooks/usePermissions";
+import { ROLE } from "../auth/roles";
 
-type DevTab = "setup" | "docs" | "voice";
+type DevTab = "setup" | "docs" | "voice" | "logs";
 type Audience = "crm" | "voice";
 
 const GUIDE: Record<Audience, { title: string; file: string; postman: string }> = {
@@ -42,7 +45,13 @@ const GUIDE: Record<Audience, { title: string; file: string; postman: string }> 
 };
 
 const tabFromHash = (h: string): DevTab =>
-  h.startsWith("#voice-") ? "voice" : h.startsWith("#doc-") ? "docs" : "setup";
+  h === "#logs"
+    ? "logs"
+    : h.startsWith("#voice-")
+      ? "voice"
+      : h.startsWith("#doc-")
+        ? "docs"
+        : "setup";
 
 /** An integration guide as one self-contained HTML file for the client's developers */
 async function downloadGuide(base: string, audience: Audience) {
@@ -139,7 +148,11 @@ export default function Developer() {
   const [expiry, setExpiry] = useState<string>("365");
   const [newKey, setNewKey] = useState<{ name: string; key: string } | null>(null);
   const [formError, setFormError] = useState("");
-  const [tab, setTab] = useState<DevTab>(() => tabFromHash(window.location.hash));
+  const [picked, setTab] = useState<DevTab>(() => tabFromHash(window.location.hash));
+  // API logs: Super Admin only (the server checks the role too)
+  const { role } = usePermissions();
+  const superAdmin = role === ROLE.SuperAdmin;
+  const tab: DevTab = picked === "logs" && !superAdmin ? "setup" : picked;
 
   const origin = apiOrigin();
   const actionsBase = `${origin}/api/v1/Actions`;
@@ -209,7 +222,7 @@ export default function Developer() {
     downloadGuide(origin, audience).catch((e: Error) => message.error(e.message));
   const audienceNow: Audience = tab === "voice" ? "voice" : "crm";
   const guideButtons =
-    tab === "setup" ? null : (
+    tab === "setup" || tab === "logs" ? null : (
       <>
         <button className="btn" onClick={() => guide(audienceNow)}>
           Download guide (HTML)
@@ -234,12 +247,15 @@ export default function Developer() {
             ["setup", "Keys and setup"],
             ["docs", "CRM API docs"],
             ["voice", "Voice agent API docs"],
+            ...(superAdmin ? ([["logs", "API logs"]] as [DevTab, string][]) : []),
           ]}
         />
         <span className="spacer" />
         {guideButtons}
       </div>
-      {tab !== "setup" ? (
+      {tab === "logs" ? (
+        <ApiLogs />
+      ) : tab !== "setup" ? (
         <>
           <style>{DOC_CSS}</style>
           <div className="panel">

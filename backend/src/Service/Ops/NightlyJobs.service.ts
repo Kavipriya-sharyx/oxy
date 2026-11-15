@@ -6,6 +6,7 @@ import { queuePrefix, redisConnection } from "@Root/Config/Redis";
 import { CrmReconciliationService } from "./CrmReconciliation.service";
 import { RetentionService } from "./Retention.service";
 import { ChangeFeedService } from "@Service/Crm/ChangeFeed.service";
+import { ApiLogService } from "@Service/Admin/ApiLog.service";
 
 const QUEUE = "nightly";
 
@@ -19,6 +20,7 @@ export class NightlyJobsService implements OnModuleInit, OnModuleDestroy {
     private readonly _Reconcile: CrmReconciliationService,
     private readonly _Retention: RetentionService,
     @Optional() private readonly _Feed?: ChangeFeedService,
+    @Optional() private readonly _ApiLog?: ApiLogService,
   ) {}
 
   async onModuleInit() {
@@ -47,7 +49,10 @@ export class NightlyJobsService implements OnModuleInit, OnModuleDestroy {
         async (job) => {
           if (job.name === "crm_reconciliation") await this._Reconcile.run();
           else if (job.name === "data_retention") await this._Retention.run();
-          else if (job.name === "feed_prune") await this._Feed?.prune();
+          else if (job.name === "feed_prune") {
+            await this._Feed?.prune();
+            await this._ApiLog?.prune(); // API logs: 90 days
+          }
         },
         { connection, prefix, concurrency: 1 },
       );

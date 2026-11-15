@@ -2714,3 +2714,26 @@ kbd {
     padding-left: 4px;
   }
 }
+tr.clickable {
+  cursor: pointer;
+}
+tr.clickable:hover td {
+  background: var(--sunk);
+}
+.failwhy {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--crit-soft);
+  color: var(--crit);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.failwhy.maybe {
+  background: var(--warn-soft);
+  color: var(--warn);
+}

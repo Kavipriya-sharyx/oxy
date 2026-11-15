@@ -31,7 +31,13 @@ import { BookingStatus } from "@Helper/Enum/BookingStatus";
 import { centreSavingReply, fixedReply, NOTICE_VERSION } from "@Helper/FixedReplies";
 import { detectLanguage, L, lang, say } from "@Helper/Lang";
 import {
+  askedAboutPrice,
   asksCentreSaving,
+  asksPrice,
+  cmbPriceText,
+  isShortYes,
+  parsePatientAge,
+  planPriceText,
   disclosureText,
   honestText,
   PLAN_REASON,
@@ -1303,6 +1309,7 @@ export class ChatPipelineService {
     if (await this.handleBooking(m, s)) return;
     if (await this.handleNearbyAsk(m, s)) return;
     if (await this.handleFollowUpTime(m, s)) return;
+    if (await this.handlePlanAge(m, s)) return;
     if (await this.handlePriceSpend(m, s)) return;
     if (await this.handleCloseOffer(m, s)) return;
     if (await this.handleActivationAnswer(m, s)) return;
@@ -1498,7 +1505,9 @@ export class ChatPipelineService {
     }
     // the booking flow asks its own question, and the centre list is the answer: the LLM draft would be a
     // second question or a second list (its own list is never sent: names it wrote are not checked)
-    if (shown.has("G") || shown.has("D")) replaceReply = true;
+    // (the same for a plan recommendation, the price disclosure and the age question: the LLM's own
+    // recommendation next to it is what made the customer read the same plan twice)
+    if (shown.has("G") || shown.has("D") || shown.has("E") || shown.has("AGE")) replaceReply = true;
     // a question interrupted the gate or the booking: answer it, then ask the same question again (12.2)
     const back = extras.length ? [] : this.pendingBack(s);
     // the draft loses its own question when the system asks one, any "please hold on" promise, and a
@@ -1631,6 +1640,17 @@ export class ChatPipelineService {
       return true;
     }
 
+    // the price (Playbook 7 / 12.1): asked, or YES to the bot's own "would you like to know the price?"
+    const priceAsked =
+      asksPrice(text) || (isShortYes(text) && askedAboutPrice(await this.lastBotText(s)));
+    if (priceAsked && !asksComparePlans(text)) {
+      const body = await this.priceReply(s);
+      if (body) {
+        await reply(body);
+        return true;
+      }
+    }
+
     if (asksComparePlans(text) && s.customer.active_product !== ProductType.CutMediBills) {
       const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
       const body = await this.comparison(s, n);
@@ -1680,6 +1700,120 @@ export class ChatPipelineService {
   }
 
   // Routing group (Playbook 17) for a plan picked by need and age only: no value check ran
+  // Playbook 7 / 9.2: the Oxxy plan by age and need, then the value check against the yearly spend. A plan
+  // that does not pay for itself is still named with its price, honestly (no savings pitch). Saved at once.
+  private async oxxyPlanByValue(
+    s: Saved,
+    n: need,
+  ): Promise<{ askAge: boolean; text: string } | null> {
+    const c = s.customer;
+    const conv = s.conversation;
+    const spend = Number(n.annual_medical_spend);
+    const pick = await this._ValueCheck.recommend(spend, c.age ?? null, n.healthcare_need, ProductType.Oxxy);
+    if (!pick) return null;
+    if (pick.status === "ask_age") return { askAge: true, text: say(ASK_AGE_T, c.language) };
+    const prices = await this._ValueCheck.prices(ProductType.Oxxy, pick.plan);
+    conv.selected_product = ProductType.Oxxy;
+    conv.recommended_plan = pick.plan;
+    // Routing group (Playbook 17)
+    conv.recommendation_reason = PLAN_REASON[pick.plan] ?? null;
+    conv.value_check_passed = pick.status === "recommend";
+    conv.alternate_product_suppressed = true;
+    await conversation.update(conv.id, {
+      selected_product: conv.selected_product,
+      recommended_plan: conv.recommended_plan,
+      recommendation_reason: conv.recommendation_reason,
+      value_check_passed: conv.value_check_passed,
+      alternate_product_suppressed: true,
+    });
+    await this.setState(s, [ConversationState.Routing, ConversationState.PlanFit]);
+    const yearly = prices.yearly ?? pick.price;
+    return {
+      askAge: false,
+      text:
+        pick.status === "recommend"
+          ? recommendText(pick.plan, yearly, prices.monthly, spend, pick.saving, c.language)
+          : honestText(pick.plan, yearly, prices.monthly, spend, c.language),
+    };
+  }
+
+  // The answer to "may I know the patient's age?" (asked for the plan choice): saved, then ONE plan with its
+  // price, by value when the yearly spend is known, else by need. Not an age = answered normally.
+  private async handlePlanAge(m: Inbound, s: Saved): Promise<boolean> {
+    if (s.conversation.pending_action !== "plan_age") return false;
+    await this.setPending(s, null);
+    const age = parsePatientAge(m.text);
+    if (!age) return false;
+    s.customer.age = age;
+    await customer.update(s.customer.id, { age });
+    const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
+    const l = s.customer.language;
+    let text: string | null = null;
+    if (n?.annual_medical_spend) {
+      const pick = await this.oxxyPlanByValue(s, n);
+      if (pick && !pick.askAge) text = pick.text;
+    }
+    if (!text) {
+      const plans = await plan_catalog.find({
+        where: { product: ProductType.Oxxy, billing: BillingCycle.Yearly, status: true },
+      });
+      const p = planForNeed(age, n?.healthcare_need, plans as unknown as PlanLike[]);
+      if (p?.status === "plan") {
+        await this.saveRecommendation(s, p.plan);
+        const prices = await this._ValueCheck.prices(ProductType.Oxxy, p.plan);
+        text = prices.yearly
+          ? `${needRecommendationText(p.plan, planReason(p.plan, l), l)} ${planPriceText(p.plan, prices.yearly, prices.monthly, l)}`
+          : needRecommendationText(p.plan, planReason(p.plan, l), l);
+      }
+    }
+    if (!text) return false;
+    await this.sendAndSave(s.customer.id, text, m.waMessageId);
+    return true;
+  }
+
+  // "What is the price?" (or YES to the bot's own "would you like to know the price?"): the price from
+  // plan_catalog, never "the team will share it" and never a callback for it. No plan picked yet = the
+  // four-plan comparison. No price in the catalogue = false (the normal path, which hands it to a person).
+  private async priceReply(s: Saved): Promise<string | null> {
+    const conv = s.conversation;
+    const l = s.customer.language;
+    const product = s.customer.active_product || conv.selected_product;
+    if (product === ProductType.CutMediBills) {
+      const p = await this._ValueCheck.prices(ProductType.CutMediBills, "cut_medi_bills");
+      const rows = await plan_catalog.find({
+        where: { product: ProductType.CutMediBills, status: true },
+      });
+      const by = (b: string) => rows.find((r) => r.billing === b)?.price ?? null;
+      const monthly = p.monthly ?? by(BillingCycle.Monthly);
+      const yearly = p.yearly ?? by(BillingCycle.Yearly);
+      return monthly || yearly
+        ? cmbPriceText(monthly ? Number(monthly) : null, yearly ? Number(yearly) : null, l)
+        : null;
+    }
+    const plan = s.customer.active_plan || conv.recommended_plan;
+    if (plan) {
+      const prices = await this._ValueCheck.prices(ProductType.Oxxy, plan);
+      if (prices.yearly)
+        return planPriceText(
+          plan,
+          Number(prices.yearly),
+          prices.monthly ? Number(prices.monthly) : null,
+          l,
+        );
+    }
+    const n = await need.findOne({ where: { conversation_id: conv.id } });
+    return await this.comparison(s, n);
+  }
+
+  /** The bot's last message in this chat (to read a short "yes" / "ok" as the answer to it) */
+  private async lastBotText(s: Saved): Promise<string | null> {
+    const row = await message.findOne({
+      where: { conversation_id: s.conversation.id, direction: "out" },
+      order: { created_on: "DESC" },
+    });
+    return row?.body ?? null;
+  }
+
   private async saveRecommendation(s: Saved, plan: string) {
     const conv = s.conversation;
     conv.selected_product = ProductType.Oxxy;
@@ -1920,49 +2054,25 @@ export class ChatPipelineService {
     // intent actions
     // Oxxy plan choice (12.3): age first, then by need, then the value check; an honest answer when no
     // plan pays for itself. Prices and the saving figure come from plan_catalog, never from the LLM.
-    if (
+    // "Yes, activate" with no plan picked yet but the yearly spend known: the plan is picked the same way as a
+    // recommendation (value check, price from plan_catalog), never a second recommendation written by the LLM
+    const oxxyRoute = (conv.selected_product || ProductType.Oxxy) === ProductType.Oxxy;
+    const pickByValue =
       !routedToCmb &&
-      r.intent === "recommend" &&
-      n?.annual_medical_spend &&
-      (conv.selected_product || ProductType.Oxxy) === ProductType.Oxxy
-    ) {
-      const spend = Number(n.annual_medical_spend);
-      const pick = await this._ValueCheck.recommend(
-        spend,
-        c.age ?? null,
-        n.healthcare_need,
-        ProductType.Oxxy,
-      );
-      if (pick?.status === "ask_age") {
-        extras.push(say(ASK_AGE_T, s.customer.language));
+      !gateOpen &&
+      oxxyRoute &&
+      !!n?.annual_medical_spend &&
+      (r.intent === "recommend" ||
+        (r.intent === "activate" && !conv.recommended_plan && !c.active_product));
+    if (pickByValue) {
+      const pick = await this.oxxyPlanByValue(s, n!);
+      if (pick?.askAge) {
+        extras.push(pick.text);
+        shown.add("AGE");
+        if (!conv.pending_action) conv.pending_action = "plan_age"; // the answer is read by handlePlanAge
       } else if (pick) {
-        const prices = await this._ValueCheck.prices(ProductType.Oxxy, pick.plan);
-        conv.selected_product = ProductType.Oxxy;
-        conv.recommended_plan = pick.plan;
-        // Routing group (Playbook 17)
-        conv.recommendation_reason = PLAN_REASON[pick.plan] ?? null;
-        conv.value_check_passed = pick.status === "recommend";
-        conv.alternate_product_suppressed = true;
-        await this.setState(s, [ConversationState.Routing, ConversationState.PlanFit]);
+        extras.push(pick.text);
         shown.add("E");
-        extras.push(
-          pick.status === "recommend"
-            ? recommendText(
-                pick.plan,
-                prices.yearly ?? pick.price,
-                prices.monthly,
-                spend,
-                pick.saving,
-                s.customer.language,
-              )
-            : honestText(
-                pick.plan,
-                prices.yearly ?? pick.price,
-                prices.monthly,
-                spend,
-                s.customer.language,
-              ),
-        );
       }
     }
 
@@ -2057,7 +2167,7 @@ export class ChatPipelineService {
 
     // Activation (12.5): price, GST and renewal first, then ask; the link goes only after a YES
     // (handleActivationAnswer). One product per customer.
-    if (r.intent === "activate" && !c.active_product && !routedToCmb && !gateOpen) {
+    if (r.intent === "activate" && !pickByValue && !c.active_product && !routedToCmb && !gateOpen) {
       const billing =
         f.billing || (/\bmonthly\b|\bmahina|\bmonth\b/i.test(m.text) ? "monthly" : undefined);
       let cat = await this.activationRow(conv, billing);
@@ -2072,8 +2182,11 @@ export class ChatPipelineService {
           where: { product: ProductType.Oxxy, billing: BillingCycle.Yearly, status: true },
         });
         const p = planForNeed(c.age ?? null, n?.healthcare_need, plans as unknown as PlanLike[]);
-        if (p?.status === "ask_age") extras.push(say(ASK_AGE_T, s.customer.language));
-        else if (p?.status === "plan") {
+        if (p?.status === "ask_age") {
+          extras.push(say(ASK_AGE_T, s.customer.language));
+          shown.add("AGE");
+          if (!conv.pending_action) conv.pending_action = "plan_age";
+        } else if (p?.status === "plan") {
           await this.saveRecommendation(s, p.plan);
           extras.push(
             needRecommendationText(
@@ -3724,6 +3837,15 @@ export class ChatPipelineService {
       return false;
     }
     if (signal === "dont_know" && noHealth) signal = "one_word"; // the spend questions are health questions
+    // "Okay" right after the bot asked something ("Would you like to proceed?") answers that question:
+    // the normal reply reads it, the Playbook 15 "main benefit or price?" line would ignore it
+    if (signal === "one_word") {
+      const last = (await this.lastBotText(s)) ?? "";
+      if (/\?\s*$|reply (yes|1)/i.test(last.trim())) {
+        if (prev) await conversation.update(s.conversation.id, { objection: null });
+        return false;
+      }
+    }
     const attempts = prev?.signal === signal ? prev.attempts + 1 : 1;
     const marker = `rescue:${signal}:${attempts}`;
     await conversation.update(s.conversation.id, { objection: marker });

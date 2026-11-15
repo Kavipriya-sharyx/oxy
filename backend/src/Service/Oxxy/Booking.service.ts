@@ -1,4 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException, Logger, Optional } from "@nestjs/common";
+import { QuietHoursError } from "@Helper/WhatsappErrors";
+import { FollowUpSchedulerService } from "./FollowUpScheduler.service";
 import { booking_request } from "@Database/Table/Oxxy/booking_request";
 import { BookingStatus } from "@Helper/Enum/BookingStatus";
 import { DateWindowService } from "./DateWindow.service";
@@ -21,13 +23,33 @@ export interface CreateBooking {
   preferred_time?: string;
 }
 
+export type BookingNotice = { state: "sent" } | { state: "scheduled"; at: string } | { state: "failed"; problem: string };
+
+/** Why the WhatsApp message did not go out, in words the sales team can act on */
+export function sendProblem(e: unknown): string {
+  const msg = String((e as Error)?.message ?? e ?? "unknown error");
+  const code = (e as { metaCode?: number })?.metaCode;
+  if (/template .* is (rejected|paused|disabled)/i.test(msg)) return `${msg.replace(/^template /, "the template ")}. Fix it in Meta, then Templates -> Read status from Meta.`;
+  if (code === 132001 || /template name .*does not exist|132001/i.test(msg))
+    return "the template booking_confirmed is not approved in Meta for this language yet (Templates screen).";
+  if (code === 132000 || /number of parameters|132000/i.test(msg)) return "the approved template has a different number of variables than the bot sends.";
+  if (code === 190 || /access token|session has expired|OAuth/i.test(msg)) return "the WhatsApp access token is invalid or expired (Configuration).";
+  if (code === 131026 || /131026|undeliverable/i.test(msg)) return "WhatsApp could not deliver to this number.";
+  if (/opted out|opt-out|opt_out/i.test(msg)) return "the customer has opted out (STOP).";
+  if (/quiet hours/i.test(msg)) return "it is quiet hours and the message could not be queued for 09:00.";
+  return msg.slice(0, 200);
+}
+
 @Injectable()
 export class BookingService {
+  private readonly logger = new Logger(BookingService.name);
+
   constructor(
     private readonly _DateWindow: DateWindowService,
     private readonly _DataSource: DataSource,
     private readonly _Outbox: CrmOutboxService,
     private readonly _Wa: WhatsappClient,
+    @Optional() private readonly _Scheduler?: FollowUpSchedulerService,
   ) {}
 
   // Bot path: always saved as pending_confirmation
@@ -114,21 +136,36 @@ export class BookingService {
       });
     });
     await this._Outbox.dispatch(ob);
+    // The booking stays confirmed whatever happens to the message, but the console is always told what
+    // happened: sent now, waiting for 09:00 IST (quiet hours: never dropped), or not sent and why.
+    const params = [b.centre?.name ?? "the centre", b.preferred_date];
+    let notice: BookingNotice;
     try {
       await this._Wa.send(
         b.customer_id,
-        {
-          kind: "template",
-          name: "booking_confirmed",
-          languageCode: "en",
-          params: [b.centre?.name ?? "the centre", b.preferred_date],
-        },
+        { kind: "template", name: "booking_confirmed", languageCode: "en", params },
         "proactive",
       );
-    } catch {
-      /* quiet hours or template not approved yet: the booking stays confirmed; the team can message later */
+      notice = { state: "sent" };
+    } catch (e) {
+      if (e instanceof QuietHoursError && this._Scheduler) {
+        await this._Scheduler.create({
+          customerId: b.customer_id,
+          conversationId: b.conversation_id ?? null,
+          kind: "status_update",
+          scheduledFor: e.nextAllowedAt,
+          templateName: "booking_confirmed",
+          params,
+          reason: "booking_confirmed: quiet hours, sent at 09:00 IST",
+          source: "console",
+        } as any);
+        notice = { state: "scheduled", at: e.nextAllowedAt.toISOString() };
+      } else {
+        this.logger.warn(`booking ${b.id} confirmed, WhatsApp message not sent: ${(e as Error).message}`);
+        notice = { state: "failed", problem: sendProblem(e) };
+      }
     }
-    return b;
+    return Object.assign(b, { notice });
   }
 
   async list(status?: string) {

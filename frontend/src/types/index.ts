@@ -107,6 +107,7 @@ export interface Message {
   body: string | null;
   template_name: string | null;
   message_status: string;
+  error_reason?: string | null; // why WhatsApp did not deliver it (failed / uncertain)
   created_on?: string;
 }
 
