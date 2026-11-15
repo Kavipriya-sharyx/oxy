@@ -100,3 +100,13 @@ describe("no verified centre: never the same sentence in a loop", () => {
   });
   it("other replies are not mistaken for it", () => expect(isNoCentreText("Which city and area should I search in?")).toBe(false));
 });
+
+describe("a list whose items were left out", () => {
+  it('"1. 2. 3. 4." and "1. 2. K. G." lines go; real list lines and sentences stay', () => {
+    const { withoutEmptyNumbering } = jest.requireActual("./ReplyTidy");
+    expect(withoutEmptyNumbering("1. 2. 3. 4.\n\nHere are options:")).toBe("Here are options:");
+    expect(withoutEmptyNumbering("1. 2. K. G. 3. 4.")).toBe("");
+    expect(withoutEmptyNumbering("1. PSG Hospital\n2. KMCH")).toBe("1. PSG Hospital\n2. KMCH");
+    expect(withoutEmptyNumbering("Dr. K. G. Ravi can help.")).toBe("Dr. K. G. Ravi can help.");
+  });
+});

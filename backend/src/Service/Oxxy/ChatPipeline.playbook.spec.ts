@@ -201,14 +201,20 @@ describe("Playbook 3.1: an active product blocks another activation", () => {
 describe("Playbook 3: one acknowledgement while a person has the case", () => {
   it("ESCALATED: one acknowledgement, then quiet", async () => {
     const t = setup({ state: S.Escalated });
-    await t.run("hello?");
-    await t.run("anyone there?");
+    await t.run("I sent the reports");
+    await t.run("ok thanks");
     expect(t.out).toEqual([ESCALATED_ACK_T.en]);
+  });
+  it("ESCALATED: \"are you there?\" after the acknowledgement is still answered, never silence", async () => {
+    const t = setup({ state: S.Escalated });
+    await t.run("I sent the reports");
+    await t.run("are we connected?");
+    expect(t.out).toEqual([ESCALATED_ACK_T.en, "Yes, I am here. Our team has your request and will call you."]);
   });
   it("a message left without a reply on purpose is marked no_reply (no requeue loop)", async () => {
     const t = setup({ state: S.Escalated });
-    await t.run("hello?"); // acknowledged
-    await t.run("anyone there?"); // quiet
+    await t.run("I sent the reports"); // acknowledged
+    await t.run("ok thanks"); // quiet
     expect(t.statusUpdates).toContainEqual([{ id: "m2", message_status: "received" }, { message_status: "no_reply" }]);
     expect(t.statusUpdates.some((u) => (u[0] as { id: string }).id === "m1")).toBe(false);
   });

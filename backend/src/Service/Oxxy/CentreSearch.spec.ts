@@ -44,7 +44,7 @@ describe("Playbook 10.1 presentation and radius", () => {
     );
     expect(t).toMatch(/1\. Sample Eye Hospital, Adyar - Adyar \| Specialist \| Relevant for ophthalmology/);
     expect(t).toMatch(/only 1 verified option/);
-    expect(t).toMatch(/Reply with 1-5/);
+    expect(t).toMatch(/Reply with 1, or send/); // the real count, never "1-5" for one centre
     expect(t).not.toMatch(/tie-?up|discount|network/i);
   });
   it.each([

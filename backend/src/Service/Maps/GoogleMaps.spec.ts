@@ -195,8 +195,10 @@ describe("chat side", () => {
       null,
     );
     expect(text).toContain("1. ABC Hospital - Peelamedu | Multispeciality | about 2.3 km, 9 min");
-    expect(text).toContain("2. XYZ Clinic - Gandhipuram | Specialist | about 13 km");
-    expect(text).toContain("3. No Point Lab - RS Puram | Specialist\n");
+    // the type as the directory has it: a clinic or a lab is never called "Specialist"
+    expect(text).toContain("2. XYZ Clinic - Gandhipuram | Clinic | about 13 km");
+    expect(text).toContain("3. No Point Lab - RS Puram | Diagnostic centre\n");
+    expect(text).toContain("Reply with 1-3,");
   });
 
   it("WhatsApp payloads: the Send location button and a centre pin", () => {

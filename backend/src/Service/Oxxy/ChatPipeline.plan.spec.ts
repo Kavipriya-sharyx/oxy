@@ -876,7 +876,7 @@ describe("booking request, one question per turn", () => {
       centres: CENTRES,
     });
     await t.run("tomorrow");
-    expect(t.out.join("\n\n")).toMatch(/^The booking request needs at least a 3-day gap/);
+    expect(t.out.join("\n\n")).toMatch(/^A booking request needs at least 3 days .* The earliest date I can request is/);
     await t.run(ddmmyyyy(220).text);
     expect(t.out[1]).toMatch(/^I can record requests only up to 6 months ahead/);
     expect(t.bookings).toHaveLength(0);
@@ -1282,12 +1282,18 @@ describe("nearby centres (location + Google Maps)", () => {
     expect(maps.geocode).not.toHaveBeenCalled(); // the pin is the spot: nothing to look up
   });
 
-  it("the area typed instead of the pin: looked up on the map, saved, then the list", async () => {
+  it("the area typed instead of the pin: looked up on the map, saved, the travel distance, then the list", async () => {
     const needRow: Record<string, unknown> = { save: async () => undefined };
     const found = jest.fn(() => [{ ...ABC }]);
     const t = setup([], { pending: "centre_location", needRow, found, maps: fakeMaps() });
     await t.run("Peelamedu Coimbatore");
     expect(needRow).toMatchObject({ locality: "Peelamedu", city: "Coimbatore" });
+    // Playbook 10.1: how far first, never the list before the question
+    expect(t.out[0]).toMatch(/^How far can the patient travel/);
+    expect(found).not.toHaveBeenCalled();
+    expect(t.conv.pending_action).toBe("centre_radius");
+    t.out.length = 0;
+    await t.run("10 km");
     expect((found.mock.calls[0] as unknown[])[0]).toMatchObject({ latitude: spot.latitude });
     expect(t.out[0]).toContain("ABC Hospital");
   });
@@ -1315,5 +1321,74 @@ describe("nearby centres (location + Google Maps)", () => {
     const t = setup([], { pending: "centre_location", needRow: { save: async () => undefined }, found });
     await t.run("", spot);
     expect(t.out[0]).toContain("ABC Hospital - Peelamedu | Multispeciality | under 1 km");
+  });
+});
+
+// Reported 16 Nov (kavi, Coimbatore): simple answers and questions in the booking went to the LLM, were read
+// wrong, and ended in a hand-over to a person; then the bot went silent. Replayed step by step.
+describe("booking answers the bot reads itself (no hand-over for basic questions)", () => {
+  const PSG = { id: "ctrP", name: "PSG HOSPITAL", branch: "PEELAMEDU", verified: true, active: true };
+  const offer = '{"step":"offer","c":"ctrP","cn":"PSG HOSPITAL, PEELAMEDU","u":false,"ok":false}';
+  const atDate = '{"step":"date","c":"ctrP","cn":"PSG HOSPITAL, PEELAMEDU","ok":true}';
+  const need = () => ({ specialisation: "Cardiology", save: async () => undefined });
+
+  it('"yes psg okay" is a YES: the next step, never the same question again', async () => {
+    const t = setup([], { pending: `booking:${offer}`, needRow: need(), centres: [PSG] });
+    await t.run("yes psg okay");
+    expect(t.generate).not.toHaveBeenCalled();
+    expect(t.out).toHaveLength(1);
+    expect(t.out[0]).not.toContain("May I do your booking");
+    expect(t.out[0]).not.toMatch(/YYYY/);
+  });
+
+  it('"no, another one" or another centre name is not read as YES', async () => {
+    const { saysYesToOffer } = jest.requireActual("./BookingFlow");
+    expect(saysYesToOffer("yes psg okay", "PSG HOSPITAL, PEELAMEDU")).toBe(true);
+    expect(saysYesToOffer("ok book it", "PSG HOSPITAL, PEELAMEDU")).toBe(true);
+    expect(saysYesToOffer("yes but another hospital", "PSG HOSPITAL, PEELAMEDU")).toBe(false);
+    expect(saysYesToOffer("yes kmch", "PSG HOSPITAL, PEELAMEDU")).toBe(false);
+    expect(saysYesToOffer("no", "PSG HOSPITAL, PEELAMEDU")).toBe(false);
+  });
+
+  it('"what booking why i want too book ??" gets why, and that a booking is not needed: no pressure, no LLM', async () => {
+    const t = setup([], { pending: `booking:${offer}`, needRow: need(), centres: [PSG] });
+    await t.run("what booking why i want too book ??");
+    expect(t.generate).not.toHaveBeenCalled();
+    expect(t.out[0]).toMatch(/^You picked PSG HOSPITAL, PEELAMEDU from the list/);
+    expect(t.out[0]).toContain("You do not have to book");
+    expect(t.conv.pending_action).toMatch(/^booking:/);
+  });
+
+  it('"tomorrow ??" is a date answer: refused with the reason and the earliest date, never an LLM date', async () => {
+    const t = setup([], { pending: `booking:${atDate}`, needRow: need(), centres: [PSG] });
+    await t.run("tomorrow ??");
+    expect(t.generate).not.toHaveBeenCalled();
+    const min = new Date(Date.now() + 5.5 * 3600000 + 3 * 86400000);
+    const shown = `${min.getUTCDate()} ${min.toLocaleString("en-GB", { month: "short", timeZone: "UTC" })} ${min.getUTCFullYear()}`;
+    expect(t.out[0]).toContain(`The earliest date I can request is ${shown}`);
+    expect(t.out.join(" ")).not.toMatch(/precise answer|callback|2023/);
+    expect(t.conv.state).not.toBe(S.Escalated);
+  });
+
+  it('"why tomorrow not possible" at the date step is answered here, and the step stays open', async () => {
+    const t = setup([], { pending: `booking:${atDate}`, needRow: need(), centres: [PSG] });
+    await t.run("why tommorow not possible");
+    expect(t.out[0]).toMatch(/^A booking request needs at least 3 days so the centre and our team can confirm/);
+    expect(t.conv.pending_action).toMatch(/^booking:/);
+  });
+
+  it("a side question mid-booking that the LLM marks needs_human: answered, the same step again, no hand-over", async () => {
+    const t = setup([draft("Booking requests are free.", { needs_human: true })], {
+      pending: `booking:${atDate}`,
+      needRow: need(),
+      centres: [PSG],
+    });
+    await t.run("is there any charge for this booking?");
+    const text = t.out.join("\n\n");
+    expect(text).toContain("Booking requests are free.");
+    expect(text).toMatch(/What date would you prefer\?/);
+    expect(text).not.toMatch(/precise answer|Please choose a convenient time/);
+    expect(t.conv.state).not.toBe(S.Escalated);
+    expect(t.conv.pending_action).toMatch(/^booking:/);
   });
 });

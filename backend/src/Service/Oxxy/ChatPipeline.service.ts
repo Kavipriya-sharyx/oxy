@@ -3412,10 +3412,11 @@ export class ChatPipelineService {
       return true;
     }
     // "tomorrow ??", "yes?": an answer with question marks is still an answer
-    const text = raw.replace(/[\s?!.]+$/, "");
+    const bare = raw.replace(/[\s?!.]+$/, "");
     const answerish =
-      (d.step === "date" && !!parseCustomerDate(text)) ||
-      (d.step === "offer" && saysYesToOffer(text, d.cn));
+      (d.step === "date" && !!parseCustomerDate(bare)) ||
+      (d.step === "offer" && saysYesToOffer(bare, d.cn));
+    const text = answerish ? bare : raw;
     if (!text || (/\?\s*$/.test(raw) && !answerish)) return false;
 
     if (d.step === "offer" || d.step === "centre") {

@@ -249,13 +249,19 @@ describe("guardrail turns", () => {
     expect(t.replies[1].body).toMatch(/^I have requested a callback for .+\. Reference: CB-T1\.$/);
   });
 
-  it("escalated with callback options open: a non-time message gets no reply (the team answers)", async () => {
+  it("escalated with callback options open: a non-time message is never left silent, the options come again", async () => {
     const t = setup();
     await t.run("I want to talk to a human");
     t.saved.conversation.state = S.Escalated;
-    await t.run("what is the price of vital", "wamid.IN2");
-    expect(t.replies).toHaveLength(1);
+    await t.run("are we connected?", "wamid.IN2");
+    expect(t.replies).toHaveLength(2);
+    expect(t.replies[1].body).toMatch(/^Yes, I am here\. Our team has your request/);
+    expect(t.replies[1].body).toMatch(/Please choose a convenient time:\n1\) /);
     expect(t.saved.conversation.pending_action).toMatch(/^callback_time:/);
+    // "why tomorrow not possible": the booking date rule, then the options (no second question)
+    await t.run("why tommorow not possible", "wamid.IN3");
+    expect(t.replies[2].body).toMatch(/^A booking request needs at least 3 days/);
+    expect(t.replies[2].body).not.toMatch(/works for you\?/);
   });
 
   it("escalated, a time outside team hours: the hours and fresh options, nothing saved", async () => {
