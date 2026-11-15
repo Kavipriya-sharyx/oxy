@@ -1,7 +1,8 @@
 // Go-live check: what the system really holds right now, read from the database and the settings. Nothing
 // here is assumed. "blocker" = customers would get a wrong or placeholder answer, or nothing would work;
 // "warn" = it works, with a gap the team should know about.
-import { Injectable } from "@nestjs/common";
+import { Injectable, Optional } from "@nestjs/common";
+import { GoogleMapsService } from "@Service/Maps/GoogleMaps.service";
 import { ConfigService } from "@nestjs/config";
 import axios from "axios";
 import { In, IsNull } from "typeorm";
@@ -193,7 +194,10 @@ export function actionsKeyCheck(envKeySet: boolean, consoleKeys: number): GoLive
 
 @Injectable()
 export class GoLiveService {
-  constructor(private readonly _Config: ConfigService) {}
+  constructor(
+    private readonly _Config: ConfigService,
+    @Optional() private readonly _Maps?: GoogleMapsService,
+  ) {}
 
   private has(path: string) {
     return !isPlaceholder(this._Config.get<string>(path));
@@ -252,6 +256,25 @@ export class GoLiveService {
         detail: `Meta refused the token or the number: ${String(msg).slice(0, 200)}`,
       };
     }
+  }
+
+  /** With a key saved: one real call per Google API, so a missing "enable API" or billing shows up here */
+  private async mapsLive(): Promise<GoLiveCheck[]> {
+    if (!this.has("Maps.ApiKey") || !this._Maps) return [];
+    const r = await this._Maps.selfTest();
+    const label = { geocoding: "Geocoding API", routes: "Routes API", places: "Places API (New)" } as const;
+    const lost = {
+      geocoding: "typed areas are not found on the map",
+      routes: "the list shows straight-line distance, no drive time",
+      places: "the team gets no list of places to verify",
+    } as const;
+    return (Object.keys(label) as (keyof typeof label)[]).map((k) => ({
+      area: "Maps",
+      item: label[k],
+      status: r[k] === "ok" ? "ok" : "warn",
+      detail: r[k] === "ok" ? "Working" : `Not working (${r[k]}): ${lost[k]}`,
+      fix: "Google Cloud console (enable the API and billing), then Configuration -> Maps",
+    }));
   }
 
   private llm(): GoLiveCheck {
@@ -400,6 +423,8 @@ export class GoLiveService {
         this.has("Actions.ApiKey"),
         keys.filter((k) => keyState(k) === "active").length,
       ),
+      this.setting("Maps", "Google Maps key", "Maps.ApiKey", "warn", "\"near me\" searches use the city name and straight-line distance; centres need their point typed by hand"),
+      ...(await this.mapsLive()),
       {
         area: "Policy",
         item: "Data retention period",

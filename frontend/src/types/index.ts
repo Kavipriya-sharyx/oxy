@@ -28,6 +28,7 @@ export interface Centre {
   branch: string | null;
   locality: string | null;
   city: string;
+  address?: string | null;
   latitude: number;
   longitude: number;
   centre_type: string | null;

@@ -74,7 +74,9 @@ import { NightlyJobsService } from "./Service/Ops/NightlyJobs.service";
 import { PlanChangeService } from "./Service/Ops/PlanChange.service";
 import { TemplatesService } from "./Service/Ops/Templates.service";
 import { GoLiveService } from "./Service/Ops/GoLive.service";
+import { GoogleMapsService } from "./Service/Maps/GoogleMaps.service";
 import { MonitoringService } from "./Service/Ops/Monitoring.service";
+import { UrgentAlertService } from "./Service/Ops/UrgentAlert.service";
 import { HealthController, HealthDetailsController } from "./Controller/Ops/Health.controller";
 
 @Module({
@@ -198,7 +200,9 @@ import { HealthController, HealthDetailsController } from "./Controller/Ops/Heal
     PlanChangeService,
     TemplatesService,
     GoLiveService,
+    GoogleMapsService,
     MonitoringService,
+    UrgentAlertService,
     ActionsApiKeyGuard,
     CacheService,
     {

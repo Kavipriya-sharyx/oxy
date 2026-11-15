@@ -44,4 +44,8 @@ export class centre extends BaseTable {
 
   @Column({ type: "varchar", nullable: true })
   postcode: string | null;
+
+  // street address as the team typed it; the point on the map is worked out from it (Google Geocoding)
+  @Column({ type: "text", nullable: true })
+  address: string | null;
 }

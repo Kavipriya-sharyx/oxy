@@ -68,6 +68,14 @@ export default () => ({
     WebhookSecret: process.env.CRM_WEBHOOK_SECRET,
     MaxAttempts: Number(process.env.CRM_MAX_ATTEMPTS || 0), // 0 = retry for 24 hours (Full Plan 3.4)
   },
+  // Google Maps Platform (Geocoding, Routes, Places): where an area is and how far a centre is. Optional.
+  Maps: {
+    ApiKey: process.env.GOOGLE_MAPS_API_KEY,
+    // the console's map (Maps JavaScript API). It is sent to signed-in console users, so restrict it to this site.
+    BrowserKey: process.env.GOOGLE_MAPS_BROWSER_KEY,
+    // tests only: one address that stands in for maps / routes / places .googleapis.com
+    ApiBase: process.env.GOOGLE_MAPS_API_BASE,
+  },
   Actions: {
     // X-Api-Key for /api/v1/Actions (Playbook 17.1). Unset = the Actions API answers 503.
     ApiKey: process.env.ACTIONS_API_KEY,

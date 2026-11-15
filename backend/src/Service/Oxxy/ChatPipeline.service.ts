@@ -1,7 +1,7 @@
 import { Injectable, Logger, Optional } from "@nestjs/common";
 import { freshCallContext } from "@Helper/CallContext";
 import { faqAnswer, matchFaq, withoutClosingQuestion, faqNeedsPerson } from "@Helper/FaqReplies";
-import { centreListText, parseRadius, RADIUS_Q } from "@Helper/CentreReplies";
+import { asksNearby, centreListText, LOCATION_ASK_T, parseRadius, RADIUS_Q } from "@Helper/CentreReplies";
 import { toBubbles } from "@Helper/Bubbles";
 import { detectRescueSignal, readRescue, rescueLine } from "@Helper/RescueReplies";
 import { REBOOK_DECLINED_T } from "@Helper/CentreReplies";
@@ -10,7 +10,7 @@ import { singleExpenseSignal } from "@Helper/NeedSignals";
 import { knownSpecialisation, normaliseSpecialisation } from "./CentreSearch.service";
 import { todayIST } from "./DateWindow.service";
 import { activeProductBlock, SERVICE_ESCALATE, serviceSummaryText } from "@Helper/ServiceReplies";
-import { ILike, In } from "typeorm";
+import { ILike, Like, In } from "typeorm";
 import { customer } from "@Database/Table/Oxxy/customer";
 import { consent } from "@Database/Table/Oxxy/consent";
 import { conversation } from "@Database/Table/Oxxy/conversation";
@@ -124,6 +124,7 @@ import {
   parseAmount,
 } from "./CmbGate";
 import { FollowUpSchedulerService, type FollowUpKind } from "./FollowUpScheduler.service";
+import { UrgentAlertService } from "@Service/Ops/UrgentAlert.service";
 import { OutboundMessage } from "@Helper/WhatsappMessage";
 import {
   LEAD_ROWS,
@@ -159,6 +160,7 @@ import { CrmAction } from "@Helper/Enum/CrmAction";
 import { ConversationRepository } from "./ConversationRepository.service";
 import { isPlaceholder, planProblems, planReady } from "@Helper/GoLive";
 import { hasQuestion, statedYearlySpend, tidyDraft } from "@Helper/ReplyTidy";
+import { GeoPoint, GoogleMapsService } from "@Service/Maps/GoogleMaps.service";
 import { isNoCentreText, noCentreText } from "@Helper/PlanReplies";
 import {
   CALLBACK_OUTSIDE_HOURS_T,
@@ -431,6 +433,8 @@ export class ChatPipelineService {
     private readonly _ConvRepo: ConversationRepository,
     @Optional() private readonly _Triggers?: TriggerEngineService,
     @Optional() private readonly _Scheduler?: FollowUpSchedulerService,
+    @Optional() private readonly _Urgent?: UrgentAlertService,
+    @Optional() private readonly _Maps?: GoogleMapsService,
   ) {}
 
   // Step 1: dedupe + save. Returns null for a duplicate wa_message_id.
@@ -604,6 +608,9 @@ export class ChatPipelineService {
       });
     });
     await this._Outbox.dispatch(row);
+    // Full Plan 12.7: an urgent case alerts the team at once (console banner + webhook), not only as a list row
+    if (priority === TaskPriority.Urgent)
+      await this._Urgent?.notify({ id: taskId, type }, s.customer).catch(() => false);
     return taskId;
   }
 
@@ -1233,10 +1240,13 @@ export class ChatPipelineService {
 
     // 1d. Answers the system is waiting for, and questions with an approved fixed answer (no LLM)
     if (await this.handleCmbGate(m, s)) return;
+    if (await this.handleLocationShare(m, s)) return;
+    if (await this.handleCentreLocationText(m, s)) return;
     if (await this.handleCentreRadius(m, s)) return;
     if (await this.handleRebookOffer(m, s)) return;
     if (await this.handleCentrePick(m, s)) return;
     if (await this.handleBooking(m, s)) return;
+    if (await this.handleNearbyAsk(m, s)) return;
     if (await this.handleFollowUpTime(m, s)) return;
     if (await this.handlePriceSpend(m, s)) return;
     if (await this.handleCloseOffer(m, s)) return;
@@ -2899,10 +2909,12 @@ export class ChatPipelineService {
     location?: { latitude: number; longitude: number },
     exclude?: string[],
   ): Promise<{ text: string; shown: boolean }> {
+    // where the customer is: the pin they shared, else their locality looked up on the map (Google Geocoding)
+    const origin = await this.originFor(n, location);
     const list = await this._CentreSearch.search({
       exclude,
-      latitude: location?.latitude,
-      longitude: location?.longitude,
+      latitude: origin?.latitude,
+      longitude: origin?.longitude,
       radiusKm: n?.travel_radius_km ?? 10,
       specialisation: n?.specialisation,
       city: n?.city,
@@ -2912,7 +2924,18 @@ export class ChatPipelineService {
       n.suggested_centre_ids = list.map((x) => x.id);
       await n.save();
     }
-    if (!list.length) return { text: await this.noCentreReply(s, n), shown: false };
+    if (!list.length) return { text: await this.noCentreReply(s, n, origin), shown: false };
+    // road distance and drive time for the few centres shown (Routes API); without it the straight line stays
+    if (origin && this._Maps?.enabled) {
+      const withPoint = list.filter((c) => Number(c.latitude) && Number(c.longitude));
+      const travel = await this._Maps.travel(
+        origin,
+        withPoint.map((c) => ({ latitude: Number(c.latitude), longitude: Number(c.longitude) })),
+      );
+      withPoint.forEach((c, i) => {
+        if (travel[i]) Object.assign(c, { distance_km: travel[i]!.distance_km, minutes: travel[i]!.minutes });
+      });
+    }
     const spec = normaliseSpecialisation(n?.specialisation) ?? null;
     return { text: centreListText(list, spec, s.customer.language), shown: true };
   }
@@ -2920,7 +2943,7 @@ export class ChatPipelineService {
   // No verified centre for this place. First time: say so and ask for another centre and branch (this or
   // another location). Asked again right after: never the same sentence in a loop; the team gets a task
   // to check the options there and the customer is told so.
-  private async noCentreReply(s: Saved, n: need | null): Promise<string> {
+  private async noCentreReply(s: Saved, n: need | null, origin?: GeoPoint | null): Promise<string> {
     const l = s.customer.language;
     const place =
       [n?.locality, n?.city]
@@ -2931,14 +2954,145 @@ export class ChatPipelineService {
       where: { conversation_id: s.conversation.id, direction: "out" },
       order: { created_on: "DESC" } as any,
     });
-    if (!isNoCentreText((last as any)?.body)) return noCentreText(place, false, l);
-    await this.createTaskOnce(
-      TaskType.DirectoryVerification,
-      TaskPriority.Normal,
-      s,
-      `No verified centre${place ? ` for ${place}` : ""}: the customer needs options`,
+    const again = isNoCentreText((last as any)?.body);
+    // the team hears about the gap: always the second time, and at once when Google Maps can list what is there
+    if (again || (origin && this._Maps?.enabled)) await this.reportCentreGap(s, place, origin ?? null, n?.travel_radius_km ?? 10);
+    return noCentreText(place, again, l);
+  }
+
+  // One task per conversation for a place without a verified centre. With Google Maps the task lists the
+  // hospitals and clinics that exist there, as candidates for the TEAM to verify and add to the directory.
+  // They are never shown to the customer (Playbook 10: only the verified directory is suggested).
+  private async reportCentreGap(s: Saved, place: string | null, origin: GeoPoint | null, radiusKm: number) {
+    try {
+      const exists = await task.findOne({
+        where: { conversation_id: s.conversation.id, type: TaskType.DirectoryVerification, summary: Like("No verified centre%") },
+      });
+      if (exists) return;
+      let summary = `No verified centre${place ? ` for ${place}` : ""}: the customer needs options`;
+      const near = origin && this._Maps?.enabled ? await this._Maps.nearbyCandidates(origin, radiusKm) : [];
+      if (near.length)
+        summary = `${summary}. Not verified, from Google Maps, to check before adding to the directory: ${near
+          .map((c) => `${c.name} (${c.address})`)
+          .join("; ")}`.slice(0, 1800);
+      await this.createTask(TaskType.DirectoryVerification, TaskPriority.Normal, s, summary);
+    } catch (e) {
+      this.logger.warn(`centre gap not reported: ${(e as Error).message}`);
+    }
+  }
+
+  // The customer's spot for a centre search: the pin they shared, else their locality on the map. A whole
+  // city or a text Google only half matched is not used (the city match in the directory is better then).
+  private async originFor(n: need | null, location?: GeoPoint): Promise<GeoPoint | null> {
+    if (location && Number.isFinite(location.latitude) && Number.isFinite(location.longitude)) return location;
+    const locality = String(n?.locality ?? "").trim();
+    if (!locality || !this._Maps) return null;
+    const geo = await this._Maps.geocode([locality, n?.city].filter(Boolean).join(", "));
+    return geo && !geo.approximate ? { latitude: geo.latitude, longitude: geo.longitude } : null;
+  }
+
+  // The centre list for a spot, sent as this turn's reply (Trigger D)
+  private async replyCentreList(m: Inbound, s: Saved, n: need | null, origin: GeoPoint | undefined, reason: string) {
+    await this.setState(s, [ConversationState.CentreSearch]);
+    const res = await this.centreSuggestions(s, n, origin);
+    const decision = res.shown
+      ? ((await this._Triggers?.decide(s.customer.id, s.conversation, "D", s.customer.active_product)) ?? null)
+      : null;
+    await this.setPending(s, res.shown ? "centre_pick" : null);
+    await this.sendAndSave(s.customer.id, res.text, m.waMessageId);
+    if (decision) await this._Triggers!.record(s.customer.id, s.conversation, decision, reason);
+  }
+
+  private async needRow(s: Saved): Promise<need> {
+    return (
+      (await need.findOne({ where: { conversation_id: s.conversation.id } })) ??
+      (need.create({ conversation_id: s.conversation.id } as any) as unknown as need)
     );
-    return noCentreText(place, true, l);
+  }
+
+  // "Send location" button + the same question in words. The answer is a pin (handleLocationShare) or a
+  // typed area (handleCentreLocationText).
+  private async askLocation(m: Inbound, s: Saved) {
+    await this.setState(s, [ConversationState.CentreSearch]);
+    await this.setPending(s, "centre_location");
+    await this.sendAndSave(
+      s.customer.id,
+      { kind: "location_request", body: say(LOCATION_ASK_T, s.customer.language) },
+      m.waMessageId,
+    );
+  }
+
+  // The customer shared a location pin: centres around that spot, nearest first. The pin is used for this
+  // search only and is not stored. Not while the Cut Medi Bills gate or a later booking step waits.
+  private async handleLocationShare(m: Inbound, s: Saved): Promise<boolean> {
+    if (!m.location) return false;
+    const pending = s.conversation.pending_action;
+    if (pending?.startsWith("cmb_gate:")) return false;
+    const draft = readDraft(pending);
+    if (draft && draft.step !== "centre") return false;
+    const n = await this.needRow(s);
+    await this.replyCentreList(m, s, n, m.location, "location shared");
+    return true;
+  }
+
+  // The area typed after the location question ("Peelamedu, Coimbatore"): looked up on the map, saved as
+  // locality / city, then the list. Not found on the map = answered normally (the LLM reads the city).
+  private async handleCentreLocationText(m: Inbound, s: Saved): Promise<boolean> {
+    if (s.conversation.pending_action !== "centre_location" || m.location) return false;
+    if (m.type === "location") {
+      // a pin whose coordinates did not arrive (a message recovered after a restart): ask once more
+      await this.askLocation(m, s);
+      return true;
+    }
+    const text = (m.text || "").trim();
+    await this.setPending(s, null);
+    if (!text || /\?\s*$/.test(text) || text.split(/\s+/).length > 8) return false;
+    const geo = (await this._Maps?.geocode(text)) ?? null;
+    if (!geo) return false;
+    const n = await this.needRow(s);
+    n.locality = (geo.locality ?? text).slice(0, 80);
+    if (geo.city) n.city = geo.city;
+    await n.save();
+    await this.replyCentreList(
+      m,
+      s,
+      n,
+      geo.approximate ? undefined : { latitude: geo.latitude, longitude: geo.longitude },
+      "area typed after the location question",
+    );
+    return true;
+  }
+
+  // "Any hospital near me?" with no location known: ask for it with the one-tap button
+  private async handleNearbyAsk(m: Inbound, s: Saved): Promise<boolean> {
+    if (m.location || s.conversation.pending_action) return false;
+    if (!asksNearby(m.text, s.conversation.state === ConversationState.CentreSearch)) return false;
+    await this.askLocation(m, s);
+    return true;
+  }
+
+  // After a centre is picked: its pin on the map, so the customer can open directions with one tap
+  private async sendCentrePin(s: Saved, ctr: centre) {
+    const lat = Number(ctr.latitude);
+    const lon = Number(ctr.longitude);
+    if (!lat || !lon) return;
+    const name = ctr.branch ? `${ctr.name}, ${ctr.branch}` : ctr.name;
+    try {
+      await this._Wa.send(
+        s.customer.id,
+        {
+          kind: "location",
+          latitude: lat,
+          longitude: lon,
+          name,
+          address: [(ctr as any).address, ctr.locality, ctr.city].filter(Boolean).join(", ") || undefined,
+          body: `[Map pin] ${name}`,
+        },
+        "reply",
+      );
+    } catch (e) {
+      this.logger.warn(`centre pin not sent: ${(e as Error).message}`);
+    }
   }
 
   // The answer to the radius question: then the list (Trigger D). A question returns false (answered normally).
@@ -3063,6 +3217,7 @@ export class ChatPipelineService {
       (await this.advanceBooking(s, d)).join("\n\n"),
       m.waMessageId,
     );
+    await this.sendCentrePin(s, ctr); // the centre on the map, one tap for directions
     if (decision)
       await this._Triggers!.record(
         s.customer.id,
@@ -3083,12 +3238,7 @@ export class ChatPipelineService {
   ): Promise<AnswerReading | null> {
     if (typeof this._Llm?.classifyAnswer !== "function") return null;
     try {
-      return await this._Llm.classifyAnswer(
-        step,
-        bookingQuestion(step, d, "en"),
-        text,
-        todayIST(),
-      );
+      return await this._Llm.classifyAnswer(step, bookingQuestion(step, d, "en"), text, todayIST());
     } catch {
       return null;
     }
@@ -3102,7 +3252,7 @@ export class ChatPipelineService {
     await this.setPending(s, null);
     await this.setState(s, [ConversationState.CentreSearch]);
     if (!n?.city && !m.location) {
-      await this.sendAndSave(s.customer.id, say(ASK_CITY_T, l), m.waMessageId);
+      await this.askLocation(m, s); // one tap on "Send location", or the area typed
       return;
     }
     if (!n?.travel_radius_km && !m.location) {

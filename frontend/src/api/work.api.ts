@@ -50,3 +50,19 @@ export async function setActivationResult(
 ): Promise<ApiEnvelope> {
   return (await client.put<ApiEnvelope>(`/Console/Activations/${id}`, { result })).data;
 }
+
+/** Urgent cases still open (emergency, self-harm, urgent complaint / payment), newest first */
+export interface UrgentAlert {
+  task_id: string;
+  type: string;
+  label: string;
+  status: string;
+  handled_by: string | null;
+  conversation_id: string | null;
+  customer: { first_name: string | null; wa_number: string } | null;
+  created_at: string;
+}
+
+export async function getUrgentAlerts(): Promise<UrgentAlert[]> {
+  return (await client.get<UrgentAlert[]>("/Console/UrgentAlerts")).data;
+}

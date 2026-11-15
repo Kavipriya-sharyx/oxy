@@ -1,6 +1,6 @@
 # Oxxy WhatsApp bot: working context
 
-Last updated: 14 Nov 2026. Read this first when you pick the project up again (person or AI).
+Last updated: 15 Nov 2026. Read this first when you pick the project up again (person or AI).
 The requirement documents are in this folder: `1_Oxxy_Full_Development_Plan.docx` (the plan; section numbers
 below like "12.5" point into it), `2_Oxxy_Prototype.html` (console design + WhatsApp simulator),
 `3_Oxxy_3Day_Tasks.xlsx`. The Playbook and the Trigger & Conversion Layer documents are in this folder too; Playbook section 17 /
@@ -13,6 +13,10 @@ Trigger layer section 13 are the source of the CRM work. The Actions API referen
 - Local commits on `claude/review-fixes`, not pushed yet (no PR): `066de72` (Trigger & Conversion Layer, booking
   flow, recovery, multi-LLM, Hindi/Hinglish), `2ad0540 changes`, `829db2c` (live updates, nightly CRM
   reconciliation and retention, console ops screens).
+- Later local commits: `b7ab72c changes`, `725b15a`, `4677b6f dsd`, `59629d5 vcvcv` (they hold the 14-15 Nov chat
+  fixes: booking answers, one question, memory). In the working tree, NOT committed yet (15 Nov): the Google
+  Maps work (`Service/Maps`, `geo_cache`, the location flow, `scripts/maps-e2e*.js`, console map and key
+  settings) and the urgent-alert files (`UrgentAlert.service.ts`, `UrgentBanner.tsx`).
 - Stack: NestJS 11 + TypeORM (Postgres) + BullMQ / Redis backend; React 18 + Vite + antd + react-query console.
 - Schema: migrations only (`backend/src/Database/Migrations`), run at start-up (`migrationsRun`). In order:
   `Baseline`, `TriggerEventPerJourney`, `CutMediBillsGate`, `CrmFieldGroups`, `TakeoverHandback`, `ConsoleOps`, `LeadIntroTemplate`, `RemoveSampleData`. Generate new ones with
@@ -309,6 +313,19 @@ The client's voice AI shares details on WhatsApp after a call: `POST /Actions/St
 - Tests: `Service/Crm/StartConversation.spec.ts`. Not built: a template that sends plan details straight away
   (needs a new Meta template; today the customer taps "Just send details").
 
+## Urgent safety alert to the sales team (15 Nov, Full Plan 12.7)
+
+- Any task created with priority urgent (emergency, self-harm, urgent complaint / payment dispute) calls
+  `UrgentAlertService.notify` (`Service/Ops/UrgentAlert.service.ts`) from `ChatPipeline.createTask`, once per task.
+- Outside the console: one POST {"text"} to `SAFETY_ALERT_WEBHOOK_URL` (else `ALERT_WEBHOOK_URL`); no health detail,
+  first name + last 4 digits only, and a link to `${CONSOLE_URL}/escalations` (no number in the link).
+- Inside the console: `GET /Console/UrgentAlerts` (tasks.work) → `components/UrgentBanner.tsx` on every page while a
+  case is open: red banner, three beeps and a desktop notification once per new case (seen ids in sessionStorage),
+  "(N urgent)" in the tab title, "Open chat" / "Open escalations". It disappears when the task is done. Live task
+  events refresh it at once; 15 s polling is the fallback. Browsers play sound only after a click on the page.
+- Tests: `ChatPipeline.guardrail.spec.ts` (emergency / self-harm alert once, none for "talk to a human"),
+  `UrgentAlert.spec.ts` (text). Not checked in a browser yet (servers were down on 15 Nov).
+
 ## Go-live check: Super Admin only (15 Nov)
 
 `GET /Console/GoLive` has `@Roles(SuperAdmin)` on top of `settings.manage` (an Admin gets 403). In the console
@@ -410,6 +427,97 @@ option and Anthropic key labels, the Go-live / no-key messages) and in the git b
   terms and activation time of the 8 Oxxy rows (Plans, two-person approval); the real centre directory
   (Centres, add or import); the approved content links (Content); WhatsApp token / app secret (Configuration).
 
+## Fixes from real chats (14-15 Nov): booking answers, one question, memory
+
+Reported from real WhatsApp chats; every case below is a regression test (the messages are in the specs).
+
+- **A sentence was saved as a centre name.** At "Please share the centre and branch first", "No give me at your
+  suggestion." became a centre "not in our directory yet". Now, at the centre step (`handleBooking`):
+  a directory centre = taken, no LLM; `asksForSuggestion` ("you suggest", "any good hospital nearby", "aap
+  batao", "koi bhi") = `suggestInsteadOfBooking` (centre search: location / city, radius, list); otherwise the
+  LLM reads the answer (`LlmService.classifyAnswer`, `readAnswer`), and without an LLM answer the word rule
+  `looksLikeCentreName` decides. Not a name = answered normally, then the same question again.
+- **The LLM reads unclear booking answers, it never writes the reply** (`classifyAnswer(step, question, text,
+  today)` -> `{kind: answer | wants_suggestion | decline | question | other, value}`; 6 s timeout; null on any
+  problem = the word rules). Centre: pulls the name out of a sentence. Specialisation: only for words the
+  directory does not know (`knownSpecialisation`), e.g. "Orthi" -> "Orthopaedics". Date: only when
+  `parseCustomerDate` fails ("coming friday"); the booking window still decides. Landmark: only for a sentence.
+- **A date outside the window is said at once.** `startBooking`: "tomorrow" gets the date-window line instead of
+  being dropped silently.
+- **Naming a hospital is not asking for a booking.** `asksToBook(text)`: without booking words the mandatory offer
+  ("May I do your booking at X?") comes first (`startBooking({ asked })`), then the landmark question.
+- **One question per message, no stalling, no repeated thanks** (`Helper/ReplyTidy.ts`, `tidyDraft`, applied at
+  the final assembly after `OneQuestion.ts` and the validator; it only removes sentences): the draft's own
+  question goes when the system adds one (age, city, booking step, callback options; `hasQuestion` also counts
+  "Please share ..." / "Reply 1, 2 or 3"); "please hold on", "I will check", "I will share it shortly" are
+  removed (a team callback is not stalling); a second "Thank you for ..." opener in a row is removed. Never an
+  empty reply.
+- **"Monthly 20,000" brings the value check.** `statedYearlySpend(text)` (one amount + a period word; x 12 for
+  monthly; a question is not a statement) sets `annual_medical_spend` and intent `recommend` in code, so the
+  plan and price come in the same turn instead of "would you like to explore a plan?" twice.
+- **No verified centre: never the same sentence in a loop.** `noCentreText(place, again)` / `isNoCentreText`:
+  first time "I do not have a verified centre in {place} yet. Please share the healthcare centre's name and
+  location, in this or another area. Oxxy can help take your booking request there." (Playbook 10.1 + 10.2);
+  the second time in a row the team gets a `directory_verification` task and the customer is told so.
+- **Callback options come with their reason** (`CALLBACK_REASON_T`, Playbook 16.4: "I want to give you a precise
+  answer rather than guess. I will arrange an authorised callback."). The ESCALATED acknowledgement is now
+  "Thank you. Our team has your request and will contact you." (no "no need to send it again").
+- **Memory: the LLM is told what is stored** (`knownFacts` -> `describe`). Before, the context held only name,
+  language, age and active product, so the bot re-asked what was already in the database. Now: `known` (this
+  conversation's need row: who, need, specialisation, city, locality, radius, spend, insurance; the recommended
+  plan; an open booking request), `conversation_state`, and `from_earlier_chat` (the previous conversation of
+  the last 90 days: need, city, spend, plan; to confirm in one question, not to assume). Health fields are
+  left out when the health consent was refused; the free-text condition is never sent. The query for the
+  earlier conversation has no unit test and was not run against the real database.
+- Prompt rules added (`SYSTEM_PROMPT`): one question about one person, no opener in every message, no
+  "activation date", no medicine names, yearly spend = monthly x 12 with intent recommend, the oldest patient's
+  age when several need care, never ask again for what is in `known`.
+- A long reply arrives as up to three WhatsApp bubbles (`toBubbles`, Playbook 1.1): that is why a plan line or
+  the callback options can look like a separate message. Not a bug.
+- Console: Live Chat shows "Tapped: Understand Oxxy" instead of the raw row id (`TAP_LABELS`); a Light / Dark
+  switch in the topbar (kept in the browser as `oxxy-theme`, the page reloads once).
+- Wording taken from the documents (no separate approval needed): the callback reason, "Please choose a
+  convenient time: ..." (Trigger layer 9 O), "I have requested a callback for {window}. Reference: {id}."
+  (Playbook 18), the second half of the no-centre reply (Playbook 10.2).
+
+## Nearby centres with Google Maps Platform (15 Nov)
+
+- Rule kept (Playbook 10): Google Maps says WHERE things are, never WHICH centre to suggest. Customers only
+  ever see centres from the verified directory.
+- `Service/Maps/GoogleMaps.service.ts` (key `GOOGLE_MAPS_API_KEY`, Settings -> Maps; enable Geocoding API,
+  Routes API, Places API (New)): `geocode(text)` (cached for good in `geo_cache`, India only, "approximate"
+  results are not used for a radius), `travel(origin, destinations)` (road km + minutes for the centres
+  shown), `nearbyCandidates(point)` (hospitals / clinics for the TEAM to verify). No key or any error = null /
+  empty: the bot works as before (city text match, straight-line distance). Nothing throws into the chat.
+- Chat (`ChatPipeline.service.ts`): "any hospital near me" / "paas mein hospital" (`asksNearby`) or "suggest one"
+  with no city known -> a WhatsApp "Send location" button (`location_request` message) + `pending_action =
+  centre_location`. Answer = a pin (`handleLocationShare`, also any time a pin arrives) or the area typed
+  (`handleCentreLocationText`: geocoded, saved as locality / city). Then the directory search around that
+  spot (`originFor`: the pin, else the geocoded locality), list with "about 2.3 km, 9 min". Picking a centre
+  also sends its map pin (`location` message). A shared pin is used for that search only and is not stored.
+- No verified centre there: one `directory_verification` task per conversation; with Maps on it lists the
+  places Google knows nearby ("Not verified, from Google Maps, to check before adding to the directory: ...").
+  Never sent to the customer.
+- Console: Centres form has Address + "Find on map" (`POST /Console/Centres/Geocode`) and a map preview; a centre
+  saved or imported without latitude / longitude gets its point from the address (`centre.address`, migration
+  `GeoCache`). "Show on map" (`GET /Console/Centres/Map`): centres, places asked for with no centre, centres
+  without a point. The interactive map needs `VITE_GOOGLE_MAPS_BROWSER_KEY` (Maps JavaScript API, a separate
+  browser key); without it the lists and "open in Google Maps" links are shown.
+- Keys are set in the console, Configuration -> Maps, and apply without a restart: `GOOGLE_MAPS_API_KEY` (server:
+  Geocoding, Routes, Places New) and `GOOGLE_MAPS_BROWSER_KEY` (console map, Maps JavaScript API, restricted to the
+  site; sent to signed-in console users with the map data). "Test the saved server key" (`POST /Console/Maps/Test`,
+  also the Go-live check) makes one real call per API and shows what Google answered. A refused key is reported
+  as refused ("Find on map"), never cached as "address not found"; the chat falls back to straight-line distance.
+- Bug found and fixed while testing: a shared WhatsApp location never reached the pipeline (the queue rebuilt the
+  message from the database row, which has no coordinates). The pin now travels in the BullMQ job
+  (`InboundJob.location`); it is still not stored in the database. A pin recovered after a restart asks again.
+- Tested end to end on a throwaway database with a local stand-in for Meta and Google (23 checks: key test, Find
+  on map, save / import without a point, "near me" -> Send location, pin -> list with road distance, pick -> map
+  pin, typed area + cache, no centre -> team task with places, wrong / right / cleared key from the UI).
+  NOT yet run against the real Google APIs (no key here): the request shapes follow the documented endpoints;
+  press "Test the saved server key" once after saving the real key. [CONFIRM]: the "Send location" wording,
+  whether unverified places may ever be shown to customers, whether a shared location may be stored.
+
 ## Human takeover (Full Plan 12.9)
 
 - Take over = ESCALATED (not PAUSE), `taken_over_by_id` / `taken_over_at` saved. Hand back takes an
@@ -446,6 +554,16 @@ option and Anthropic key labels, the Go-live / no-key messages) and in the git b
   `booking_confirmed`, `booking_rescheduled`, `booking_cancelled`, `activation_confirmed`,
   `activation_reminder`, `agreed_follow_up`, `conversation_rescue_1`, `conversation_rescue_2`.
 
+- `nest build` deletes `dist` first (`deleteOutDir`). Run while `nest start --watch` is serving from the same
+  `dist`, the running server can die and the watcher does not restart it (14 Nov: the bot stopped answering).
+  For a type check use `npx tsc --noEmit -p tsconfig.json`; build only when no watch server is running.
+- `ERROR [MonitoringService] Oxxy bot: inbound_stuck recovered` is good news printed at error level: the
+  messages that had no reply (server down) were answered by the recovery sweep.
+- A location message has no text: the queue rebuilds the inbound message from the database row, so anything that
+  is not stored there must travel in the job (`InboundJob.location`).
+- A unit test with a stubbed pipeline did not catch the lost location; the end-to-end run did. For anything that
+  crosses the webhook -> queue -> pipeline path, run `scripts/maps-e2e.js` style tests.
+
 ## Running it locally for tests
 
 On Windows start node with an UPPERCASE drive path (`cd "D:/sharyx/oxxy/oxy/backend" && node "D:/.../dist/main.js"`):
@@ -465,6 +583,11 @@ Claude) on 8799, so no real messages or API calls were made. Seeded console logi
 `user@oxxy.com`, `superadmin@oxxy.com` (dev seed password in `CommonSeeder.service.ts`).
 Tests: `npx jest` in `backend` (1100 passing on 14 Nov); `npx tsc -b`, `npx eslint src`, `npx vite build` in `frontend`.
 
+End-to-end without real services: `backend/scripts/maps-e2e-stub.js` (stands in for Meta and Google on :8799) and
+`backend/scripts/maps-e2e.js` (console API + signed webhooks + what was sent; the header lists the environment
+overrides). Needs a throwaway Postgres with an empty database and `uuid-ossp`, the backend on :8777, and the LLM
+keys empty. Run once per fresh database. 28 checks on 15 Nov.
+
 ## Real WhatsApp
 
 `backend/.env` (git-ignored) holds the Phone Number ID, WABA ID and business number. The access token given
@@ -481,15 +604,30 @@ template approvals above. The token was shared in chat, so rotate it. Update 14 
 - Push `claude/review-fixes` and open the PR (waiting for the go-ahead).
 - Not built (14 Nov recheck): an opt-in action in the Actions API (after a CRM opt-out only START on WhatsApp
   re-enables), single sign-on with the CRM (Full Plan 3.5, separate console logins today), a packaged-CRM adapter
-  (Plan C, waits for the client's CRM choice), a light/dark switch in the console, the `{{Callback_SLA}}` line.
+  (Plan C, waits for the client's CRM choice), the `{{Callback_SLA}}` line. (The light / dark switch is built.)
+- Family / several patients: the bot asks the oldest patient's age only; plan per person or per family waits for
+  the pricing decision (Playbook 22.2). "Each one has different medicines?" still gets the fixed medicine reply.
+- Not verified on real WhatsApp or with a real LLM: the 14-15 Nov chat fixes (unit tests only), the LLM answer
+  reader (`classifyAnswer`), the memory context. The live check was blocked here because it uses the API key:
+  run a real chat after the server restart. With gpt-4o-mini the prompt rules can still be missed.
+- Slow replies and one "not answered (late)" message on 14 Nov happened while the server was down / restarting;
+  check again on a stable server.
 - Local Redis is 5.0.14; BullMQ needs Redis 6.2 or newer on the server (the slow p95 in the local load test).
 
-## Pending confirmations (from the 14 Nov work)
+## Pending confirmations (from the 14-15 Nov work)
 
 - CRM contracts assumed [CONFIRM with the CRM team]: `GET {CRM_BASE_URL}/reconciliation/open` (until it exists
   the nightly check fails, and it is skipped while CRM is off), `POST /set_opt_in`, `POST /set_callback_window`.
 - `TEAM_HOURS` / `TEAM_DAYS` for the callback windows [CONFIRM with the sales team]; defaults 10-19, Mon-Sat.
-- Texts of the opt-in reply and the callback messages (en / hi / hinglish) [CONFIRM].
+- Wordings that are NOT in the documents and need the business team's "okay" (en / hi / hinglish):
+  (1) the last line of the callback options "Reply 1, 2 or 3, or tell me another time."; (2) "I do not have a
+  verified centre in {place} yet."; (3) "in this or another area" inside the Playbook 10.2 sentence; (4) the
+  second no-centre reply ("I still do not have ... I have asked our team to check the options there ...");
+  (5) the ESCALATED acknowledgement; (6) the START opt-in reply; (7) "Our team calls between {hours}. Please
+  choose one of these times:"; (8) the "Send location" request (`LOCATION_ASK_T`).
+- Google Maps: create the two keys and save them in Configuration -> Maps, then press "Test the saved server key"
+  (the first real call to Google). Decide: may unverified places ever be shown to customers (today: team only),
+  may a shared location be stored (today: no).
 - `RETENTION_DAYS`: the period must come from legal [CONFIRM]. Unset means the retention job removes nothing.
 - Meta approval for the 8 seeded template names (`wa_template`), plus their Hindi versions; sends refuse
   rejected / paused / disabled ones.

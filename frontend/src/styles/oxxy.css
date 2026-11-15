@@ -1384,3 +1384,43 @@ textarea.input {
     animation: none !important;
   }
 }
+
+/* urgent safety banner (Full Plan 12.7): on every page while an urgent case is open */
+.urgent-banner {
+  background: var(--crit-soft);
+  border: 2px solid var(--crit);
+  color: var(--crit);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  display: grid;
+  gap: 6px;
+  animation: urgent-pulse 1.6s ease-in-out 3;
+}
+.urgent-banner .btn {
+  border-color: var(--crit);
+  color: var(--crit);
+}
+.urgent-item {
+  gap: 8px;
+  color: var(--fg);
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+.urgent-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--crit);
+  flex: none;
+}
+@keyframes urgent-pulse {
+  50% {
+    box-shadow: 0 0 0 4px var(--crit-soft);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .urgent-banner {
+    animation: none;
+  }
+}

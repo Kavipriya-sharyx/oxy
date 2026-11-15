@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { Button, Form, Input, Select, Spin, Switch, message } from "antd";
 import { Panel, Pill, usePageTitle } from "../components/ui";
 import { getSettings, updateSettings, type SettingItem } from "../api/settings.api";
+import { testMapsKey } from "../api/centres.api";
 
 const GROUP_TITLES: Record<SettingItem["group"], string> = {
   whatsapp: "WhatsApp Cloud API",
   ai: "AI Provider & Model Keys",
   crm: "In-house CRM Sync",
+  maps: "Maps (Google Maps Platform: nearby centres, distance, address lookup)",
 };
 
 export default function Settings() {
@@ -15,6 +17,19 @@ export default function Settings() {
   const [items, setItems] = useState<SettingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // "Test the key": one real call per Google API with the SAVED server key
+  const [mapsTest, setMapsTest] = useState<Record<string, string> | null>(null);
+  const [testing, setTesting] = useState(false);
+  const runMapsTest = async () => {
+    setTesting(true);
+    try {
+      setMapsTest(await testMapsKey());
+    } catch (e) {
+      message.error((e as Error)?.message || "The test could not run");
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -54,7 +69,7 @@ export default function Settings() {
     }
   };
 
-  const groups: SettingItem["group"][] = ["whatsapp", "ai", "crm"];
+  const groups: SettingItem["group"][] = ["whatsapp", "ai", "crm", "maps"];
 
   // the AI model really in use (Claude, OpenAI or Gemini), from the saved settings below
   const val = (k: string) => String(items.find((i) => i.key === k)?.value ?? "");
@@ -122,6 +137,29 @@ export default function Settings() {
           <div className="grid" style={{ gap: 14 }}>
             {groups.map((grp) => (
               <Panel key={grp} title={GROUP_TITLES[grp]}>
+                {grp === "maps" && (
+                  <div className="small" style={{ marginBottom: 12 }}>
+                    <div className="muted" style={{ marginBottom: 6 }}>
+                      Server key: enable Geocoding API, Routes API and Places API (New) in Google Cloud, with billing on.
+                      Browser key: a second key with Maps JavaScript API, restricted to this site's address. Save first,
+                      then test.
+                    </div>
+                    <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                      <Button onClick={runMapsTest} loading={testing}>
+                        Test the saved server key
+                      </Button>
+                      {mapsTest &&
+                        (["geocoding", "routes", "places"] as const).map((k) => (
+                          <span key={k} title={mapsTest[k]}>
+                            <Pill tone={mapsTest[k] === "ok" ? "ok" : "crit"}>
+                              {k === "geocoding" ? "Geocoding" : k === "routes" ? "Routes" : "Places"}:{" "}
+                              {mapsTest[k] === "ok" ? "working" : mapsTest[k]}
+                            </Pill>
+                          </span>
+                        ))}
+                    </div>
+                  </div>
+                )}
                 {items
                   .filter((i) => i.group === grp)
                   .map((item) => (

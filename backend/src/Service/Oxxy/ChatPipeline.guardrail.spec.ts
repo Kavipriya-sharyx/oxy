@@ -13,15 +13,24 @@ type Fn = (...a: unknown[]) => unknown;
 const stub = (cls: unknown, name: string, impl: Fn) =>
   jest.spyOn(cls as Record<string, Fn>, name).mockImplementation(impl);
 
-function setup(opts: { optedOut?: boolean; openBooking?: boolean; language?: string; state?: S } = {}) {
-  const cons = { opt_out_at: opts.optedOut ? new Date() : null, marketing_consent: true } as Record<string, unknown>;
+function setup(
+  opts: { optedOut?: boolean; openBooking?: boolean; language?: string; state?: S } = {},
+) {
+  const cons = { opt_out_at: opts.optedOut ? new Date() : null, marketing_consent: true } as Record<
+    string,
+    unknown
+  >;
   const replies: Record<string, unknown>[] = [];
   const tasks: Record<string, unknown>[] = [];
   const states: string[] = [];
   const outbox: unknown[] = [];
 
   const send = jest.fn(async (...a: unknown[]) => {
-    replies.push({ direction: "out", reply_to_wa_message_id: a[3], body: (a[1] as { body: string }).body });
+    replies.push({
+      direction: "out",
+      reply_to_wa_message_id: a[3],
+      body: (a[1] as { body: string }).body,
+    });
     return "wamid.OUT";
   });
   const mg = {
@@ -48,6 +57,7 @@ function setup(opts: { optedOut?: boolean; openBooking?: boolean; language?: str
     return { state: to };
   });
   const claude = { generate: jest.fn() };
+  const urgent = { notify: jest.fn(async () => true) };
 
   stub(message, "findOne", async (...a) => {
     const where = (a[0] as { where: Record<string, unknown> }).where;
@@ -83,14 +93,21 @@ function setup(opts: { optedOut?: boolean; openBooking?: boolean; language?: str
       dispatch: jest.fn(),
     } as never,
     { transition, optIn } as never,
+    undefined,
+    undefined,
+    urgent as never,
   );
   const saved = {
     customer: { id: "c1", language: opts.language ?? "en" },
-    conversation: { id: "v1", state: opts.state ?? S.Discovery, pending_action: null as string | null },
+    conversation: {
+      id: "v1",
+      state: opts.state ?? S.Discovery,
+      pending_action: null as string | null,
+    },
   };
   const run = (text: string, wamid = "wamid.IN1") =>
     pipeline.process({ waNumber: "919800000001", waMessageId: wamid, text }, saved as never);
-  return { run, send, replies, tasks, states, cons, claude, outbox, optIn, saved };
+  return { run, send, replies, tasks, states, cons, claude, outbox, optIn, saved, urgent };
 }
 
 afterEach(() => jest.restoreAllMocks());
@@ -106,11 +123,35 @@ describe("guardrail turns", () => {
     expect(t.replies).toHaveLength(1);
     expect(String(t.replies[0].body).startsWith(FIXED_REPLIES[key as "emergency"].en)).toBe(true);
     // Trigger O: an escalation also offers callback windows; a safety reply never does
-    expect(String(t.replies[0].body).includes("Please choose a convenient time")).toBe(key === "escalation");
+    expect(String(t.replies[0].body).includes("Please choose a convenient time")).toBe(
+      key === "escalation",
+    );
     expect(t.states).toEqual([state]);
     expect(t.tasks).toHaveLength(1);
     expect(t.tasks[0]).toMatchObject({ type: taskType, priority });
     expect(t.claude.generate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["I have chest pain", "emergency", 1],
+    ["I want to die", "self_harm", 1],
+    ["I want to talk to a human", null, 0],
+  ])("%s -> urgent alert to the sales team: %s (Full Plan 12.7)", async (text, type, n) => {
+    const t = setup();
+    await t.run(text);
+    expect(t.urgent.notify).toHaveBeenCalledTimes(n as number);
+    if (type)
+      expect(t.urgent.notify).toHaveBeenCalledWith(
+        expect.objectContaining({ type }),
+        expect.objectContaining({ id: "c1" }),
+      );
+  });
+
+  it("the same emergency message again: no second task, no second alert", async () => {
+    const t = setup();
+    await t.run("I have chest pain");
+    await t.run("I have chest pain");
+    expect(t.urgent.notify).toHaveBeenCalledTimes(1);
   });
 
   it("STOP: opt-out reply, opt-out saved, marketing off, CRM set_opt_out queued, state OPTED_OUT, no task", async () => {
@@ -200,7 +241,9 @@ describe("guardrail turns", () => {
     t.saved.conversation.state = S.Escalated;
     await t.run("2", "wamid.IN2");
     expect(t.tasks[0].callback_from).toBeInstanceOf(Date);
-    expect((t.tasks[0].callback_to as Date).getTime()).toBeGreaterThan((t.tasks[0].callback_from as Date).getTime());
+    expect((t.tasks[0].callback_to as Date).getTime()).toBeGreaterThan(
+      (t.tasks[0].callback_from as Date).getTime(),
+    );
     expect(t.outbox).toEqual(["create_task", "set_callback_window"]);
     expect(t.saved.conversation.pending_action).toBeNull();
     expect(t.replies[1].body).toMatch(/^I have requested a callback for .+\. Reference: CB-T1\.$/);

@@ -77,6 +77,9 @@ export class WhatsappInboundService implements OnModuleInit {
         messageId: saved.message.id,
         conversationId: saved.conversation.id,
         customerId: saved.customer.id,
+        ...(Number.isFinite(Number(msg.location?.latitude)) && Number.isFinite(Number(msg.location?.longitude))
+          ? { location: { latitude: Number(msg.location!.latitude), longitude: Number(msg.location!.longitude) } }
+          : {}),
       },
       msg.id,
     );

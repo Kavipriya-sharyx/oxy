@@ -6,7 +6,7 @@ export interface ConfigFieldDef {
   key: string;
   configPath: string;
   label: string;
-  group: "whatsapp" | "ai" | "crm";
+  group: "whatsapp" | "ai" | "crm" | "maps";
   secret?: boolean;
   type?: "string" | "boolean" | "select";
   options?: { value: string; label: string }[]; // type "select" only
@@ -131,6 +131,19 @@ export const CONFIG_FIELDS: ConfigFieldDef[] = [
     label: "Gemini Model",
     group: "ai",
     placeholder: "gemini-2.5-flash",
+  },
+  {
+    key: "GOOGLE_MAPS_API_KEY",
+    configPath: "Maps.ApiKey",
+    label: "Google Maps Platform API key (Geocoding, Routes and Places APIs enabled)",
+    group: "maps",
+    secret: true,
+  },
+  {
+    key: "GOOGLE_MAPS_BROWSER_KEY",
+    configPath: "Maps.BrowserKey",
+    label: "Google Maps browser key for the console map (Maps JavaScript API, restricted to this site)",
+    group: "maps",
   },
   {
     key: "CRM_ENABLED",

@@ -6,6 +6,7 @@ import { usePermissions } from "../hooks/usePermissions";
 import { Icon, initials, Pill, TitleProvider, usePageTitleValue } from "./ui";
 import { useLiveUpdates } from "../hooks/useLiveUpdates";
 import { getPendingBookings } from "../api/bookings.api";
+import UrgentBanner from "./UrgentBanner";
 
 // Same groups and order as the approved prototype
 const NAV: [string, [string, string, string][]][] = [
@@ -193,6 +194,7 @@ function Shell() {
           </label>
         </div>
         <div className="content">
+          <UrgentBanner />
           <Outlet />
         </div>
       </main>

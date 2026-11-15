@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createCentre,
   deleteCentre,
+  geocodeCentre,
   importCentres,
   listCentres,
   updateCentre,
@@ -12,6 +13,7 @@ import {
 import type { Centre } from "../types";
 import { usePermissions } from "../hooks/usePermissions";
 import { Drawer, Empty, ErrorNote, Field, fmtDate, Pill, usePageTitle } from "../components/ui";
+import CentresMap, { mapsLink } from "../components/CentresMap";
 
 const TYPES = ["clinic", "specialist", "multispeciality", "diagnostic"];
 const blank: CentreInput = {
@@ -19,6 +21,7 @@ const blank: CentreInput = {
   branch: "",
   locality: "",
   city: "",
+  address: "",
   latitude: 0,
   longitude: 0,
   centre_type: "clinic",
@@ -45,6 +48,19 @@ export default function Centres() {
   const canEdit = can("centres.edit");
   const [form, setForm] = useState<(CentreInput & { id?: string }) | null>(null);
   const [csv, setCsv] = useState<string | null>(null);
+  const [showMap, setShowMap] = useState(false);
+  // "Find on map": the point for the address typed (Google Geocoding), shown before saving
+  const locate = useMutation({
+    mutationFn: (f: CentreInput) =>
+      geocodeCentre([f.address, f.name, f.branch, f.locality, f.city].map((x) => String(x ?? "").trim()).filter(Boolean).join(", ")),
+    onSuccess: (g) => {
+      setForm((f) => (f ? { ...f, latitude: g.latitude, longitude: g.longitude, locality: f.locality || g.locality || "", city: f.city || g.city || "" } : f));
+      message[g.approximate ? "warning" : "success"](
+        g.approximate ? `Only an approximate match: ${g.formatted}. Check the pin, or add the street and area.` : `Found: ${g.formatted}`,
+      );
+    },
+    onError: (e: Error) => message.error(e.message),
+  });
   const [error, setError] = useState("");
   const q = useQuery({ queryKey: ["centres"], queryFn: listCentres });
 
@@ -95,7 +111,7 @@ export default function Centres() {
             <button
               className="btn"
               onClick={() =>
-                setCsv("name,branch,locality,city,postcode,latitude,longitude,centre_type,specialisations,is_private,verified,verification_source\n")
+                setCsv("name,branch,locality,city,postcode,address,latitude,longitude,centre_type,specialisations,is_private,verified,verification_source\n")
               }
             >
               Import CSV
@@ -105,7 +121,11 @@ export default function Centres() {
             </button>
           </>
         )}
+        <button className="btn" onClick={() => setShowMap((v) => !v)}>
+          {showMap ? "Show the list" : "Show on map"}
+        </button>
       </div>
+      {showMap && <CentresMap />}
       <ErrorNote error={q.error} />
       <div className="panel">
         <div className="tbl-wrap">
@@ -220,21 +240,55 @@ export default function Centres() {
                 onChange={(e) => set("city", e.target.value)}
               />
             </Field>
+            <Field
+              label="Address"
+              hint="Street and area, no commas needed. Used to find the point on the map; leave latitude and longitude empty and it is filled when you save."
+            >
+              <div className="row" style={{ gap: 6 }}>
+                <input
+                  className="input"
+                  style={{ flex: 1 }}
+                  value={form.address ?? ""}
+                  placeholder="e.g. 12 Avinashi Road, near the bus stand"
+                  onChange={(e) => set("address", e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn sm"
+                  disabled={locate.isPending || !form.city}
+                  onClick={() => locate.mutate(form)}
+                >
+                  {locate.isPending ? "Looking…" : "Find on map"}
+                </button>
+              </div>
+            </Field>
+            {!!form.latitude && !!form.longitude && (
+              <div className="small" style={{ marginBottom: 8 }}>
+                <iframe
+                  title="Centre on the map"
+                  style={{ width: "100%", height: 180, border: "1px solid var(--line)", borderRadius: 8 }}
+                  loading="lazy"
+                  src={`https://maps.google.com/maps?q=${form.latitude},${form.longitude}&z=15&output=embed`}
+                />
+                <a href={mapsLink(form.latitude, form.longitude)} target="_blank" rel="noreferrer">
+                  Open in Google Maps
+                </a>{" "}
+                <span className="muted">Is the pin on the right building? If not, correct the numbers below.</span>
+              </div>
+            )}
             <div className="grid g2">
-              <Field label="Latitude *">
+              <Field label="Latitude">
                 <input
                   className="input mono"
-                  required
                   type="number"
                   step="any"
                   value={form.latitude}
                   onChange={(e) => set("latitude", Number(e.target.value))}
                 />
               </Field>
-              <Field label="Longitude *">
+              <Field label="Longitude">
                 <input
                   className="input mono"
-                  required
                   type="number"
                   step="any"
                   value={form.longitude}

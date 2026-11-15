@@ -7,6 +7,9 @@ export interface CentreCard {
   locality?: string | null;
   city?: string | null;
   centre_type?: string | null;
+  /** from the customer's spot: road distance when Google Maps answered, else straight line */
+  distance_km?: number | null;
+  minutes?: number | null;
 }
 
 const HEAD: L = {
@@ -36,6 +39,28 @@ const KIND: Record<"multi" | "specialist", L> = {
 };
 const RELEVANT: L = { en: "Relevant for {s}", hi: "{s} के लिए उपयुक्त", hinglish: "{s} ke liye relevant" };
 
+const UNDER_KM: L = { en: "under 1 km", hi: "1 km से कम", hinglish: "1 km se kam" };
+const ABOUT_KM: L = { en: "about {km} km", hi: "लगभग {km} km", hinglish: "lagbhag {km} km" };
+
+// The customer asked for something nearby: one tap on "Send location", or the area typed. [CONFIRM] wording
+// (the second sentence is Playbook 14 "No provider in my area").
+export const LOCATION_ASK_T: L = {
+  en: "Please share the patient's location with the button below, or type the locality and city. I can suggest up to five suitable private healthcare centres.",
+  hi: "कृपया नीचे दिए बटन से मरीज़ की लोकेशन भेजें, या इलाका और शहर लिखें। मैं पाँच तक उपयुक्त निजी स्वास्थ्य केंद्र सुझा सकता हूँ।",
+  hinglish: "Kripya neeche diye button se patient ki location bhejein, ya locality aur city likhein. Main paanch tak suitable private healthcare centres suggest kar sakta hoon.",
+};
+
+const NEAR_RE =
+  /\b(near ?by|near (me|my|us|our)|nearest|closest|close to (me|my|us)|around (me|here)|my (current |live )?location|current location|live location|paas (mein|me|ke|wala|wale)|nazdeek\w*|aas ?paas|pakkath\w*|pakkam)\b|पास|नज़दीक|आसपास/i;
+const PLACE_RE =
+  /\b(hospitals?|clinics?|centres?|centers?|labs?|diagnostics?|doctors?|scan|pharmacy|medical|health ?care)\b|अस्पताल|क्लिनिक|डॉक्टर|सेंटर/i;
+
+/** "any hospital near me", "nearby clinic", "paas mein koi hospital": wants centres close to where they are */
+export function asksNearby(text: string, inCentreSearch = false): boolean {
+  const t = text || "";
+  return NEAR_RE.test(t) && (inCentreSearch || PLACE_RE.test(t));
+}
+
 export const RADIUS_Q: L = {
   en: "How far can the patient travel for this? For example 5 km, 10 km or 20 km.",
   hi: "मरीज़ इसके लिए कितनी दूर तक जा सकते हैं? जैसे 5 km, 10 km या 20 km।",
@@ -61,6 +86,11 @@ export function centreListText(list: CentreCard[], specialisation: string | null
   const cards = list.map((c, i) => {
     const kind = say(c.centre_type === "multispeciality" ? KIND.multi : KIND.specialist, l);
     const parts = [`${i + 1}. ${c.name}${c.branch ? `, ${c.branch}` : ""} - ${c.locality || c.city || ""}`, kind];
+    if (c.distance_km != null && Number.isFinite(c.distance_km) && c.distance_km < 500) {
+      const km = c.distance_km < 10 ? Math.round(c.distance_km * 10) / 10 : Math.round(c.distance_km);
+      // right next to the customer: "under 1 km", never "about 0 km"
+      parts.push((km < 1 ? say(UNDER_KM, l) : say(ABOUT_KM, l).replace("{km}", String(km))) + (c.minutes ? `, ${c.minutes} min` : ""));
+    }
     if (specialisation) parts.push(say(RELEVANT, l).replace("{s}", specialisation));
     return parts.join(" | ");
   });

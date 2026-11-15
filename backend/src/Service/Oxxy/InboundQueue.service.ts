@@ -150,6 +150,7 @@ export class InboundQueueService implements OnModuleInit, OnModuleDestroy {
         waMessageId: msg.wa_message_id,
         text: msg.body || `[${msg.type} message]`, // non-text: the LLM only needs to know something was sent
         type: msg.type,
+        location: data.location,
       },
       { customer: cust, conversation: conv, message: msg },
     );

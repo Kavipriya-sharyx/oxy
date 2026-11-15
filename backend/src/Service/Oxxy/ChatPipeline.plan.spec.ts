@@ -1,5 +1,6 @@
 // Full Development Plan 12.3 / 12.4 / 12.5: plan choice, honest answer, insurance questions,
 // centre search without a city, and the activation disclosure before the link.
+import { LOCATION_ASK_T } from "@Helper/CentreReplies";
 import { ChatPipelineService } from "./ChatPipeline.service";
 import { GuardrailService } from "./Guardrail.service";
 import { ReplyValidatorService } from "./ReplyValidator.service";
@@ -78,6 +79,8 @@ function setup(
     language?: string;
     planRow?: unknown;
     classify?: unknown; // the LLM answer reader; absent = no LLM, the word rules decide
+    maps?: unknown; // Google Maps adapter (geocode / travel / nearbyCandidates)
+    found?: (q: Record<string, unknown>) => unknown[]; // what the directory search returns
   } = {},
 ) {
   const cons = {
@@ -175,7 +178,7 @@ function setup(
       recommend: async () => opts.recommend ?? null,
       prices: async () => ({ monthly: 999, yearly: 10000 }),
     } as never,
-    { search: async () => [] } as never,
+    { search: async (q: Record<string, unknown>) => (opts.found ? opts.found(q) : []) } as never,
     {
       create: async (b: Record<string, unknown>) => {
         bookings.push(b);
@@ -188,6 +191,8 @@ function setup(
     { transition } as never,
     opts.triggers as never,
     opts.scheduler as never,
+    undefined as never,
+    opts.maps as never,
   );
   const s = {
     customer: {
@@ -199,11 +204,11 @@ function setup(
     },
     conversation: conv,
   } as never;
-  const run = (text: string) => {
+  const run = (text: string, location?: { latitude: number; longitude: number }) => {
     replied = false;
-    return pipeline.process({ waNumber: "919800000001", waMessageId: "wamid.IN1", text }, s);
+    return pipeline.process({ waNumber: "919800000001", waMessageId: "wamid.IN1", text, location }, s);
   };
-  return { run, out, generate, conv, saved, enqueue, mg, bookings };
+  return { run, out, generate, conv, saved, enqueue, mg, bookings, send };
 }
 
 afterEach(() => jest.restoreAllMocks());
@@ -907,9 +912,9 @@ describe("booking request, one question per turn", () => {
     const t = setup([], { pending: 'booking:{"step":"centre","ok":true}', centres: CENTRES });
     await t.run("No give me at your suggestion.");
     expect(t.out).toHaveLength(1);
-    expect(t.out[0]).toBe(ASK_CITY);
+    expect(t.out[0]).toBe(LOCATION_ASK_T.en); // sent with the one-tap "Send location" button
     expect(t.out[0]).not.toContain("not in our directory");
-    expect(t.conv.pending_action).toBeNull();
+    expect(t.conv.pending_action).toBe("centre_location");
     expect(t.conv.state).toBe(S.CentreSearch);
     expect(t.saved.some((x) => x.type === "directory_verification")).toBe(false);
   });
@@ -954,8 +959,8 @@ describe("booking request, one question per turn", () => {
       "edhavadhu nalla idam sollunga",
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     );
-    expect(t.out[0]).toBe(ASK_CITY);
-    expect(t.conv.pending_action).toBeNull();
+    expect(t.out[0]).toBe(LOCATION_ASK_T.en);
+    expect(t.conv.pending_action).toBe("centre_location");
   });
 
   it("LLM pulls the centre name out of a sentence; the name alone goes to the team", async () => {
@@ -1242,5 +1247,73 @@ describe("the customer's language", () => {
     expect(t.out[0]).toBe(
       "क्या मैं City Multispeciality, T Nagar पर आपकी बुकिंग करूँ? हाँ या नहीं लिखें, या अपनी पसंद के किसी दूसरे केंद्र का नाम भेजें।",
     );
+  });
+});
+
+// ---- nearby centres with Google Maps: where the customer is, never which centre to suggest ----
+describe("nearby centres (location + Google Maps)", () => {
+  const ABC = { id: "ctr9", name: "ABC Hospital", branch: null, locality: "Peelamedu", city: "Coimbatore", centre_type: "multispeciality", latitude: 11.03, longitude: 77.01, verified: true, active: true };
+  const spot = { latitude: 11.0261, longitude: 77.0006 };
+  const fakeMaps = (over: Record<string, unknown> = {}) => ({
+    enabled: true,
+    geocode: jest.fn(async () => ({ ...spot, formatted: "Peelamedu, Coimbatore", locality: "Peelamedu", city: "Coimbatore", approximate: false })),
+    travel: jest.fn(async (_o: unknown, d: unknown[]) => d.map(() => ({ distance_km: 2.3, minutes: 9 }))),
+    nearbyCandidates: jest.fn(async () => [{ name: "PSG Hospitals", address: "Peelamedu, Coimbatore", latitude: 11.02, longitude: 77, maps_url: null }]),
+    ...over,
+  });
+
+  it("'any hospital near me': the Send location button, then the answer is awaited", async () => {
+    const t = setup([]);
+    await t.run("any hospital near me");
+    expect((t.send.mock.calls[0] as unknown[])[1]).toMatchObject({ kind: "location_request" });
+    expect(t.out[0]).toBe(LOCATION_ASK_T.en);
+    expect(t.conv.pending_action).toBe("centre_location");
+    expect(t.generate).not.toHaveBeenCalled();
+  });
+
+  it("a shared pin: the directory is searched around it, with road distance in the list", async () => {
+    const found = jest.fn(() => [{ ...ABC }]);
+    const maps = fakeMaps();
+    const t = setup([], { pending: "centre_location", needRow: { save: async () => undefined }, found, maps });
+    await t.run("", spot);
+    expect((found.mock.calls[0] as unknown[])[0]).toMatchObject({ latitude: spot.latitude, longitude: spot.longitude });
+    expect(t.out[0]).toContain("1. ABC Hospital - Peelamedu | Multispeciality | about 2.3 km, 9 min");
+    expect(t.conv.pending_action).toBe("centre_pick");
+    expect(maps.geocode).not.toHaveBeenCalled(); // the pin is the spot: nothing to look up
+  });
+
+  it("the area typed instead of the pin: looked up on the map, saved, then the list", async () => {
+    const needRow: Record<string, unknown> = { save: async () => undefined };
+    const found = jest.fn(() => [{ ...ABC }]);
+    const t = setup([], { pending: "centre_location", needRow, found, maps: fakeMaps() });
+    await t.run("Peelamedu Coimbatore");
+    expect(needRow).toMatchObject({ locality: "Peelamedu", city: "Coimbatore" });
+    expect((found.mock.calls[0] as unknown[])[0]).toMatchObject({ latitude: spot.latitude });
+    expect(t.out[0]).toContain("ABC Hospital");
+  });
+
+  it("picking a centre from the list also sends its map pin", async () => {
+    const t = setup([], { pending: "centre_pick", needRow: { suggested_centre_ids: ["ctr9"], specialisation: "ortho", save: async () => undefined }, centres: [ABC] });
+    await t.run("1");
+    expect(t.out[0]).toContain("May I do your booking at ABC Hospital?");
+    const pin = t.send.mock.calls.map((c) => (c as unknown[])[1] as Record<string, unknown>).find((x) => x.kind === "location");
+    expect(pin).toMatchObject({ latitude: 11.03, longitude: 77.01, name: "ABC Hospital" });
+  });
+
+  it("no verified centre near the pin: Google's places go to the TEAM as a task, never to the customer", async () => {
+    const maps = fakeMaps();
+    const t = setup([], { pending: "centre_location", needRow: { locality: "Peelamedu", city: "Coimbatore", save: async () => undefined }, found: () => [], maps });
+    await t.run("", spot);
+    expect(t.out.join("\n")).toContain("I do not have a verified centre in Peelamedu, Coimbatore yet");
+    expect(t.out.join("\n")).not.toContain("PSG Hospitals");
+    const gap = t.saved.find((x) => x.type === "directory_verification");
+    expect(String(gap?.summary)).toContain("Not verified, from Google Maps, to check before adding to the directory: PSG Hospitals (Peelamedu, Coimbatore)");
+  });
+
+  it("no Google Maps key: a shared pin still works (straight-line distance), nothing is looked up", async () => {
+    const found = jest.fn(() => [{ ...ABC, distance_km: 0.6 }]);
+    const t = setup([], { pending: "centre_location", needRow: { save: async () => undefined }, found });
+    await t.run("", spot);
+    expect(t.out[0]).toContain("ABC Hospital - Peelamedu | Multispeciality | under 1 km");
   });
 });

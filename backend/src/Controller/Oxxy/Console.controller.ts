@@ -1,5 +1,8 @@
 import { Permission } from "@Helper/Permissions";
+import { TaskType } from "@Helper/Enum/TaskType";
+import { GoogleMapsService } from "@Service/Maps/GoogleMaps.service";
 import {
+  Optional,
   BadRequestException,
   Body,
   Controller,
@@ -37,6 +40,9 @@ import { task } from "@Database/Table/Oxxy/task";
 import { activation } from "@Database/Table/Oxxy/activation";
 import { CurrentUser } from "@Helper/Common.helper";
 import { IsNull } from "typeorm";
+import { TaskPriority } from "@Helper/Enum/TaskPriority";
+import { TaskStatus } from "@Helper/Enum/TaskStatus";
+import { urgentLabel } from "@Service/Ops/UrgentAlert.service";
 
 const truthy = (v: unknown): boolean | null => {
   if (typeof v === "boolean") return v;
@@ -61,6 +67,7 @@ export function importedCentre(r: Record<string, any>) {
     locality: r.locality ? String(r.locality).trim() : null,
     city: String(r.city).trim(),
     postcode: r.postcode ? String(r.postcode).trim() : null,
+    address: r.address ? String(r.address).trim().slice(0, 300) : null,
     latitude: Number(r.latitude) || 0,
     longitude: Number(r.longitude) || 0,
     centre_type: r.centre_type ? String(r.centre_type).trim() : "multispeciality",
@@ -173,8 +180,82 @@ export class ConsoleController extends JWTAuthController {
     private readonly _SystemConfig: SystemConfigService,
     private readonly _Outbox: CrmOutboxService,
     private readonly _CrmEvents: CrmWebhookService,
+    @Optional() private readonly _Maps?: GoogleMapsService,
   ) {
     super();
+  }
+
+  // A centre saved without a point (latitude / longitude empty or 0) gets one from its address on the map
+  // (Google Geocoding). With no key or no match the row stays as typed.
+  private async fillPoint(r: any): Promise<any> {
+    if (!r || (Number(r.latitude) && Number(r.longitude))) return r;
+    const text = [r.address, r.name, r.branch, r.locality, r.city, r.postcode].map((x) => String(x ?? "").trim()).filter(Boolean).join(", ");
+    const geo = text ? await this._Maps?.geocode(text) : null;
+    return geo ? { ...r, latitude: geo.latitude, longitude: geo.longitude } : r;
+  }
+
+  // "Find on map" in the centre form: the point for an address, shown to the user before saving
+  @Permission("centres.edit")
+  @Post("Centres/Geocode")
+  async GeocodeCentre(@Body("address") address: string) {
+    const text = String(address ?? "").trim();
+    if (text.length < 3) throw new BadRequestException("Type the address or the centre name and city first");
+    if (!this._Maps?.enabled) throw new BadRequestException("Google Maps is not set up (Configuration -> Maps)");
+    const geo = await this._Maps.geocode(text);
+    if (!geo && this._Maps.lastProblem)
+      throw new BadRequestException(
+        `Google Maps refused the request (${this._Maps.lastProblem}). Check the key with "Test the saved server key" in Configuration, Maps.`,
+      );
+    if (!geo) throw new NotFoundException("Google Maps could not find this address. Add the area and city, or type the point by hand.");
+    return this.SendResponseData(geo);
+  }
+
+  // "Test the Google Maps key": one real call per API (Geocoding, Routes, Places) with the saved key
+  @Permission("settings.manage")
+  @Post("Maps/Test")
+  async TestMaps() {
+    if (!this._Maps) throw new BadRequestException("Google Maps is not available");
+    return this.SendResponseData(await this._Maps.selfTest());
+  }
+
+  // The directory on a map, and the places customers asked for where no verified centre exists yet
+  @Permission("centres.read")
+  @Get("Centres/Map")
+  async CentresMap() {
+    const rows = await centre.find({ where: { status: true }, order: { city: "ASC", name: "ASC" } as any, take: 2000 });
+    const tasks = await task
+      .createQueryBuilder("t")
+      .where("t.type = :type AND t.summary LIKE 'No verified centre for %'", { type: TaskType.DirectoryVerification })
+      .orderBy("t.created_on", "DESC")
+      .take(300)
+      .getMany();
+    const count = new Map<string, number>();
+    for (const t of tasks) {
+      const place = String(t.summary).replace(/^No verified centre for /, "").split(":")[0].trim();
+      if (place) count.set(place, (count.get(place) ?? 0) + 1);
+    }
+    const gaps: { place: string; requests: number; latitude: number | null; longitude: number | null }[] = [];
+    for (const [place, requests] of [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40)) {
+      const geo = (await this._Maps?.geocode(place)) ?? null; // cached after the chat looked it up
+      gaps.push({ place, requests, latitude: geo?.latitude ?? null, longitude: geo?.longitude ?? null });
+    }
+    return this.SendResponseData({
+      maps_enabled: !!this._Maps?.enabled,
+      browser_key: this._Maps?.browserKey || null,
+      centres: rows.map((c) => ({
+        id: c.id,
+        name: c.name,
+        branch: c.branch,
+        locality: c.locality,
+        city: c.city,
+        centre_type: c.centre_type,
+        latitude: Number(c.latitude) || null,
+        longitude: Number(c.longitude) || null,
+        verified: c.verified,
+        active: c.active,
+      })),
+      gaps,
+    });
   }
 
   @Permission("conversations.read")
@@ -290,6 +371,37 @@ export class ConsoleController extends JWTAuthController {
 
   // ---- Escalations: tasks for people (Full Plan 12.9). With the CRM on they are worked in the CRM and
   // closed by its task.completed webhook; without it, a person closes them here. ----
+  // Full Plan 12.7: urgent cases (emergency, self-harm, urgent complaint / payment) still open, for the console's
+  // banner, sound and desktop notification. The full number is shown inside the console only.
+  @Permission("tasks.work")
+  @Get("UrgentAlerts")
+  async UrgentAlerts() {
+    const rows = await task
+      .createQueryBuilder("t")
+      .addSelect("t.created_on")
+      .leftJoinAndSelect("t.customer", "customer")
+      .leftJoinAndSelect("t.assigned_to", "assigned_to")
+      .where("t.priority = :p", { p: TaskPriority.Urgent })
+      .andWhere("t.task_status <> :done", { done: TaskStatus.Done })
+      .orderBy("t.created_on", "DESC")
+      .take(20)
+      .getMany();
+    return this.SendResponseData(
+      rows.map((t: any) => ({
+        task_id: t.id,
+        type: t.type,
+        label: urgentLabel(t.type),
+        status: t.task_status,
+        handled_by: t.assigned_to ? t.assigned_to.first_name || t.assigned_to.email : null,
+        conversation_id: t.conversation_id ?? null,
+        customer: t.customer
+          ? { first_name: t.customer.first_name ?? null, wa_number: t.customer.wa_number }
+          : null,
+        created_at: t.created_on,
+      })),
+    );
+  }
+
   @Permission("tasks.work")
   @Get("Tasks")
   async Tasks(@Query("view") view?: string) {
@@ -468,6 +580,7 @@ export class ConsoleController extends JWTAuthController {
       city,
       branch: r.branch ? String(r.branch).trim() : null,
       locality: r.locality ? String(r.locality).trim() : null,
+      address: r.address ? String(r.address).trim().slice(0, 300) : null,
       latitude: lat,
       longitude: lon,
       centre_type: r.centre_type ? String(r.centre_type) : "clinic",
@@ -483,7 +596,7 @@ export class ConsoleController extends JWTAuthController {
   @Permission("centres.edit")
   @Post("Centres")
   async CreateCentre(@Body() body: any) {
-    const row = await centre.save(centre.create(this.centreFields(body) as any));
+    const row = await centre.save(centre.create(this.centreFields(await this.fillPoint(body)) as any));
     return this.SendResponseData(row);
   }
 
@@ -492,7 +605,7 @@ export class ConsoleController extends JWTAuthController {
   async UpdateCentre(@Param("Id") Id: string, @Body() body: any) {
     const row = await centre.findOne({ where: { id: Id, status: true } });
     if (!row) throw new NotFoundException("Centre not found");
-    Object.assign(row, this.centreFields(body));
+    Object.assign(row, this.centreFields(await this.fillPoint(body)));
     await row.save();
     return this.SendResponseData(row);
   }
@@ -522,7 +635,7 @@ export class ConsoleController extends JWTAuthController {
         skipped++;
         continue;
       }
-      const fields = importedCentre(r);
+      const fields = importedCentre(await this.fillPoint(r));
       // same name + branch + city = the same centre: update it instead of a duplicate
       const existing = await centre.findOne({
         where: {

@@ -3,7 +3,7 @@ import client from "./client";
 export interface SettingItem {
   key: string;
   label: string;
-  group: "whatsapp" | "ai" | "crm";
+  group: "whatsapp" | "ai" | "crm" | "maps";
   type: "string" | "boolean" | "select";
   secret: boolean;
   isSet: boolean;

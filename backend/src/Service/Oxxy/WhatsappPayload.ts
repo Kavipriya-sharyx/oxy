@@ -72,6 +72,18 @@ export function validateMessage(m: OutboundMessage): void {
       if (blank(m.name)) throw new InvalidMessageError("template name is required");
       if (blank(m.languageCode)) throw new InvalidMessageError("template languageCode is required");
       return;
+
+    case "location_request":
+      if (blank(m.body)) throw new InvalidMessageError("location request body is required");
+      if (len(m.body) > LIMITS.interactiveBody)
+        throw new InvalidMessageError(`location request body is over ${LIMITS.interactiveBody} characters`);
+      return;
+
+    case "location":
+      if (!(Math.abs(m.latitude) <= 90) || !(Math.abs(m.longitude) <= 180) || (m.latitude === 0 && m.longitude === 0))
+        throw new InvalidMessageError("location needs a valid latitude and longitude");
+      if (blank(m.name)) throw new InvalidMessageError("location name is required");
+      return;
   }
 }
 
@@ -131,6 +143,25 @@ export function buildPayload(to: string, m: OutboundMessage): Record<string, unk
                 ],
               }
             : {}),
+        },
+      };
+
+    case "location_request":
+      return {
+        ...base,
+        type: "interactive",
+        interactive: { type: "location_request_message", body: { text: m.body }, action: { name: "send_location" } },
+      };
+
+    case "location":
+      return {
+        ...base,
+        type: "location",
+        location: {
+          latitude: m.latitude,
+          longitude: m.longitude,
+          name: m.name,
+          ...(m.address ? { address: m.address } : {}),
         },
       };
   }

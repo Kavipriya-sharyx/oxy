@@ -33,4 +33,7 @@ export interface InboundJob {
   messageId: string;
   conversationId: string;
   customerId: string;
+  // a shared location pin. It travels with the job only (the message row does not keep it): the pipeline
+  // uses it for one centre search. A message recovered later from the database has no pin and asks again.
+  location?: { latitude: number; longitude: number };
 }
