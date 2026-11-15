@@ -30,7 +30,7 @@ export default function PlanCatalog() {
           <span style={{ flex: 1, minWidth: 0 }}>
             The bot reads every price, GST rate, renewal term and link from this catalogue. The AI
             model never writes a price. Values marked [CONFIRM] are still open with Oxxy. A change
-            needs two people: one proposes it below, a different user approves it.
+            saved below is used by the bot at once, and every change is kept in the history.
           </span>
         </div>
       </div>

@@ -1,6 +1,8 @@
-// Two-person rule for the plan catalogue (Full Plan 6.1 / 8: "changes need a second approver"). One user
-// proposes, a DIFFERENT user approves; only then is plan_catalog changed (version + 1). Every price, GST
-// rate, renewal term and link the bot sends comes from plan_catalog, so this is the only way to change them.
+// Plan catalogue changes. Every price, GST rate, renewal term and link the bot sends comes from plan_catalog,
+// so this is the only way to change them. The client wants changes to apply at once (no second approver,
+// decided 16 Nov 2026, instead of Full Plan 6.1 / 8): a valid change is applied right away (version + 1) and
+// kept as an "applied" row with who changed what, from what to what. The value checks stay: a real https link,
+// no [CONFIRM] marker, sane numbers.
 import { isPlaceholder, isRealLink } from "@Helper/GoLive";
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { DataSource } from "typeorm";
@@ -87,33 +89,50 @@ export class PlanChangeService {
       .getMany();
   }
 
+  /** Saves a change and applies it at once: the bot uses the new values from the next message */
   async propose(catalogId: string, changes: Record<string, unknown>, reason: string, userId: string) {
     if (!userId) throw new ForbiddenException("Sign in again");
     const row = await plan_catalog.findOne({ where: { id: catalogId } });
     if (!row) throw new NotFoundException("Plan not found");
-    if (!reason?.trim()) throw new BadRequestException("A reason is required (e.g. the official page changed)");
     const { clean, errors } = cleanChanges(changes);
     if (errors.length) throw new BadRequestException(errors.join("; "));
     const fields = Object.keys(clean).filter((k) => (row as any)[k] !== clean[k as Field]);
     if (!fields.length) throw new BadRequestException("Nothing changes");
-    if (await plan_change.findOne({ where: { catalog_id: catalogId, change_status: "pending" } }))
-      throw new ConflictException("This plan already has a change waiting for approval");
     const before: Record<string, unknown> = {};
     const after: Record<string, unknown> = {};
     for (const k of fields) {
       before[k] = (row as any)[k] ?? null;
       after[k] = clean[k as Field];
     }
-    return await plan_change.save(
-      plan_change.create({
-        catalog_id: catalogId,
-        changes: after,
-        before,
-        reason: reason.trim().slice(0, 500),
-        requested_by_id: userId,
-        created_by_id: userId,
-      } as any),
-    );
+    const note = reason?.trim().slice(0, 500) || "Updated in the console";
+    return await this._DataSource.transaction(async (mg) => {
+      const fresh = await mg.findOne(plan_catalog, { where: { id: catalogId } });
+      if (!fresh) throw new NotFoundException("Plan not found");
+      const version = Number(fresh.version || 1) + 1;
+      const now = new Date();
+      await mg.update(plan_catalog, { id: catalogId }, { ...after, version, updated_by_id: userId, updated_on: now } as any);
+      // an older change still waiting (from the two-person days) is replaced by this one
+      await mg.update(
+        plan_change,
+        { catalog_id: catalogId, change_status: "pending" },
+        { change_status: "withdrawn", decided_at: now, decision_note: "Replaced by a newer change" } as any,
+      );
+      const saved = await mg.save(
+        plan_change,
+        mg.create(plan_change, {
+          catalog_id: catalogId,
+          changes: after,
+          before,
+          reason: note,
+          change_status: "applied",
+          requested_by_id: userId,
+          created_by_id: userId,
+          decided_at: now,
+          applied_version: version,
+        } as any),
+      );
+      return saved;
+    });
   }
 
   private async pending(id: string) {
@@ -125,8 +144,8 @@ export class PlanChangeService {
 
   async approve(id: string, userId: string, note?: string) {
     const c = await this.pending(id);
-    if (!userId || c.requested_by_id === userId)
-      throw new ForbiddenException("Two-person rule: a different user must approve this change");
+    if (!userId) throw new ForbiddenException("Sign in again");
+    const own = c.requested_by_id === userId; // allowed now; stored without a "decided by" (a different person)
     const { clean, errors } = cleanChanges(c.changes);
     if (errors.length) throw new BadRequestException(errors.join("; "));
     return await this._DataSource.transaction(async (mg) => {
@@ -136,7 +155,7 @@ export class PlanChangeService {
       await mg.update(plan_catalog, { id: row.id }, { ...clean, version, updated_by_id: userId, updated_on: new Date() } as any);
       await mg.update(plan_change, { id: c.id }, {
         change_status: "approved",
-        decided_by_id: userId,
+        decided_by_id: own ? null : userId,
         decided_at: new Date(),
         decision_note: note?.trim().slice(0, 500) || null,
         applied_version: version,
@@ -147,10 +166,10 @@ export class PlanChangeService {
 
   async reject(id: string, userId: string, note?: string) {
     const c = await this.pending(id);
-    if (!userId || c.requested_by_id === userId) throw new ForbiddenException("Withdraw your own change instead");
+    if (!userId) throw new ForbiddenException("Sign in again");
     await plan_change.update(c.id, {
       change_status: "rejected",
-      decided_by_id: userId,
+      decided_by_id: c.requested_by_id === userId ? null : userId,
       decided_at: new Date(),
       decision_note: note?.trim().slice(0, 500) || null,
     } as any);

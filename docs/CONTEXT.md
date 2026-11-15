@@ -109,8 +109,8 @@ Super Admin always all; nobody can remove `roles.manage` from their own role). P
   CRM_ENABLED is off), 02:30 IST data retention (`RETENTION_DAYS` [CONFIRM]; unset = skipped). Runs in `job_run`;
   "Run now" on CRM sync / Data requests. Erase keeps the number and opt-out, never runs with an open case.
 - Screens: Follow-ups (cancel), WhatsApp templates (`wa_template`, status by hand or "Read status from Meta" with
-  `WHATSAPP_WABA_ID`; rejected / paused / disabled templates are refused in WhatsappClient), Plans: propose ->
-  a different user approves (`plan_change`, permissions `plans.edit` / `plans.approve`, version + 1).
+  `WHATSAPP_WABA_ID`; rejected / paused / disabled templates are refused in WhatsappClient), Plans: a saved
+  change applies at once (`plan_change` row "applied" = history, permission `plans.edit`, version + 1).
 
 ## Opt back in, senior callback, Hindi (14 Nov)
 
@@ -245,7 +245,8 @@ Super Admin always all; nobody can remove `roles.manage` from their own role). P
   "Asha" (`AGENT_NAME`). Hindi versions not submitted (wait for review). Check status: WhatsApp templates page
   → sync from Meta.
 - **Plans**: admin edits price / GST / renewal / activation time / link on "Plans and prices" (PlanChangePanel,
-  two-person rule: one user with plans.edit proposes, a DIFFERENT user with plans.approve approves).
+  applied at once with a confirm dialog; history kept. The two-person rule was dropped on 16 Nov 2026 at the
+  client's request: they want it automatic).
 - **Centre CSV import fixed**: "false"/"no" used to import as verified. Now `importedCentre()` parses text
   booleans, verified needs an explicit yes (gets verification_source + verified_at), reads is_private /
   postcode, and same name+branch+city updates instead of duplicating. Returns created / updated / skipped.
@@ -454,7 +455,7 @@ option and Anthropic key labels, the Go-live / no-key messages) and in the git b
   development start are switched off at start-up. The first Super Admin comes from `SEED_ADMIN_EMAIL` +
   `SEED_ADMIN_PASSWORD`. Development still creates the demo logins (the Go-live check flags them).
 - Real data Oxxy must enter before go-live (console): the official activation link of all 10 plan rows; renewal
-  terms and activation time of the 8 Oxxy rows (Plans, two-person approval); the real centre directory
+  terms and activation time of the 8 Oxxy rows (Plans; a change applies at once); the real centre directory
   (Centres, add or import); the approved content links (Content); WhatsApp token / app secret (Configuration).
 
 ## Fixes from real chats (14-15 Nov): booking answers, one question, memory

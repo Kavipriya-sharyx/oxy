@@ -7,8 +7,8 @@ import { useAuth } from "../hooks/useAuth";
 import { usePermissions } from "../hooks/usePermissions";
 import { Empty, fmtTime, Panel, Pill, type Tone } from "./ui";
 
-// Two-person rule for prices and terms (Full Plan 6.1 / 8): one user proposes, a different user approves,
-// and only then does the bot use the new values.
+// Prices and terms: a saved change is used by the bot at once (the client chose no second approver). Every
+// change stays in the history with who made it and the old and new values.
 const FIELDS: [keyof PlanCatalog, string, "number" | "text"][] = [
   ["price", "Price (₹, excl. GST)", "number"],
   ["gst_rate", "GST rate (0.18 = 18%)", "number"],
@@ -20,14 +20,22 @@ const FIELDS: [keyof PlanCatalog, string, "number" | "text"][] = [
   ["age_limit", "Age limit (empty = none)", "number"],
 ];
 
-const STATUS: Record<string, Tone> = { pending: "warn", approved: "ok", rejected: "crit", withdrawn: "plain" };
+const STATUS: Record<string, Tone> = {
+  applied: "ok",
+  pending: "warn",
+  approved: "ok",
+  rejected: "crit",
+  withdrawn: "plain",
+};
 
 const label = (r?: PlanCatalog) =>
-  r ? `${r.product === "oxxy" ? `Oxxy ${r.plan[0].toUpperCase()}${r.plan.slice(1)}` : "Cut Medi Bills"} · ${r.billing}` : "—";
+  r
+    ? `${r.product === "oxxy" ? `Oxxy ${r.plan[0].toUpperCase()}${r.plan.slice(1)}` : "Cut Medi Bills"} · ${r.billing}`
+    : "—";
 const show = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
 
 export default function PlanChangePanel({ rows }: { rows: PlanCatalog[] }) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const qc = useQueryClient();
   const { can } = usePermissions();
   const { userId } = useAuth();
@@ -45,7 +53,7 @@ export default function PlanChangePanel({ rows }: { rows: PlanCatalog[] }) {
   const propose = useMutation({
     mutationFn: proposePlanChange,
     onSuccess: async () => {
-      message.success("Proposed. A different user must approve it before the bot uses it.");
+      message.success("Saved. The bot uses the new values from the next message.");
       setForm({});
       setReason("");
       await refresh();
@@ -53,9 +61,12 @@ export default function PlanChangePanel({ rows }: { rows: PlanCatalog[] }) {
     onError: (e: Error) => message.error(e.message),
   });
   const decide = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: "Approve" | "Reject" | "Withdraw" }) => decidePlanChange(id, action),
+    mutationFn: ({ id, action }: { id: string; action: "Approve" | "Reject" | "Withdraw" }) =>
+      decidePlanChange(id, action),
     onSuccess: async (_d, v) => {
-      message.success(v.action === "Approve" ? "Approved: the bot uses the new values now." : `${v.action} done`);
+      message.success(
+        v.action === "Approve" ? "Approved: the bot uses the new values now." : `${v.action} done`,
+      );
       await refresh();
     },
     onError: (e: Error) => message.error(e.message),
@@ -72,14 +83,32 @@ export default function PlanChangePanel({ rows }: { rows: PlanCatalog[] }) {
       if (String(value ?? "") !== String(before ?? "")) out[k as string] = value;
     }
     if (!Object.keys(out).length) return message.info("Nothing changes");
-    propose.mutate({ catalog_id: row.id, changes: out, reason });
+    // it goes live at once, so the person sees exactly what changes before saving
+    modal.confirm({
+      title: `Change ${label(row)}?`,
+      content: (
+        <div className="small">
+          {Object.entries(out).map(([k, v]) => (
+            <div key={k}>
+              {FIELDS.find(([f]) => f === k)?.[1] ?? k}: {show(row[k as keyof PlanCatalog])} →{" "}
+              <b>{show(v)}</b>
+            </div>
+          ))}
+          <div className="muted" style={{ marginTop: 8 }}>
+            The bot uses this from the next message.
+          </div>
+        </div>
+      ),
+      okText: "Save change",
+      onOk: () => propose.mutateAsync({ catalog_id: row.id, changes: out, reason }),
+    });
   };
 
   const list = changes.data ?? [];
   return (
     <>
       {can("plans.edit") && (
-        <Panel title="Propose a change" note="Two-person rule: a different user approves it">
+        <Panel title="Change a plan" note="Saved changes are used by the bot at once">
           <div className="grid g2" style={{ gap: 10 }}>
             <label className="small">
               Plan
@@ -101,7 +130,7 @@ export default function PlanChangePanel({ rows }: { rows: PlanCatalog[] }) {
               </select>
             </label>
             <label className="small">
-              Reason (required)
+              Note (optional)
               <input
                 className="input"
                 style={{ width: "100%" }}
@@ -126,22 +155,22 @@ export default function PlanChangePanel({ rows }: { rows: PlanCatalog[] }) {
               ))}
           </div>
           <div className="row" style={{ marginTop: 10 }}>
-            <button className="btn sm" disabled={!row || !reason.trim() || propose.isPending} onClick={submit}>
-              Propose change
+            <button className="btn sm pri" disabled={!row || propose.isPending} onClick={submit}>
+              Save change
             </button>
           </div>
         </Panel>
       )}
-      <Panel title="Changes" note="Pending first; the bot uses a change only after approval" bodyless>
+      <Panel title="Change history" note="Who changed what, newest first" bodyless>
         <div className="tbl-wrap">
           <table>
             <thead>
               <tr>
                 <th>Plan</th>
                 <th>Change</th>
-                <th>Reason</th>
+                <th>Note</th>
                 <th>Status</th>
-                <th>Asked</th>
+                <th>When</th>
                 <th />
               </tr>
             </thead>
@@ -154,14 +183,15 @@ export default function PlanChangePanel({ rows }: { rows: PlanCatalog[] }) {
                     <td className="small">
                       {Object.entries(c.changes).map(([k, v]) => (
                         <div key={k}>
-                          <span className="mono">{k}</span>: {show(c.before?.[k])} → <b>{show(v)}</b>
+                          <span className="mono">{k}</span>: {show(c.before?.[k])} →{" "}
+                          <b>{show(v)}</b>
                         </div>
                       ))}
                     </td>
                     <td className="small">{c.reason}</td>
                     <td>
                       <Pill tone={STATUS[c.change_status] ?? "plain"}>
-                        {c.change_status}
+                        {c.change_status === "applied" ? "live" : c.change_status}
                         {c.applied_version ? ` (v${c.applied_version})` : ""}
                       </Pill>
                     </td>
@@ -172,22 +202,25 @@ export default function PlanChangePanel({ rows }: { rows: PlanCatalog[] }) {
                     <td>
                       {c.change_status === "pending" && (
                         <div className="row" style={{ gap: 6 }}>
-                          {!mine && can("plans.approve") && (
+                          {(can("plans.approve") || can("plans.edit")) && (
                             <>
-                              <button className="btn sm" disabled={decide.isPending} onClick={() => decide.mutate({ id: c.id, action: "Approve" })}>
+                              <button
+                                className="btn sm"
+                                disabled={decide.isPending}
+                                onClick={() => decide.mutate({ id: c.id, action: "Approve" })}
+                              >
                                 Approve
                               </button>
-                              <button className="btn sm" disabled={decide.isPending} onClick={() => decide.mutate({ id: c.id, action: "Reject" })}>
+                              <button
+                                className="btn sm"
+                                disabled={decide.isPending}
+                                onClick={() => decide.mutate({ id: c.id, action: "Reject" })}
+                              >
                                 Reject
                               </button>
                             </>
                           )}
-                          {mine && (
-                            <button className="btn sm" disabled={decide.isPending} onClick={() => decide.mutate({ id: c.id, action: "Withdraw" })}>
-                              Withdraw
-                            </button>
-                          )}
-                          {mine && <span className="small muted">Waiting for another approver</span>}
+                          <span className="small muted">Saved before changes applied at once</span>
                         </div>
                       )}
                     </td>
@@ -197,7 +230,7 @@ export default function PlanChangePanel({ rows }: { rows: PlanCatalog[] }) {
             </tbody>
           </table>
           {changes.isLoading && <Empty>Loading…</Empty>}
-          {!changes.isLoading && !list.length && <Empty>No changes proposed yet.</Empty>}
+          {!changes.isLoading && !list.length && <Empty>No changes yet.</Empty>}
         </div>
       </Panel>
     </>

@@ -1,4 +1,4 @@
-// Nightly CRM check, data retention, two-person plan changes, template status, live events
+// Nightly CRM check, data retention, plan changes (applied at once), template status, live events
 import { isPlaceholder, isRealLink, planProblems, planReady } from "@Helper/GoLive";
 import {
   actionsKeyCheck,
@@ -91,7 +91,7 @@ describe("data retention (Playbook 16.3)", () => {
   });
 });
 
-describe("plan changes: two-person rule", () => {
+describe("plan changes: applied at once, kept in the history", () => {
   it("only editable fields with valid values", () => {
     expect(
       cleanChanges({
@@ -133,6 +133,8 @@ describe("plan changes: two-person rule", () => {
     const mg = {
       findOne: jest.fn(async () => ({ id: "cat1", version: 3 })),
       update: jest.fn(async () => undefined),
+      create: jest.fn((_e: unknown, v: unknown) => v),
+      save: jest.fn(async (_e: unknown, v: unknown) => ({ id: "ch1", ...(v as object) })),
     };
     const s = new PlanChangeService({
       transaction: async (fn: (m: unknown) => unknown) => fn(mg),
@@ -147,11 +149,46 @@ describe("plan changes: two-person rule", () => {
     requested_by_id: "u1",
   };
 
-  it("the person who proposed it cannot approve it", async () => {
+  it("a change is applied at once by one person: plan_catalog changes, version + 1, history row 'applied'", async () => {
+    jest.spyOn(plan_catalog, "findOne").mockResolvedValue({ id: "cat1", price: 1999, version: 3 } as never);
+    const { s, mg } = svc();
+    const r: any = await s.propose("cat1", { price: 2499 }, "", "u1");
+    expect(mg.update).toHaveBeenCalledWith(
+      plan_catalog,
+      { id: "cat1" },
+      expect.objectContaining({ price: 2499, version: 4, updated_by_id: "u1" }),
+    );
+    expect(r).toMatchObject({
+      change_status: "applied",
+      changes: { price: 2499 },
+      before: { price: 1999 },
+      requested_by_id: "u1",
+      applied_version: 4,
+      reason: "Updated in the console", // no reason needed
+    });
+    // an older change still waiting for the same plan is replaced, not left hanging
+    expect(mg.update).toHaveBeenCalledWith(
+      plan_change,
+      { catalog_id: "cat1", change_status: "pending" },
+      expect.objectContaining({ change_status: "withdrawn" }),
+    );
+  });
+  it("the value checks still apply: no fake link, no [CONFIRM], nothing to change", async () => {
+    jest.spyOn(plan_catalog, "findOne").mockResolvedValue({ id: "cat1", price: 1999, version: 3 } as never);
+    const { s, mg } = svc();
+    await expect(s.propose("cat1", { activation_link: "https://example.com/x" }, "", "u1")).rejects.toThrow(/real official/);
+    await expect(s.propose("cat1", { price: 1999 }, "", "u1")).rejects.toThrow(/Nothing changes/);
+    expect(mg.update).not.toHaveBeenCalled();
+  });
+  it("an older pending change can now be approved by the same person (stored without a second approver)", async () => {
     jest.spyOn(plan_change, "findOne").mockResolvedValue(pending as never);
     const { s, mg } = svc();
-    await expect(s.approve("p1", "u1")).rejects.toThrow(/Two-person rule/);
-    expect(mg.update).not.toHaveBeenCalled();
+    await s.approve("p1", "u1");
+    expect(mg.update).toHaveBeenCalledWith(
+      plan_change,
+      { id: "p1" },
+      expect.objectContaining({ change_status: "approved", decided_by_id: null }),
+    );
   });
   it("a second person approves: plan_catalog changes and the version goes up", async () => {
     jest.spyOn(plan_change, "findOne").mockResolvedValue(pending as never);
@@ -181,13 +218,7 @@ describe("plan changes: two-person rule", () => {
     jest.spyOn(plan_change, "findOne").mockResolvedValue(pending as never);
     await expect(svc().s.withdraw("p1", "u2")).rejects.toThrow(/Only the person who proposed/);
   });
-  it("a second pending change for the same plan is refused", async () => {
-    jest.spyOn(plan_catalog, "findOne").mockResolvedValue({ id: "cat1", price: 1999 } as never);
-    jest.spyOn(plan_change, "findOne").mockResolvedValue(pending as never);
-    await expect(svc().s.propose("cat1", { price: 2499 }, "official page", "u3")).rejects.toThrow(
-      /already has a change waiting/,
-    );
-  });
+
 });
 
 describe("WhatsApp template status", () => {

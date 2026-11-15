@@ -1,8 +1,8 @@
 import { Check, Column, Entity, Index } from "typeorm";
 import { BaseTable } from "../BaseTable";
 
-// A proposed change to one plan_catalog row (Full Plan 6.1 / 8: "changes need a second approver").
-// It is applied only when a DIFFERENT user approves it; the row is the record of who asked and who approved.
+// One change to a plan_catalog row: who changed what, from what to what, and the version it made. Changes
+// apply at once ("applied"); pending / approved / rejected / withdrawn are rows from the earlier two-person rule.
 @Entity()
 @Index("IDX_plan_change_status", ["change_status"])
 @Check("CHK_plan_change_two_people", `"decided_by_id" IS NULL OR "change_status" = 'withdrawn' OR "decided_by_id" <> "requested_by_id"`)
@@ -19,7 +19,7 @@ export class plan_change extends BaseTable {
   @Column({ type: "text" })
   reason: string;
 
-  @Column({ default: "pending" }) // pending | approved | rejected | withdrawn
+  @Column({ default: "pending" }) // applied | (older:) pending | approved | rejected | withdrawn
   change_status: string;
 
   @Column({ type: "varchar" })

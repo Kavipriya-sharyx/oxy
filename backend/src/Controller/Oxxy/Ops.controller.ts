@@ -34,7 +34,7 @@ const id = (v: string) => {
   return v;
 };
 
-// Console screens for operations: follow-ups, WhatsApp templates, two-person plan changes, and the
+// Console screens for operations: follow-ups, WhatsApp templates, plan changes (applied at once), and the
 // nightly jobs (CRM reconciliation, data retention).
 @Controller({ path: "Console", version: "1" })
 @ApiTags("Sales Console")
@@ -160,7 +160,7 @@ export class OpsController extends JWTAuthController {
     return this.SendResponseData(await this._Templates.syncFromMeta());
   }
 
-  // ---- Plan catalogue: two-person rule ----
+  // ---- Plan catalogue: a change is applied at once and kept in the history ----
   @Permission("plans.read")
   @Get("PlanChanges")
   async PlanChanges() {

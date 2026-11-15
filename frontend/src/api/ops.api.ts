@@ -66,7 +66,7 @@ export async function syncTemplates(): Promise<{ seen: number; added: number }> 
   return (await client.post<{ seen: number; added: number }>("/Console/Templates/Sync")).data;
 }
 
-// ---- Plan changes (two-person rule) ----
+// ---- Plan changes (applied at once, kept in the history) ----
 export interface PlanChangeRow {
   id: string;
   catalog_id: string;

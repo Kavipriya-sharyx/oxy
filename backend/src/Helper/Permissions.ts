@@ -27,7 +27,7 @@ export const PERMISSIONS = [
   {
     key: "plans.approve",
     group: "Control",
-    label: "Approve someone else's plan change (two-person rule)",
+    label: "Approve an older plan change still waiting (changes now apply at once)",
   },
   { key: "triggers.read", group: "Control", label: "See triggers A–R" },
   { key: "crm.manage", group: "Admin", label: "See CRM sync and retry calls" },
