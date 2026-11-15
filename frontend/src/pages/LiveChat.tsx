@@ -30,11 +30,11 @@ import {
 type View = "all" | "waiting" | "person" | "mine" | "booking" | "window" | "opted";
 const VIEWS: [View, string][] = [
   ["all", "All"],
-  ["waiting", "Waiting reply"],
-  ["person", "Needs a person"],
+  ["waiting", "Waiting"],
+  ["person", "Person"],
   ["mine", "Mine"],
   ["booking", "Booking"],
-  ["window", "Window open"],
+  ["window", "24h open"],
   ["opted", "Opted out"],
 ];
 const DAY = 24 * 60 * 60 * 1000;
@@ -67,6 +67,25 @@ const TAP_LABELS: Record<string, string> = {
   lead_details: "Just send details",
   lead_not_now: "Not now",
 };
+
+// the parts of the customer record the side panel shows
+interface RecBooking {
+  booking_request_id: string;
+  centre: string | null;
+  branch: string | null;
+  specialisation: string | null;
+  preferred_date: string;
+  preferred_time: string | null;
+  status: string;
+}
+interface RecActivation {
+  activation_id: string;
+  product: string;
+  plan: string | null;
+  billing: string | null;
+  price: number | null;
+  payment_status: string | null;
+}
 
 // ---- small helpers ----
 
@@ -103,7 +122,11 @@ function dayLabel(iso: string | undefined, now: number): string {
 }
 const clock = (iso?: string) =>
   iso
-    ? new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })
+    ? new Date(iso).toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      })
     : "";
 function left(ms: number): string {
   const m = Math.max(0, Math.floor(ms / 60000));
@@ -271,14 +294,14 @@ export default function LiveChat() {
     queryFn: getConversationCounts,
     refetchInterval: 30_000,
   });
-  const list = convs.data ?? [];
+  const list = useMemo(() => convs.data ?? [], [convs.data]);
   const fresh = selectedId ? list.find((c) => c.id === selectedId) : undefined;
   const active = fresh ?? (pinned?.id === selectedId ? pinned : undefined);
   const notInView = !!active && !fresh;
 
   // first open: the newest chat. Keep the open chat's latest data while it is in the list.
   // (state adjusted while rendering, React's pattern for state derived from new data)
-  if (!selectedId && list.length) setSelectedId(list[0].id);
+  if (!selectedId && list.length && !convs.isPlaceholderData) setSelectedId(list[0].id);
   if (fresh && fresh !== pinned) setPinned(fresh);
 
   const msgs = useQuery({
@@ -300,16 +323,12 @@ export default function LiveChat() {
     !!active && (older.id === active.id ? !older.done : latest.length >= MESSAGE_PAGE);
 
   const findTerm = findOpen ? find.trim().toLowerCase() : "";
-  const hits = useMemo(
-    () =>
-      findTerm
-        ? shown.filter((m) => (m.body ?? "").toLowerCase().includes(findTerm)).map((m) => m.id)
-        : [],
-    [shown, findTerm],
-  );
+  const hits = findTerm
+    ? shown.filter((m) => (m.body ?? "").toLowerCase().includes(findTerm)).map((m) => m.id)
+    : [];
   const hitIndex = hits.length ? Math.min(findAt, hits.length - 1) : -1;
-  const unseen =
-    atBottom || seen.id !== active?.id ? 0 : Math.max(0, shown.length - seen.n);
+  const hitId = hitIndex >= 0 ? hits[hitIndex] : null;
+  const unseen = atBottom || seen.id !== active?.id ? 0 : Math.max(0, shown.length - seen.n);
 
   useEffect(() => {
     stickToBottom.current = true;
@@ -318,15 +337,15 @@ export default function LiveChat() {
     const el = msgsRef.current;
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [latest.length, active?.id]);
-  // the current find hit in view
+  // the current find hit in view (only when the hit changes, not on every refresh)
   useEffect(() => {
-    if (hitIndex < 0) return;
-    const el = msgsRef.current?.querySelector(`[data-mid="${hits[hitIndex]}"]`);
+    if (!hitId) return;
+    const el = msgsRef.current?.querySelector(`[data-mid="${hitId}"]`);
     if (el) {
       stickToBottom.current = false;
       el.scrollIntoView({ block: "center", behavior: "smooth" });
     }
-  }, [hitIndex, hits]);
+  }, [hitId]);
 
   const loadOlder = useMutation({
     mutationFn: async () => {
@@ -450,7 +469,7 @@ export default function LiveChat() {
   const setDraft = (text: string) => active && setDrafts((d) => ({ ...d, [active.id]: text }));
   const send = () => active && draft.trim() && reply.mutate({ id: active.id, body: draft.trim() });
   const firstName = active?.customer?.first_name || "there";
-  const useReply = (t: string) => {
+  const pickReply = (t: string) => {
     setDraft(t.replace(/\{name\}/g, firstName));
     setQrOpen(false);
     requestAnimationFrame(() => composerRef.current?.focus());
@@ -483,7 +502,7 @@ export default function LiveChat() {
           </div>
           {replies.map((t, i) => (
             <div key={i} className="qr-item">
-              <button className="qr-use" onClick={() => useReply(t)}>
+              <button className="qr-use" onClick={() => pickReply(t)}>
                 {t}
               </button>
               <button
@@ -523,7 +542,7 @@ export default function LiveChat() {
           ref={composerRef}
           className="input"
           rows={1}
-          placeholder={`Reply to ${nameOf(active)} as the Oxxy team`}
+          placeholder={`Reply to ${nameOf(active)}`}
           value={draft}
           maxLength={4096}
           onChange={(e) => {
@@ -555,11 +574,16 @@ export default function LiveChat() {
   );
 
   const c = (counts.data ?? {}) as Partial<InboxCounts>;
-  const rec = (record.data ?? {}) as Record<string, any>;
+  const rec = (record.data ?? {}) as {
+    need?: Record<string, unknown>;
+    location?: Record<string, unknown>;
+    booking?: RecBooking[];
+    activation?: RecActivation[];
+  };
   const needRec = (rec.need ?? {}) as Record<string, unknown>;
   const locRec = (rec.location ?? {}) as Record<string, unknown>;
-  const bookings = (Array.isArray(rec.booking) ? rec.booking : []) as Record<string, any>[];
-  const acts = (Array.isArray(rec.activation) ? rec.activation : []) as Record<string, any>[];
+  const bookings = Array.isArray(rec.booking) ? rec.booking : [];
+  const acts = Array.isArray(rec.activation) ? rec.activation : [];
   const facts: [string, unknown][] = [
     ["For", needRec.beneficiary],
     ["Need", needRec.healthcare_need],
@@ -665,7 +689,7 @@ export default function LiveChat() {
               ))}
             </div>
           </div>
-          <div className="ilist2-b">
+          <div className={`ilist2-b ${convs.isPlaceholderData ? "loading" : ""}`}>
             {convs.isLoading && (
               <>
                 {[0, 1, 2, 3, 4].map((i) => (
@@ -750,14 +774,15 @@ export default function LiveChat() {
                   disabled={convs.isFetching}
                   onClick={() => setLimit((l) => Math.min(300, l + PAGE))}
                 >
-                  {limit >= 300 ? "Showing the newest 300: search to find older chats" : "Load more"}
+                  {limit >= 300
+                    ? "Showing the newest 300: search to find older chats"
+                    : "Load more"}
                 </button>
               </div>
             )}
           </div>
           <div className="ilist2-f small muted">
-            <kbd>/</kbd> search · <kbd>j</kbd>/<kbd>k</kbd> next / previous · <kbd>Ctrl</kbd>+
-            <kbd>F</kbd> find in chat
+            <kbd>/</kbd> search · <kbd>j</kbd> <kbd>k</kbd> move · <kbd>Ctrl</kbd>+<kbd>F</kbd> find
           </div>
         </div>
 
@@ -772,7 +797,7 @@ export default function LiveChat() {
           ) : (
             <>
               <div className="thread2-h">
-                <div className={`av lg t${avatarTone(active.customer_id)}`}>
+                <div className={`av av-md t${avatarTone(active.customer_id)}`}>
                   {initials(nameOf(active))}
                 </div>
                 <div className="who">
@@ -784,8 +809,6 @@ export default function LiveChat() {
                     </button>
                   </div>
                 </div>
-                <span className="spacer" />
-                <StatePill state={active.state} />
                 {open ? (
                   <span
                     className={`wchip ${windowLeft < 2 * 3600000 ? "warn" : "ok"}`}
@@ -806,8 +829,12 @@ export default function LiveChat() {
                 >
                   ⌕
                 </button>
-                <button className="btn sm" onClick={() => setRecordFor(active.customer_id)}>
-                  CRM record
+                <button
+                  className="btn sm"
+                  title="The customer's full record"
+                  onClick={() => setRecordFor(active.customer_id)}
+                >
+                  Record
                 </button>
                 {!optedOut &&
                   canReply &&
@@ -843,11 +870,17 @@ export default function LiveChat() {
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && hits.length)
-                        setFindAt((i) => (e.shiftKey ? (i - 1 + hits.length) % hits.length : (i + 1) % hits.length));
+                        setFindAt((i) =>
+                          e.shiftKey ? (i - 1 + hits.length) % hits.length : (i + 1) % hits.length,
+                        );
                     }}
                   />
                   <span className="small muted mono">
-                    {findTerm ? (hits.length ? `${hitIndex + 1} of ${hits.length}` : "No match") : ""}
+                    {findTerm
+                      ? hits.length
+                        ? `${hitIndex + 1} of ${hits.length}`
+                        : "No match"
+                      : ""}
                   </span>
                   <button
                     className="btn sm"
@@ -872,12 +905,20 @@ export default function LiveChat() {
               )}
 
               {/* who is answering, and what the bot waits for */}
-              <div className={`botbar ${active.state === "pause" ? "crit" : withPerson ? "warn" : optedOut ? "off" : "ok"}`}>
+              <div
+                className={`botbar ${active.state === "pause" ? "crit" : withPerson ? "warn" : optedOut ? "off" : "ok"}`}
+              >
                 {active.state === "pause" ? (
-                  <>⛔ Automation is paused (safety or privacy). Reply only after checking on the customer.</>
+                  <>
+                    ⛔ Automation is paused (safety or privacy). Reply only after checking on the
+                    customer.
+                  </>
                 ) : withPerson ? (
                   <>
-                    👤 {active.handled_by ? `${active.handled_by} has this chat` : "A person handles this chat"}
+                    👤{" "}
+                    {active.handled_by
+                      ? `${active.handled_by} has this chat`
+                      : "A person handles this chat"}
                     {" · the bot is quiet until it is handed back"}
                   </>
                 ) : optedOut ? (
@@ -897,15 +938,15 @@ export default function LiveChat() {
 
               {notInView && (
                 <div className="notice small">
-                  This chat is no longer in this tab (its state changed). It stays open until you pick
-                  another one.
+                  This chat is no longer in this tab (its state changed). It stays open until you
+                  pick another one.
                 </div>
               )}
               {handBackNote !== null && (
                 <div className="notice small">
                   <div style={{ marginBottom: 6 }}>
-                    Note for the bot (optional): what was agreed, or what it should not bring up again.
-                    The customer never sees it.
+                    Note for the bot (optional): what was agreed, or what it should not bring up
+                    again. The customer never sees it.
                   </div>
                   <textarea
                     className="input"
@@ -942,7 +983,8 @@ export default function LiveChat() {
                     if (bottom !== atBottom) setAtBottom(bottom);
                     if (bottom && active && (seen.id !== active.id || seen.n !== shown.length))
                       setSeen({ id: active.id, n: shown.length });
-                    if (!bottom && seen.id !== active.id) setSeen({ id: active.id, n: shown.length });
+                    if (!bottom && seen.id !== active.id)
+                      setSeen({ id: active.id, n: shown.length });
                   }}
                 >
                   {mayHaveOlder && (
@@ -956,7 +998,11 @@ export default function LiveChat() {
                       </button>
                     </div>
                   )}
-                  {msgs.isLoading && <div className="daysep"><span>Loading messages…</span></div>}
+                  {msgs.isLoading && (
+                    <div className="daysep">
+                      <span>Loading messages…</span>
+                    </div>
+                  )}
                   {rows}
                   {!msgs.isLoading && !shown.length && (
                     <div className="daysep">
@@ -965,7 +1011,11 @@ export default function LiveChat() {
                   )}
                 </div>
                 {!atBottom && (
-                  <button className="jump" onClick={jumpToLatest} aria-label="Jump to the latest message">
+                  <button
+                    className="jump"
+                    onClick={jumpToLatest}
+                    aria-label="Jump to the latest message"
+                  >
                     {unseen ? <span className="badge">{unseen}</span> : null}↓
                   </button>
                 )}
@@ -992,8 +1042,8 @@ export default function LiveChat() {
                 <>
                   {!withPerson && (
                     <div className="notice small subtle">
-                      The bot is answering. Your message goes out as the Oxxy team; use “Take over” to
-                      pause the bot first.
+                      The bot is answering. Your message goes out as the Oxxy team; use “Take over”
+                      to pause the bot first.
                     </div>
                   )}
                   {composer}
@@ -1008,7 +1058,7 @@ export default function LiveChat() {
           {active && (
             <>
               <div className="card2 center">
-                <div className={`av xl t${avatarTone(active.customer_id)}`}>
+                <div className={`av av-xl t${avatarTone(active.customer_id)}`}>
                   {initials(nameOf(active))}
                 </div>
                 <b className="nm">{nameOf(active)}</b>
@@ -1033,7 +1083,9 @@ export default function LiveChat() {
                     <div className="small muted">
                       Open, {left(windowLeft)} left (until{" "}
                       {fmtTime(
-                        new Date(new Date(active.last_customer_message_at!).getTime() + DAY).toISOString(),
+                        new Date(
+                          new Date(active.last_customer_message_at!).getTime() + DAY,
+                        ).toISOString(),
                       )}
                       )
                     </div>
