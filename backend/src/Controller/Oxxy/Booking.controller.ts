@@ -5,6 +5,7 @@ import { CurrentUser } from "@Helper/Common.helper";
 import { JWTAuthController } from "@Controller/JWTAuth.controller";
 import { BookingService } from "@Service/Oxxy/Booking.service";
 import { ResponseEnum } from "@Helper/Enum/ResponseEnum";
+import { audit } from "@Helper/AuditTrail";
 
 @Controller({ path: "Booking", version: "1" })
 @ApiTags("Booking")
@@ -30,6 +31,7 @@ export class BookingController extends JWTAuthController {
   @Put("Confirm/:Id")
   async Confirm(@Param("Id") Id: string, @CurrentUser() UserId: string) {
     await this._BookingService.confirm(Id, UserId);
+    await audit({ action: "Confirm", table: "booking_request", recordId: Id, userId: UserId });
     return this.SendResponse(ResponseEnum.Success, ResponseEnum.Updated);
   }
 }

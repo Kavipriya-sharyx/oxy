@@ -17,6 +17,7 @@ import { Roles } from "@Helper/Roles.decorator";
 import { RoleEnum } from "@Helper/Enum/RoleEnum";
 import { CurrentUser } from "@Helper/Common.helper";
 import { follow_up } from "@Database/Table/Oxxy/follow_up";
+import { audit } from "@Helper/AuditTrail";
 import { job_run } from "@Database/Table/Oxxy/job_run";
 import { task } from "@Database/Table/Oxxy/task";
 import { TaskStatus } from "@Helper/Enum/TaskStatus";
@@ -60,25 +61,57 @@ export class OpsController extends JWTAuthController {
   // ---- Follow-ups (agreed follow-ups, rescues, Trigger Q, booking updates) ----
   @Permission("conversations.read")
   @Get("FollowUps")
-  async FollowUps(@Query("status") status?: string) {
+  async FollowUps(
+    @Query("status") status?: string,
+    @Query("q") q?: string,
+    @Query("kind") kind?: string,
+    @Query("page") page?: string,
+  ) {
     const st = ["scheduled", "sent", "cancelled", "skipped"].includes(String(status))
       ? String(status)
       : "scheduled";
-    const rows = await follow_up
+    const PAGE = 50;
+    const skip = Math.max(0, Math.min(1000, parseInt(String(page ?? "0"), 10) || 0)) * PAGE;
+    const qb = follow_up
       .createQueryBuilder("f")
       .addSelect("f.created_on")
       .leftJoin("f.customer", "c")
       .addSelect(["c.id", "c.first_name", "c.wa_number"])
-      .where("f.follow_up_status = :st", { st })
+      .where("f.follow_up_status = :st", { st });
+    if (kind) qb.andWhere("f.kind = :kind", { kind: kind.slice(0, 40) });
+    const term = (q ?? "").trim().slice(0, 60);
+    if (term)
+      qb.andWhere(
+        "(c.wa_number ILIKE :term OR c.first_name ILIKE :term OR f.template_name ILIKE :term OR f.reason ILIKE :term)",
+        { term: `%${term}%` },
+      );
+    const [rows, total] = await qb
       .orderBy("f.scheduled_for", st === "scheduled" ? "ASC" : "DESC")
-      .take(200)
-      .getMany();
-    return this.SendResponseData(rows);
+      .skip(skip)
+      .take(PAGE)
+      .getManyAndCount();
+    // counters and skip reasons over ALL rows, whatever the filter or page
+    const [t] = await follow_up.query(
+      `SELECT count(*) FILTER (WHERE follow_up_status = 'scheduled')::int AS scheduled,
+              count(*) FILTER (WHERE follow_up_status = 'scheduled' AND scheduled_for < now())::int AS overdue,
+              count(*) FILTER (WHERE follow_up_status = 'scheduled' AND scheduled_for >= now()
+                                AND scheduled_for < now() + interval '1 hour')::int AS next_hour
+         FROM follow_up`,
+    );
+    const skipReasons = await follow_up.query(
+      `SELECT COALESCE(skip_reason, 'unknown') AS reason, count(*)::int AS n
+         FROM follow_up WHERE follow_up_status = 'skipped' GROUP BY 1 ORDER BY n DESC`,
+    );
+    return this.SendResponseData({ rows, total, page_size: PAGE, summary: t, skip_reasons: skipReasons });
   }
 
   @Permission("conversations.reply")
   @Post("FollowUps/:Id/Cancel")
-  async CancelFollowUp(@Param("Id") Id: string, @CurrentUser() UserId: string) {
+  async CancelFollowUp(
+    @Param("Id") Id: string,
+    @CurrentUser() UserId: string,
+    @Body("reason") why?: string,
+  ) {
     const row = await follow_up.findOne({ where: { id: id(Id) } });
     if (!row) throw new NotFoundException("Follow-up not found");
     if (row.follow_up_status !== "scheduled")
@@ -87,9 +120,20 @@ export class OpsController extends JWTAuthController {
     await follow_up.update(row.id, {
       follow_up_status: "cancelled",
       skip_reason: "cancelled_by_team",
+      // the team's optional note is kept next to the original reason
+      ...(String(why ?? "").trim()
+        ? { reason: `${row.reason ?? ""} [Cancelled: ${String(why).trim().slice(0, 200)}]`.trim() }
+        : {}),
       updated_by_id: UserId,
       updated_on: new Date(),
     } as any);
+    await audit({
+      action: "Cancel",
+      table: "follow_up",
+      recordId: row.id,
+      userId: UserId,
+      details: { kind: row.kind, template: row.template_name, note: String(why ?? "").trim() || null },
+    });
     return this.SendResponseData({ id: row.id, follow_up_status: "cancelled" });
   }
 

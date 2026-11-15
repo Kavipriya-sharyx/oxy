@@ -15,11 +15,25 @@ export interface FollowUpRow {
   created_on?: string;
   customer?: { id: string; first_name: string | null; wa_number: string };
 }
-export async function listFollowUps(status: string): Promise<FollowUpRow[]> {
-  return (await client.get<FollowUpRow[]>("/Console/FollowUps", { params: { status } })).data;
+export interface FollowUpList {
+  rows: FollowUpRow[];
+  total: number;
+  page_size: number;
+  summary: { scheduled: number; overdue: number; next_hour: number };
+  skip_reasons: { reason: string; n: number }[];
 }
-export async function cancelFollowUp(id: string) {
-  return (await client.post(`/Console/FollowUps/${id}/Cancel`)).data;
+export async function listFollowUps(
+  status: string,
+  f: { q?: string; kind?: string; page?: number } = {},
+): Promise<FollowUpList> {
+  return (
+    await client.get<FollowUpList>("/Console/FollowUps", {
+      params: { status, q: f.q || undefined, kind: f.kind || undefined, page: f.page || undefined },
+    })
+  ).data;
+}
+export async function cancelFollowUp(id: string, reason?: string) {
+  return (await client.post(`/Console/FollowUps/${id}/Cancel`, { reason })).data;
 }
 
 // ---- WhatsApp templates ----
@@ -34,7 +48,14 @@ export interface TemplateRow {
   last_synced_at: string | null;
   note: string | null;
 }
-export const TEMPLATE_STATUSES = ["draft", "submitted", "approved", "rejected", "paused", "disabled"];
+export const TEMPLATE_STATUSES = [
+  "draft",
+  "submitted",
+  "approved",
+  "rejected",
+  "paused",
+  "disabled",
+];
 export async function listTemplates(): Promise<TemplateRow[]> {
   return (await client.get<TemplateRow[]>("/Console/Templates")).data;
 }
@@ -63,10 +84,18 @@ export interface PlanChangeRow {
 export async function listPlanChanges(): Promise<PlanChangeRow[]> {
   return (await client.get<PlanChangeRow[]>("/Console/PlanChanges")).data;
 }
-export async function proposePlanChange(body: { catalog_id: string; changes: Record<string, unknown>; reason: string }) {
+export async function proposePlanChange(body: {
+  catalog_id: string;
+  changes: Record<string, unknown>;
+  reason: string;
+}) {
   return (await client.post("/Console/PlanChanges", body)).data;
 }
-export async function decidePlanChange(id: string, action: "Approve" | "Reject" | "Withdraw", note?: string) {
+export async function decidePlanChange(
+  id: string,
+  action: "Approve" | "Reject" | "Withdraw",
+  note?: string,
+) {
   return (await client.post(`/Console/PlanChanges/${id}/${action}`, { note })).data;
 }
 
@@ -111,7 +140,8 @@ export async function runReconciliation(): Promise<JobRun> {
   return (await client.post<JobRun>("/Console/Jobs/Reconciliation/Run")).data;
 }
 export async function getRetention(): Promise<{ days: number | null; runs: JobRun[] }> {
-  return (await client.get<{ days: number | null; runs: JobRun[] }>("/Console/Jobs/Retention")).data;
+  return (await client.get<{ days: number | null; runs: JobRun[] }>("/Console/Jobs/Retention"))
+    .data;
 }
 export async function runRetention(): Promise<JobRun> {
   return (await client.post<JobRun>("/Console/Jobs/Retention/Run")).data;

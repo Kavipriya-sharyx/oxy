@@ -39,7 +39,12 @@ import { CrmWebhookService } from "@Service/Crm/CrmWebhook.service";
 import { task } from "@Database/Table/Oxxy/task";
 import { activation } from "@Database/Table/Oxxy/activation";
 import { CurrentUser } from "@Helper/Common.helper";
-import { IsNull } from "typeorm";
+import { In, IsNull, MoreThanOrEqual } from "typeorm";
+import { audit, changes, scrub } from "@Helper/AuditTrail";
+import { user } from "@Database/Table/Admin/user";
+import { RoleEnum } from "@Helper/Enum/RoleEnum";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 import { TaskPriority } from "@Helper/Enum/TaskPriority";
 import { TaskStatus } from "@Helper/Enum/TaskStatus";
 import { urgentLabel } from "@Service/Ops/UrgentAlert.service";
@@ -68,6 +73,8 @@ export function importedCentre(r: Record<string, any>) {
     city: String(r.city).trim(),
     postcode: r.postcode ? String(r.postcode).trim() : null,
     address: r.address ? String(r.address).trim().slice(0, 300) : null,
+    phone: r.phone ? String(r.phone).trim().slice(0, 30) : null,
+    opening_hours: r.opening_hours ? String(r.opening_hours).trim().slice(0, 200) : null,
     latitude: Number(r.latitude) || 0,
     longitude: Number(r.longitude) || 0,
     centre_type: r.centre_type ? String(r.centre_type).trim() : "multispeciality",
@@ -490,19 +497,49 @@ export class ConsoleController extends JWTAuthController {
 
   @Permission("tasks.work")
   @Get("Tasks")
-  async Tasks(@Query("view") view?: string) {
-    const q = task
+  async Tasks(
+    @CurrentUser() UserId: string,
+    @Query("view") view?: string,
+    @Query("q") q?: string,
+    @Query("type") type?: string,
+    @Query("priority") priority?: string,
+    @Query("mine") mine?: string,
+  ) {
+    const qb = task
       .createQueryBuilder("t")
       .addSelect("t.created_on")
       .leftJoinAndSelect("t.customer", "customer")
       .leftJoinAndSelect("t.assigned_to", "assigned_to");
-    if (view === "done") q.where("t.task_status = 'done'");
-    else if (view !== "all") q.where("t.task_status <> 'done'");
+    if (view === "done") qb.andWhere("t.task_status = 'done'");
+    else if (view !== "all") qb.andWhere("t.task_status <> 'done'");
+    if (type) qb.andWhere("t.type = :type", { type: type.slice(0, 60) });
+    if (priority) qb.andWhere("t.priority = :priority", { priority: priority.slice(0, 20) });
+    if (mine === "1") qb.andWhere("t.assigned_to_id = :me", { me: UserId });
+    const term = (q ?? "").trim().slice(0, 60);
+    if (term)
+      qb.andWhere(
+        "(customer.wa_number ILIKE :term OR customer.first_name ILIKE :term OR t.summary ILIKE :term OR t.type ILIKE :term)",
+        { term: `%${term}%` },
+      );
     const rank: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
-    const rows = (await q.orderBy("t.created_on", "DESC").take(300).getMany()).sort(
-      (a, b) => (rank[a.priority] ?? 9) - (rank[b.priority] ?? 9), // urgent first, newest first within each
+    // urgent first; inside a priority the task waiting longest comes first (open view), newest first otherwise
+    const oldestFirst = view !== "done" && view !== "all";
+    const rows = (
+      await qb.orderBy("t.created_on", oldestFirst ? "ASC" : "DESC").take(300).getMany()
+    ).sort((a, b) =>
+      view === "done" || view === "all" ? 0 : (rank[a.priority] ?? 9) - (rank[b.priority] ?? 9),
     );
-    return this.SendResponseData({ crmEnabled: this._Outbox.enabled, rows });
+    // counters over ALL open tasks, not just the rows above
+    const [t] = await task.query(
+      `SELECT count(*)::int AS open,
+              count(*) FILTER (WHERE priority = 'urgent')::int AS urgent,
+              count(*) FILTER (WHERE assigned_to_id IS NULL)::int AS unassigned,
+              count(*) FILTER (WHERE task_status = 'in_progress')::int AS in_progress,
+              count(*) FILTER (WHERE assigned_to_id = $1)::int AS mine
+         FROM task WHERE task_status <> 'done'`,
+      [UserId],
+    );
+    return this.SendResponseData({ crmEnabled: this._Outbox.enabled, rows, summary: t });
   }
 
   @Permission("tasks.work")
@@ -511,6 +548,7 @@ export class ConsoleController extends JWTAuthController {
     @Param("Id") Id: string,
     @Body("action") action: string,
     @CurrentUser() UserId: string,
+    @Body("outcome") outcome?: string,
   ) {
     if (this._Outbox.enabled)
       throw new BadRequestException("Tasks are worked in the CRM. Its webhook closes them here.");
@@ -521,8 +559,16 @@ export class ConsoleController extends JWTAuthController {
       t.task_status = "in_progress";
       t.updated_on = new Date();
       await t.save();
+      await audit({ action: "Claim", table: "task", recordId: Id, userId: UserId, details: { type: t.type } });
     } else if (action === "done") {
-      await this._CrmEvents.completeTaskFromConsole(Id); // also lifts PAUSE / ESCALATED on the chat
+      await this._CrmEvents.completeTaskFromConsole(Id, String(outcome ?? "").trim().slice(0, 500) || undefined); // also lifts PAUSE / ESCALATED on the chat
+      await audit({
+        action: "Done",
+        table: "task",
+        recordId: Id,
+        userId: UserId,
+        details: { type: t.type, outcome: String(outcome ?? "").trim().slice(0, 500) || null },
+      });
     } else throw new BadRequestException("action must be claim or done");
     return this.SendResponse(ResponseEnum.Success, ResponseEnum.Updated);
   }
@@ -531,21 +577,43 @@ export class ConsoleController extends JWTAuthController {
   // activation.paid / activation.failed webhooks; without the CRM an admin records it here. ----
   @Permission("activations.read")
   @Get("Activations")
-  async Activations() {
-    const rows = await activation
+  async Activations(@Query("status") status?: string, @Query("q") q?: string) {
+    const qb = activation
       .createQueryBuilder("a")
       .addSelect("a.created_on")
       .leftJoinAndSelect("a.customer", "customer")
-      .leftJoinAndSelect("a.catalog", "catalog")
-      .orderBy("a.created_on", "DESC")
-      .take(300)
-      .getMany();
-    return this.SendResponseData({ crmEnabled: this._Outbox.enabled, rows });
+      .leftJoinAndSelect("a.catalog", "catalog");
+    if (status && ["pending", "paid", "failed", "cancelled"].includes(status))
+      qb.andWhere("a.payment_status = :status", { status });
+    const term = (q ?? "").trim().slice(0, 60);
+    if (term)
+      qb.andWhere(
+        "(customer.wa_number ILIKE :term OR customer.first_name ILIKE :term OR a.plan ILIKE :term OR a.product ILIKE :term)",
+        { term: `%${term}%` },
+      );
+    const rows = await qb.orderBy("a.created_on", "DESC").take(300).getMany();
+    // totals over ALL activations (not just the rows above), so the tiles stay right past 300 rows.
+    // The price and GST rate saved when the link was sent win over today's catalogue price.
+    const [t] = await activation.query(
+      `SELECT count(*) FILTER (WHERE a.activation_status = 'active')::int AS active,
+              count(*) FILTER (WHERE a.payment_status = 'pending')::int AS unpaid,
+              count(*) FILTER (WHERE a.payment_status = 'failed')::int AS failed,
+              count(*)::int AS total,
+              COALESCE(sum(COALESCE(a.price, c.price)) FILTER (WHERE a.payment_status = 'paid'), 0)::float AS collected_net,
+              COALESCE(sum(COALESCE(a.price, c.price) * (1 + COALESCE(a.gst_rate, c.gst_rate, 0)))
+                FILTER (WHERE a.payment_status = 'paid'), 0)::float AS collected_gross
+         FROM activation a LEFT JOIN plan_catalog c ON c.id = a.catalog_id`,
+    );
+    return this.SendResponseData({ crmEnabled: this._Outbox.enabled, rows, summary: t });
   }
 
   @Permission("activations.record")
   @Put("Activations/:Id")
-  async UpdateActivation(@Param("Id") Id: string, @Body("result") result: string) {
+  async UpdateActivation(
+    @Param("Id") Id: string,
+    @Body("result") result: string,
+    @CurrentUser() UserId: string,
+  ) {
     if (this._Outbox.enabled)
       throw new BadRequestException(
         "Payments are verified in the CRM. Its webhook updates this list.",
@@ -555,6 +623,13 @@ export class ConsoleController extends JWTAuthController {
     const a = await activation.findOne({ where: { id: Id } });
     if (!a) throw new NotFoundException("Activation not found");
     await this._CrmEvents.markActivationFromConsole(Id, result === "paid");
+    await audit({
+      action: result === "paid" ? "Payment recorded: paid" : "Payment recorded: failed",
+      table: "activation",
+      recordId: Id,
+      userId: UserId,
+      details: { product: a.product, plan: a.plan, billing: a.billing },
+    });
     return this.SendResponse(ResponseEnum.Success, ResponseEnum.Updated);
   }
 
@@ -570,27 +645,254 @@ export class ConsoleController extends JWTAuthController {
 
   @Permission("centres.read")
   @Get("Centres")
-  async Centres() {
+  async Centres(
+    @Query("q") q?: string,
+    @Query("city") city?: string,
+    @Query("type") type?: string,
+    @Query("spec") spec?: string,
+    @Query("state") state?: string,
+    @Query("page") page?: string,
+  ) {
+    const PAGE = 50;
+    const skip = Math.max(0, Math.min(2000, parseInt(String(page ?? "0"), 10) || 0)) * PAGE;
+    const qb = centre.createQueryBuilder("c").where("c.status = true");
+    if (city) qb.andWhere("c.city = :city", { city: city.slice(0, 80) });
+    if (type) qb.andWhere("c.centre_type = :type", { type: type.slice(0, 40) });
+    if (spec) qb.andWhere("c.specialisations ILIKE :spec", { spec: `%${spec.slice(0, 40)}%` });
+    // a centre is "live" (suggested by the bot) only when active AND verified AND private
+    if (state === "live") qb.andWhere("c.active AND c.verified AND c.is_private");
+    else if (state === "hidden") qb.andWhere("NOT (c.active AND c.verified AND c.is_private)");
+    else if (state === "stale")
+      qb.andWhere("c.verified_at IS NULL OR c.verified_at < (CURRENT_DATE - 180)");
+    else if (state === "nopoint") qb.andWhere("c.latitude = 0 AND c.longitude = 0");
+    const term = (q ?? "").trim().slice(0, 60);
+    if (term)
+      qb.andWhere(
+        "(c.name ILIKE :term OR c.branch ILIKE :term OR c.locality ILIKE :term OR c.city ILIKE :term OR c.phone ILIKE :term)",
+        { term: `%${term}%` },
+      );
+    const [rows, total] = await qb
+      .orderBy("c.city", "ASC")
+      .addOrderBy("c.name", "ASC")
+      .skip(skip)
+      .take(PAGE)
+      .getManyAndCount();
+    // counters and the filter lists over ALL centres, whatever the filter or page
+    const [t] = await centre.query(
+      `SELECT count(*)::int AS total,
+              count(*) FILTER (WHERE active AND verified AND is_private)::int AS live,
+              count(*) FILTER (WHERE NOT (active AND verified AND is_private))::int AS hidden,
+              count(*) FILTER (WHERE verified_at IS NULL OR verified_at < (CURRENT_DATE - 180))::int AS stale,
+              count(*) FILTER (WHERE latitude = 0 AND longitude = 0)::int AS no_point
+         FROM centre WHERE status = true`,
+    );
+    const cities = await centre.query(
+      `SELECT DISTINCT city FROM centre WHERE status = true AND city IS NOT NULL ORDER BY city`,
+    );
+    return this.SendResponseData({
+      rows,
+      total,
+      page_size: PAGE,
+      summary: t,
+      cities: cities.map((x: { city: string }) => x.city),
+    });
+  }
+
+  /** Every centre (not paged) in the CSV import's own column set, for Export and edit-in-Excel */
+  @Permission("centres.read")
+  @Get("Centres/Export")
+  async ExportCentres() {
     const rows = await centre.find({
       where: { status: true },
       order: { city: "ASC", name: "ASC" } as any,
-      take: 200,
+      take: 10000,
     });
     return this.SendResponseData(rows);
   }
 
+  /** Hide, show, verify or delete many centres at once (ids from the console's selection) */
+  @Permission("centres.edit")
+  @Post("Centres/Bulk")
+  async BulkCentres(
+    @Body("ids") ids: string[],
+    @Body("action") action: string,
+    @CurrentUser() UserId: string,
+  ) {
+    if (!Array.isArray(ids) || !ids.length || ids.length > 500)
+      throw new BadRequestException("Choose between 1 and 500 centres");
+    if (!ids.every((i) => UUID.test(String(i)))) throw new BadRequestException("Invalid centre id");
+    if (!["hide", "show", "verify", "delete"].includes(action))
+      throw new BadRequestException("action must be hide, show, verify or delete");
+    const where = { id: In(ids), status: true } as any;
+    let patch: Record<string, unknown>;
+    if (action === "hide") patch = { active: false };
+    else if (action === "show") patch = { active: true };
+    else if (action === "verify")
+      patch = { verified: true, verified_at: new Date().toISOString().slice(0, 10) };
+    else patch = { status: false, active: false }; // soft delete: bookings keep their centre
+    const res = await centre.update(where, patch as any);
+    await audit({
+      action: "Bulk " + action,
+      table: "centre",
+      recordId: `${ids.length} centres`,
+      userId: UserId,
+      details: { ids, updated: res.affected ?? 0 },
+    });
+    return this.SendResponseData({ updated: res.affected ?? 0 });
+  }
+
   @Permission("audit.read")
   @Get("AuditLogs")
-  async AuditLogs(@Query("action") action?: string, @Query("table") table?: string) {
-    const qb = audit_log.createQueryBuilder("a").orderBy("a.created_on", "DESC").take(100);
-    if (action) qb.andWhere("a.action ILIKE :action", { action: `%${action}%` });
-    if (table) qb.andWhere("a.table_name ILIKE :table", { table: `%${table}%` });
-    return this.SendResponseData(await qb.getMany());
+  async AuditLogs(
+    @Query("action") action?: string,
+    @Query("table") table?: string,
+    @Query("q") q?: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+    @Query("page") page?: string,
+  ) {
+    const PAGE = 50;
+    const skip = Math.max(0, Math.min(2000, parseInt(String(page ?? "0"), 10) || 0)) * PAGE;
+    const qb = audit_log.createQueryBuilder("a");
+    if (action) qb.andWhere("a.performed_action ILIKE :action", { action: `%${action.slice(0, 40)}%` });
+    if (table) qb.andWhere("a.performed_module_name ILIKE :table", { table: `%${table.slice(0, 40)}%` });
+    const term = (q ?? "").trim().slice(0, 60);
+    if (term)
+      qb.andWhere("(a.performed_by ILIKE :term OR a.performed_module_id ILIKE :term)", { term: `%${term}%` });
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    if (from && day.test(from)) qb.andWhere("a.created_on >= CAST(:from AS date)", { from });
+    if (to && day.test(to)) qb.andWhere("a.created_on < (CAST(:to AS date) + 1)", { to });
+    const [rows, total] = await qb
+      .orderBy("a.created_on", "DESC")
+      .skip(skip)
+      .take(PAGE)
+      .getManyAndCount();
+    const tables = await audit_log.query(
+      `SELECT DISTINCT performed_module_name AS t FROM audit_log ORDER BY 1`,
+    );
+    return this.SendResponseData({
+      rows: rows.map((r) => ({
+        id: r.id,
+        created_on: r.created_on,
+        action: r.performed_action,
+        table_name: r.performed_module_name,
+        record_id: r.performed_module_id,
+        user_id: r.performed_by_id === "system" ? null : r.performed_by_id,
+        user_name: r.performed_by,
+        details: scrub(r.performed_parameter),
+      })),
+      total,
+      page_size: PAGE,
+      tables: tables.map((x: { t: string }) => x.t),
+    });
+  }
+
+  /**
+   * Reports page, for a chosen period (default: the last 30 days): activity per day, bookings per centre,
+   * and how the team is doing. The per-person table is for Admin and Super Admin only.
+   */
+  @Permission("dashboard.view")
+  @Get("ReportDetail")
+  async ReportDetail(
+    @CurrentUser() UserId: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+  ) {
+    const ok = (d?: string) => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d);
+    const istDay = (d: Date) => new Date(d.getTime() + 5.5 * 3600_000).toISOString().slice(0, 10);
+    const end = ok(to) ? to! : istDay(new Date());
+    let start = ok(from) ? from! : istDay(new Date(Date.now() - 29 * 86_400_000));
+    // at most 92 days of daily rows
+    if (Date.parse(end) - Date.parse(start) > 91 * 86_400_000)
+      start = istDay(new Date(Date.parse(end) - 91 * 86_400_000));
+    if (start > end) throw new BadRequestException("From must not be after To");
+    const p = [start, end];
+    const inRange = (col: string) => `${col} >= $1::date AND ${col} < ($2::date + 1)`;
+
+    const daily = await conversation.query(
+      `SELECT to_char(d, 'YYYY-MM-DD') AS date,
+              (SELECT count(*) FROM conversation x WHERE x.created_on::date = d::date)::int AS conversations,
+              (SELECT count(*) FROM booking_request x WHERE x.created_on::date = d::date)::int AS bookings,
+              (SELECT count(*) FROM activation x WHERE x.created_on::date = d::date)::int AS activations
+         FROM generate_series($1::date, $2::date, interval '1 day') d
+        ORDER BY d`,
+      p,
+    );
+    const centres = await conversation.query(
+      `SELECT c.name, c.branch, c.city, count(*)::int AS bookings,
+              count(*) FILTER (WHERE b.booking_status = 'confirmed')::int AS confirmed,
+              round((avg(extract(epoch FROM (b.updated_on - b.created_on)) / 3600)
+                FILTER (WHERE b.booking_status = 'confirmed' AND b.updated_on IS NOT NULL))::numeric, 1)::float AS avg_confirm_hours
+         FROM booking_request b JOIN centre c ON c.id = b.centre_id
+        WHERE ${inRange("b.created_on")}
+        GROUP BY c.id ORDER BY bookings DESC, c.name LIMIT 15`,
+      p,
+    );
+    const me = await user.findOne({ where: { id: UserId }, relations: { user_role: true } } as any);
+    const roleName = (me as any)?.user_role?.name;
+    const isAdmin = roleName === RoleEnum.Admin || roleName === RoleEnum.SuperAdmin;
+    const people = isAdmin
+      ? await conversation.query(
+          `SELECT COALESCE(NULLIF(trim(concat(u.first_name, ' ', u.last_name)), ''), u.email) AS name,
+                  count(*)::int AS claimed,
+                  count(*) FILTER (WHERE t.task_status = 'done')::int AS closed,
+                  round((avg(extract(epoch FROM (t.updated_on - t.created_on)) / 3600)
+                    FILTER (WHERE t.task_status = 'done' AND t.updated_on IS NOT NULL))::numeric, 1)::float AS avg_hours
+             FROM task t JOIN "user" u ON u.id = t.assigned_to_id
+            WHERE ${inRange("t.created_on")}
+            GROUP BY u.id ORDER BY closed DESC, name LIMIT 20`,
+          p,
+        )
+      : null;
+    return this.SendResponseData({ range: { from: start, to: end }, daily, centres, people });
+  }
+
+  /** Daily counts for the dashboard's 7-day chart (India-time days, oldest first) */
+  @Permission("dashboard.view")
+  @Get("Trend")
+  async Trend() {
+    const istDay = (d: Date) => new Date(d.getTime() + 5.5 * 3600_000).toISOString().slice(0, 10);
+    const days: string[] = [];
+    for (let i = 6; i >= 0; i--) days.push(istDay(new Date(Date.now() - i * 86_400_000)));
+    const ist = new Date(Date.now() + 5.5 * 3600_000);
+    const since = new Date(
+      Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate() - 6) - 5.5 * 3600_000,
+    );
+    const count = async (table: string) => {
+      const rows: { created_on: Date }[] = await conversation.query(
+        `SELECT created_on FROM ${table} WHERE created_on >= $1`,
+        [since],
+      );
+      const by: Record<string, number> = {};
+      for (const r of rows) {
+        const k = istDay(new Date(r.created_on));
+        by[k] = (by[k] ?? 0) + 1;
+      }
+      return by;
+    };
+    const [c, b, a] = await Promise.all([
+      count("conversation"),
+      count("booking_request"),
+      count("activation"),
+    ]);
+    return this.SendResponseData(
+      days.map((date) => ({
+        date,
+        conversations: c[date] ?? 0,
+        bookings: b[date] ?? 0,
+        activations: a[date] ?? 0,
+      })),
+    );
   }
 
   @Permission("dashboard.view")
   @Get("Reports")
   async Reports() {
+    // "today" means today in India time (UTC+5:30), whatever the server's clock zone is
+    const ist = new Date(Date.now() + 5.5 * 3600_000);
+    const startOfIstDay = new Date(
+      Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - 5.5 * 3600_000,
+    );
     const [
       totalConversations,
       pausedOrEscalated,
@@ -599,6 +901,9 @@ export class ConsoleController extends JWTAuthController {
       confirmedBookings,
       deadOutbox,
       triggersFired,
+      conversationsToday,
+      bookingsToday,
+      activationsToday,
     ] = await Promise.all([
       conversation.count(),
       conversation.count({
@@ -609,6 +914,9 @@ export class ConsoleController extends JWTAuthController {
       booking_request.count({ where: { booking_status: BookingStatus.Confirmed } }),
       crm_outbox.count({ where: { sync_status: CrmSyncStatus.Dead } }),
       trigger_event.count(),
+      conversation.count({ where: { created_on: MoreThanOrEqual(startOfIstDay) } }),
+      booking_request.count({ where: { created_on: MoreThanOrEqual(startOfIstDay) } }),
+      activation.count({ where: { created_on: MoreThanOrEqual(startOfIstDay) } }),
     ]);
     return this.SendResponseData({
       totalConversations,
@@ -618,6 +926,9 @@ export class ConsoleController extends JWTAuthController {
       confirmedBookings,
       deadOutbox,
       triggersFired,
+      conversationsToday,
+      bookingsToday,
+      activationsToday,
     });
   }
 
@@ -667,6 +978,8 @@ export class ConsoleController extends JWTAuthController {
       branch: r.branch ? String(r.branch).trim() : null,
       locality: r.locality ? String(r.locality).trim() : null,
       address: r.address ? String(r.address).trim().slice(0, 300) : null,
+      phone: r.phone ? String(r.phone).trim().slice(0, 30) : null,
+      opening_hours: r.opening_hours ? String(r.opening_hours).trim().slice(0, 200) : null,
       latitude: lat,
       longitude: lon,
       centre_type: r.centre_type ? String(r.centre_type) : "clinic",
@@ -681,36 +994,62 @@ export class ConsoleController extends JWTAuthController {
 
   @Permission("centres.edit")
   @Post("Centres")
-  async CreateCentre(@Body() body: any) {
-    const row = await centre.save(centre.create(this.centreFields(await this.fillPoint(body)) as any));
+  async CreateCentre(@Body() body: any, @CurrentUser() UserId: string) {
+    const fields = this.centreFields(await this.fillPoint(body));
+    // the CSV import updates a centre with the same name + branch + city; the form refuses the duplicate
+    const dup = await centre.findOne({
+      where: { name: fields.name, branch: fields.branch ?? (IsNull() as any), city: fields.city, status: true } as any,
+    });
+    if (dup)
+      throw new BadRequestException(
+        "A centre with this name, branch and city already exists. Edit that one instead.",
+      );
+    const row = await centre.save(centre.create(fields as any));
+    await audit({ action: "Insert", table: "centre", recordId: row.id, userId: UserId, details: fields });
     return this.SendResponseData(row);
   }
 
   @Permission("centres.edit")
   @Put("Centres/:Id")
-  async UpdateCentre(@Param("Id") Id: string, @Body() body: any) {
+  async UpdateCentre(@Param("Id") Id: string, @Body() body: any, @CurrentUser() UserId: string) {
     const row = await centre.findOne({ where: { id: Id, status: true } });
     if (!row) throw new NotFoundException("Centre not found");
-    Object.assign(row, this.centreFields(await this.fillPoint(body)));
+    const before = { ...row } as Record<string, any>;
+    const fields = this.centreFields(await this.fillPoint(body));
+    Object.assign(row, fields);
     await row.save();
+    await audit({
+      action: "Update",
+      table: "centre",
+      recordId: row.id,
+      userId: UserId,
+      details: { name: row.name, changed: changes(before, fields) },
+    });
     return this.SendResponseData(row);
   }
 
   // soft delete: existing booking requests keep their centre
   @Permission("centres.edit")
   @Delete("Centres/:Id")
-  async DeleteCentre(@Param("Id") Id: string) {
+  async DeleteCentre(@Param("Id") Id: string, @CurrentUser() UserId: string) {
     const row = await centre.findOne({ where: { id: Id, status: true } });
     if (!row) throw new NotFoundException("Centre not found");
     row.status = false;
     row.active = false;
     await row.save();
+    await audit({
+      action: "Delete",
+      table: "centre",
+      recordId: row.id,
+      userId: UserId,
+      details: { name: row.name, branch: row.branch, city: row.city },
+    });
     return this.SendResponse(ResponseEnum.Success, "Deleted");
   }
 
   @Permission("centres.edit")
   @Post("Centres/Import")
-  async ImportCentres(@Body("rows") rows: any[]) {
+  async ImportCentres(@Body("rows") rows: any[], @CurrentUser() UserId: string) {
     if (!Array.isArray(rows) || !rows.length)
       throw new BadRequestException("rows array is required");
     let created = 0;
@@ -740,6 +1079,13 @@ export class ConsoleController extends JWTAuthController {
         created++;
       }
     }
+    await audit({
+      action: "Import",
+      table: "centre",
+      recordId: "csv import",
+      userId: UserId,
+      details: { rows: rows.length, created, updated, skipped },
+    });
     return this.SendResponseData({ created, updated, skipped });
   }
 
@@ -751,11 +1097,22 @@ export class ConsoleController extends JWTAuthController {
 
   @Permission("settings.manage")
   @Put("Settings")
-  async UpdateSettings(@Body("values") values: Record<string, string | boolean>) {
+  async UpdateSettings(
+    @Body("values") values: Record<string, string | boolean>,
+    @CurrentUser() UserId: string,
+  ) {
     if (!values || typeof values !== "object") {
       throw new BadRequestException("values object is required");
     }
     const res = await this._SystemConfig.updateSettings(values);
+    // only the names of the settings that were saved, never their values (they can hold keys and tokens)
+    await audit({
+      action: "Update",
+      table: "settings",
+      recordId: "system settings",
+      userId: UserId,
+      details: { saved: Object.keys(values) },
+    });
     return this.SendResponseData(res);
   }
 }

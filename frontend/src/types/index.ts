@@ -36,6 +36,11 @@ export interface Centre {
   is_private: boolean;
   verified: boolean;
   active: boolean;
+  phone?: string | null;
+  opening_hours?: string | null;
+  verified_at?: string | null;
+  postcode?: string | null;
+  verification_source?: string | null;
 }
 
 export interface Booking {

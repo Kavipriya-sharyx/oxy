@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { App } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import BookingsCalendar from "../components/BookingsCalendar";
 import { confirmBooking, listBookings } from "../api/bookings.api";
 import { usePermissions } from "../hooks/usePermissions";
 import {
@@ -34,6 +35,7 @@ export default function Bookings() {
   const qc = useQueryClient();
   const { can } = usePermissions();
   const [view, setView] = useState<View>("pending_confirmation");
+  const [mode, setMode] = useState<"list" | "calendar">("list");
   const q = useQuery({
     queryKey: ["bookings", "list", view],
     queryFn: () => listBookings(view === "all" ? undefined : view),
@@ -70,81 +72,102 @@ export default function Bookings() {
             ["all", "All"],
           ]}
         />
+        <Tabs<"list" | "calendar">
+          value={mode}
+          onChange={setMode}
+          items={[
+            ["list", "List"],
+            ["calendar", "Calendar"],
+          ]}
+        />
         <span className="spacer" />
         <span className="small muted">
           Allowed dates today: <span className="mono">{windowText()}</span> (IST)
         </span>
       </div>
       <ErrorNote error={q.error} />
-      <div className="panel">
-        <div className="tbl-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Customer</th>
-                <th>WhatsApp</th>
-                <th>Centre</th>
-                <th>Service</th>
-                <th>Date</th>
-                <th>Time</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {(q.data ?? []).map((b) => {
-                const [label, tone] = BOOKING_TONE[b.booking_status] ?? [b.booking_status, "plain"];
-                return (
-                  <tr key={b.id}>
-                    <td>
-                      <b>{b.customer?.first_name ?? "—"}</b>
-                    </td>
-                    <td className="mono small">{b.customer?.wa_number ?? "—"}</td>
-                    <td>
-                      {b.centre?.name ?? "—"}
-                      {b.centre?.branch && <div className="small muted">{b.centre.branch}</div>}
-                    </td>
-                    <td className="small">{b.specialisation ?? "—"}</td>
-                    <td className="mono">{fmtDate(b.preferred_date)}</td>
-                    <td className="small">{b.preferred_time ?? "—"}</td>
-                    <td>
-                      <Pill tone={tone}>{label}</Pill>
-                    </td>
-                    <td>
-                      <div
-                        className="row"
-                        style={{ gap: 6, flexWrap: "nowrap", justifyContent: "flex-end" }}
-                      >
-                        {CRM_URL && b.crm_booking_id && (
-                          <a
-                            className="btn sm"
-                            href={`${CRM_URL.replace(/\/$/, "")}/bookings/${b.crm_booking_id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Open in CRM
-                          </a>
-                        )}
-                        {consoleConfirm && b.booking_status === "pending_confirmation" && (
-                          <button
-                            className="btn sm pri"
-                            disabled={confirm.isPending}
-                            onClick={() => confirm.mutate(b.id)}
-                          >
-                            Confirm
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {q.isLoading && <Empty>Loading…</Empty>}
-          {!q.isLoading && !(q.data ?? []).length && <Empty>Nothing here.</Empty>}
+      {mode === "calendar" ? (
+        <BookingsCalendar
+          bookings={q.data ?? []}
+          canConfirm={consoleConfirm}
+          confirming={confirm.isPending}
+          onConfirm={(id) => confirm.mutate(id)}
+          crmUrl={CRM_URL}
+        />
+      ) : (
+        <div className="panel">
+          <div className="tbl-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Customer</th>
+                  <th>WhatsApp</th>
+                  <th>Centre</th>
+                  <th>Service</th>
+                  <th>Date</th>
+                  <th>Time</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {(q.data ?? []).map((b) => {
+                  const [label, tone] = BOOKING_TONE[b.booking_status] ?? [
+                    b.booking_status,
+                    "plain",
+                  ];
+                  return (
+                    <tr key={b.id}>
+                      <td>
+                        <b>{b.customer?.first_name ?? "—"}</b>
+                      </td>
+                      <td className="mono small">{b.customer?.wa_number ?? "—"}</td>
+                      <td>
+                        {b.centre?.name ?? "—"}
+                        {b.centre?.branch && <div className="small muted">{b.centre.branch}</div>}
+                      </td>
+                      <td className="small">{b.specialisation ?? "—"}</td>
+                      <td className="mono">{fmtDate(b.preferred_date)}</td>
+                      <td className="small">{b.preferred_time ?? "—"}</td>
+                      <td>
+                        <Pill tone={tone}>{label}</Pill>
+                      </td>
+                      <td>
+                        <div
+                          className="row"
+                          style={{ gap: 6, flexWrap: "nowrap", justifyContent: "flex-end" }}
+                        >
+                          {CRM_URL && b.crm_booking_id && (
+                            <a
+                              className="btn sm"
+                              href={`${CRM_URL.replace(/\/$/, "")}/bookings/${b.crm_booking_id}`}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Open in CRM
+                            </a>
+                          )}
+                          {consoleConfirm && b.booking_status === "pending_confirmation" && (
+                            <button
+                              className="btn sm pri"
+                              disabled={confirm.isPending}
+                              onClick={() => confirm.mutate(b.id)}
+                            >
+                              Confirm
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {q.isLoading && <Empty>Loading…</Empty>}
+            {!q.isLoading && !(q.data ?? []).length && <Empty>Nothing here.</Empty>}
+          </div>
         </div>
-      </div>
+      )}
       {consoleConfirm && (
         <p className="small muted">
           Confirm here after calling the centre. The client's CRM can do the same through the API.

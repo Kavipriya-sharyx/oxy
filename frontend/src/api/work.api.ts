@@ -13,6 +13,7 @@ export interface TaskRow {
   callback_from?: string | null; // the window the customer chose (Trigger O)
   callback_to?: string | null;
   created_on?: string;
+  outcome?: string | null;
   customer?: Customer | null;
   assigned_to?: { first_name: string | null; email: string } | null;
 }
@@ -29,19 +30,68 @@ export interface ActivationRow {
   crm_activation_id: string | null;
   created_on?: string;
   customer?: Customer | null;
-  catalog?: { price: number } | null;
+  price?: number | string | null; // saved when the link was sent
+  gst_rate?: number | string | null;
+  catalog?: { price: number; gst_rate?: number | string } | null;
 }
 
-export async function listTasks(view: string): Promise<{ crmEnabled: boolean; rows: TaskRow[] }> {
-  return (await client.get("/Console/Tasks", { params: { view } })).data;
+export interface ActivationSummary {
+  active: number;
+  unpaid: number;
+  failed: number;
+  total: number;
+  collected_net: number;
+  collected_gross: number;
 }
 
-export async function updateTask(id: string, action: "claim" | "done"): Promise<ApiEnvelope> {
-  return (await client.put<ApiEnvelope>(`/Console/Tasks/${id}`, { action })).data;
+export interface TaskSummary {
+  open: number;
+  urgent: number;
+  unassigned: number;
+  in_progress: number;
+  mine: number;
+}
+export interface TaskFilters {
+  q?: string;
+  type?: string;
+  priority?: string;
+  mine?: boolean;
 }
 
-export async function listActivations(): Promise<{ crmEnabled: boolean; rows: ActivationRow[] }> {
-  return (await client.get("/Console/Activations")).data;
+export async function listTasks(
+  view: string,
+  f: TaskFilters = {},
+): Promise<{ crmEnabled: boolean; rows: TaskRow[]; summary?: TaskSummary }> {
+  return (
+    await client.get("/Console/Tasks", {
+      params: {
+        view,
+        q: f.q || undefined,
+        type: f.type || undefined,
+        priority: f.priority || undefined,
+        mine: f.mine ? "1" : undefined,
+      },
+    })
+  ).data;
+}
+
+export async function updateTask(
+  id: string,
+  action: "claim" | "done",
+  outcome?: string,
+): Promise<ApiEnvelope> {
+  return (await client.put<ApiEnvelope>(`/Console/Tasks/${id}`, { action, outcome })).data;
+}
+
+export async function listActivations(
+  status?: string,
+  q?: string,
+): Promise<{ crmEnabled: boolean; rows: ActivationRow[]; summary?: ActivationSummary }> {
+  return (
+    await client.get("/Console/Activations", {
+      params: { status: status || undefined, q: q || undefined },
+    })
+  ).data;
 }
 
 export async function setActivationResult(

@@ -449,8 +449,8 @@ export class CrmWebhookService implements OnModuleInit, OnModuleDestroy {
 
   // The same changes the CRM webhooks make, for a deployment WITHOUT the CRM, where a person does
   // them in the console. With the CRM on, only the signed webhooks may make these changes.
-  async completeTaskFromConsole(taskId: string) {
-    await this.taskCompleted({ task_id: taskId });
+  async completeTaskFromConsole(taskId: string, outcome?: string) {
+    await this.taskCompleted({ task_id: taskId, outcome });
   }
   async markActivationFromConsole(activationId: string, paid: boolean) {
     if (paid) await this.activationPaid({ activation_id: activationId });

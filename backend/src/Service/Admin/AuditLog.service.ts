@@ -13,6 +13,7 @@ import {
   AuditLogSameTableReferenceName,
 } from "@Helper/AuditLog.decorators";
 import { audit_log } from "@Root/Database/Table/Admin/audit_log";
+import { audit } from "@Helper/AuditTrail";
 
 @Injectable()
 export class AuditLogService {
@@ -33,10 +34,31 @@ export class AuditLogService {
     private _DataSource: DataSource,
   ) {}
 
+  /**
+   * Users and roles call this after a create / edit / delete. The entry now goes straight into the normal
+   * database (audit_log) with a copy of the saved row, so the audit log works without InfluxDB.
+   */
   AuditEmitEvent(AuditLogData: AuditLogModel) {
-    if (process.env.AUDIT_LOG === "true") {
-      this._EventEmitter.emit(EventNameEnum.AuditLog, AuditLogData);
-    }
+    if (process.env.AUDIT_LOG !== "true") return;
+    const table = String(AuditLogData.PerformedType ?? "");
+    if (!/^[a-z_][a-z0-9_]*$/.test(table)) return;
+    void (async () => {
+      for (const id of AuditLogData.PrimaryId ?? []) {
+        let row: Record<string, unknown> = {};
+        if (AuditLogData.ActionType !== LogActionEnum.Delete) {
+          const found = await this._DataSource.query(`SELECT * FROM "${table}" WHERE id = $1`, [id]);
+          row = found?.[0] ?? {};
+        }
+        const by = (row.updated_by_id ?? row.created_by_id) as string | undefined;
+        await audit({
+          action: AuditLogData.ActionType,
+          table,
+          recordId: id,
+          userId: by,
+          details: AuditLogData.ActionType === LogActionEnum.Delete ? { deleted: true } : row,
+        });
+      }
+    })().catch((e) => console.error("Audit trail write failed:", e?.message));
   }
 
   private async GenerateQuery(

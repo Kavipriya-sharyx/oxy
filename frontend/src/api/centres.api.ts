@@ -1,9 +1,40 @@
 import client from "./client";
 import type { ApiEnvelope, Centre } from "../types";
 
-export async function listCentres(): Promise<Centre[]> {
-  const res = await client.get<Centre[]>("/Console/Centres");
+export interface CentreFilters {
+  q?: string;
+  city?: string;
+  type?: string;
+  spec?: string;
+  state?: string;
+  page?: number;
+}
+export interface CentreList {
+  rows: Centre[];
+  total: number;
+  page_size: number;
+  summary: { total: number; live: number; hidden: number; stale: number; no_point: number };
+  cities: string[];
+}
+export async function listCentres(f: CentreFilters = {}): Promise<CentreList> {
+  const res = await client.get<CentreList>("/Console/Centres", {
+    params: {
+      q: f.q || undefined,
+      city: f.city || undefined,
+      type: f.type || undefined,
+      spec: f.spec || undefined,
+      state: f.state || undefined,
+      page: f.page || undefined,
+    },
+  });
   return res.data;
+}
+/** Every centre, not paged: for Export CSV */
+export async function exportCentres(): Promise<Centre[]> {
+  return (await client.get<Centre[]>("/Console/Centres/Export")).data;
+}
+export async function bulkCentres(ids: string[], action: "hide" | "show" | "verify" | "delete") {
+  return (await client.post<{ updated: number }>("/Console/Centres/Bulk", { ids, action })).data;
 }
 
 export type CentreInput = Omit<Centre, "id">;
@@ -20,7 +51,9 @@ export async function deleteCentre(id: string): Promise<ApiEnvelope> {
   return (await client.delete<ApiEnvelope>(`/Console/Centres/${id}`)).data;
 }
 
-export async function importCentres(rows: Record<string, unknown>[]): Promise<{ created: number; updated?: number; skipped?: number }> {
+export async function importCentres(
+  rows: Record<string, unknown>[],
+): Promise<{ created: number; updated?: number; skipped?: number }> {
   const res = await client.post<{ created: number }>("/Console/Centres/Import", { rows });
   return res.data;
 }
@@ -61,5 +94,7 @@ export async function getCentresMap(): Promise<CentresMapData> {
 
 /** One real call per Google API with the saved server key: "ok" or what Google answered */
 export async function testMapsKey(): Promise<Record<"geocoding" | "routes" | "places", string>> {
-  return (await client.post<Record<"geocoding" | "routes" | "places", string>>("/Console/Maps/Test")).data;
+  return (
+    await client.post<Record<"geocoding" | "routes" | "places", string>>("/Console/Maps/Test")
+  ).data;
 }

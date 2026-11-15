@@ -1,0 +1,4 @@
+name,branch,locality,city,postcode,address,latitude,longitude,centre_type,specialisations,is_private,verified,verification_source,phone,opening_hours
+PSG Hospital,Peelamedu,Peelamedu,Coimbatore,641004,"Avinashi Road, Peelamedu",11.0245,77.0017,specialist,cardiology|orthopaedics,yes,yes,Phone call 16-11-2026,0422 4345678,Mon-Sat 9am-6pm
+KMCH Hospital,Citra,Avinashi Road,Coimbatore,641014,"Sathy Road, Citra",11.0510,77.0230,multispeciality,general|neurology,yes,yes,Site visit 15-11-2026,0422 4323800,Open 24 hours
+Sample Diagnostics,Gandhipuram,Gandhipuram,Coimbatore,641012,"Cross Cut Road, Gandhipuram",11.0168,76.9674,diagnostic,radiology|pathology,yes,yes,Phone call 16-11-2026,0422 2200000,Mon-Sun 7am-8pm

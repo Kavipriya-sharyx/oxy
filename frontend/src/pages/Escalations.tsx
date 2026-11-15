@@ -1,9 +1,18 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { App } from "antd";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listTasks, updateTask } from "../api/work.api";
-import { Empty, ErrorNote, fmtTime, Pill, Tabs, type Tone, usePageTitle } from "../components/ui";
+import {
+  Empty,
+  ErrorNote,
+  fmtTime,
+  Pill,
+  Stat,
+  Tabs,
+  type Tone,
+  usePageTitle,
+} from "../components/ui";
 
 type View = "open" | "done" | "all";
 const TYPES: Record<string, string> = {
@@ -28,20 +37,51 @@ const PRIO: Record<string, [string, Tone]> = {
   normal: ["Normal", "plain"],
   low: ["Low", "plain"],
 };
+// a task waiting longer than this is overdue: urgent after 1 hour, everything else after 24 hours
+const overdueHours = (priority: string) => (priority === "urgent" ? 1 : 24);
+
+function waiting(iso?: string) {
+  if (!iso) return { text: "", hours: 0 };
+  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000));
+  const hours = mins / 60;
+  if (mins < 60) return { text: `${mins} min`, hours };
+  if (hours < 48) return { text: `${Math.floor(hours)} h`, hours };
+  return { text: `${Math.floor(hours / 24)} days`, hours };
+}
 
 export default function Escalations() {
   usePageTitle("Escalations", "Tasks for people");
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const qc = useQueryClient();
-  const [view, setView] = useState<View>("open");
+  const [params] = useSearchParams();
+  // opened from another page with ?q=... (Activations -> Payment support): search all tasks for that customer
+  const [view, setView] = useState<View>(params.get("q") ? "all" : "open");
+  const [search, setSearch] = useState(params.get("q") ?? "");
+  const [term, setTerm] = useState(search.trim());
+  const [type, setType] = useState("");
+  const [priority, setPriority] = useState("");
+  const [mine, setMine] = useState(false);
+  const note = useRef("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setTerm(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
   const q = useQuery({
-    queryKey: ["tasks", view],
-    queryFn: () => listTasks(view),
+    queryKey: ["tasks", view, term, type, priority, mine],
+    queryFn: () => listTasks(view, { q: term, type, priority, mine }),
     refetchInterval: 15_000,
   });
   const act = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: "claim" | "done" }) =>
-      updateTask(id, action),
+    mutationFn: ({
+      id,
+      action,
+      outcome,
+    }: {
+      id: string;
+      action: "claim" | "done";
+      outcome?: string;
+    }) => updateTask(id, action, outcome),
     onSuccess: async (_r, v) => {
       message.success(
         v.action === "done" ? "Done. The chat is handed back to the bot." : "Assigned to you",
@@ -51,7 +91,33 @@ export default function Escalations() {
     },
     onError: (e: Error) => message.error(e.message),
   });
+  const askDone = (id: string, who: string) => {
+    note.current = "";
+    modal.confirm({
+      title: `Mark this task done for ${who}?`,
+      content: (
+        <div>
+          <p style={{ marginTop: 0 }}>
+            The chat goes back to the bot, which may message the customer again.
+          </p>
+          <textarea
+            className="input"
+            rows={3}
+            maxLength={500}
+            placeholder="What was done? (optional note)"
+            onChange={(e) => (note.current = e.target.value)}
+          />
+        </div>
+      ),
+      okText: "Yes, done",
+      onOk: () => act.mutateAsync({ id, action: "done", outcome: note.current }),
+    });
+  };
+
   const crm = q.data?.crmEnabled ?? false;
+  const sum = q.data?.summary;
+  const rows = q.data?.rows ?? [];
+  const filtered = !!(term || type || priority || mine);
 
   return (
     <>
@@ -72,15 +138,79 @@ export default function Escalations() {
           )}
         </div>
       </div>
-      <Tabs<View>
-        value={view}
-        onChange={setView}
-        items={[
-          ["open", "Open"],
-          ["done", "Done"],
-          ["all", "All"],
-        ]}
-      />
+      <div className="grid g4">
+        <Stat label="Open tasks" value={sum?.open ?? "…"} detail="All open, whatever the filter" />
+        <Stat label="Urgent" value={sum?.urgent ?? "…"} detail="Answer within the hour" />
+        <Stat label="Unassigned" value={sum?.unassigned ?? "…"} detail="Nobody has claimed them" />
+        <Stat
+          label="In progress / mine"
+          value={sum ? `${sum.in_progress} / ${sum.mine}` : "…"}
+          detail="Claimed by someone / by you"
+        />
+      </div>
+      <div className="row">
+        <Tabs<View>
+          value={view}
+          onChange={setView}
+          items={[
+            ["open", "Open"],
+            ["done", "Done"],
+            ["all", "All"],
+          ]}
+        />
+        <input
+          className="input"
+          style={{ width: 220 }}
+          placeholder="Search name, number or note"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select
+          className="input"
+          style={{ width: "auto" }}
+          value={priority}
+          onChange={(e) => setPriority(e.target.value)}
+        >
+          <option value="">Any priority</option>
+          {Object.entries(PRIO).map(([k, [l]]) => (
+            <option key={k} value={k}>
+              {l}
+            </option>
+          ))}
+        </select>
+        <select
+          className="input"
+          style={{ width: "auto" }}
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+        >
+          <option value="">Any task type</option>
+          {Object.entries(TYPES).map(([k, l]) => (
+            <option key={k} value={k}>
+              {l}
+            </option>
+          ))}
+        </select>
+        {!crm && (
+          <label className="small row" style={{ gap: 6 }}>
+            <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} />
+            Mine only
+          </label>
+        )}
+        {filtered && (
+          <button
+            className="btn sm"
+            onClick={() => {
+              setSearch("");
+              setType("");
+              setPriority("");
+              setMine(false);
+            }}
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
       <ErrorNote error={q.error} />
       <div className="panel">
         <div className="tbl-wrap">
@@ -97,8 +227,11 @@ export default function Escalations() {
               </tr>
             </thead>
             <tbody>
-              {(q.data?.rows ?? []).map((t) => {
+              {rows.map((t) => {
                 const [pl, pt] = PRIO[t.priority] ?? [t.priority, "plain" as Tone];
+                const w = waiting(t.created_on);
+                const overdue = t.task_status !== "done" && w.hours > overdueHours(t.priority);
+                const who = t.customer?.first_name || t.customer?.wa_number || "this customer";
                 return (
                   <tr key={t.id}>
                     <td>
@@ -124,17 +257,33 @@ export default function Escalations() {
                           )}
                         </div>
                       )}
+                      {t.task_status === "done" && t.outcome && (
+                        <div className="small muted">Outcome: {t.outcome}</div>
+                      )}
                     </td>
                     <td>
                       {t.customer ? (
-                        <Link to={`/live-chat?q=${encodeURIComponent(t.customer.wa_number)}`}>
-                          {t.customer.first_name || t.customer.wa_number}
-                        </Link>
+                        <>
+                          <Link to={`/live-chat?q=${encodeURIComponent(t.customer.wa_number)}`}>
+                            {t.customer.first_name || t.customer.wa_number}
+                          </Link>
+                          <div className="small muted mono">{t.customer.wa_number}</div>
+                        </>
                       ) : (
                         "—"
                       )}
                     </td>
-                    <td className="small">{fmtTime(t.created_on)}</td>
+                    <td className="small">
+                      {fmtTime(t.created_on)}
+                      {t.task_status !== "done" && (
+                        <div
+                          style={overdue ? { color: "var(--crit)", fontWeight: 600 } : undefined}
+                        >
+                          Waiting {w.text}
+                          {overdue && " · overdue"}
+                        </div>
+                      )}
+                    </td>
                     <td className="small">
                       {t.assigned_to?.first_name || t.assigned_to?.email || (
                         <span className="muted">Unassigned</span>
@@ -167,7 +316,7 @@ export default function Escalations() {
                           <button
                             className="btn sm pri"
                             disabled={act.isPending}
-                            onClick={() => act.mutate({ id: t.id, action: "done" })}
+                            onClick={() => askDone(t.id, who)}
                           >
                             Done
                           </button>
@@ -180,7 +329,9 @@ export default function Escalations() {
             </tbody>
           </table>
           {q.isLoading && <Empty>Loading…</Empty>}
-          {!q.isLoading && !(q.data?.rows ?? []).length && <Empty>Nothing here.</Empty>}
+          {!q.isLoading && !rows.length && (
+            <Empty>{filtered ? "No tasks match these filters." : "Nothing here."}</Empty>
+          )}
         </div>
       </div>
     </>

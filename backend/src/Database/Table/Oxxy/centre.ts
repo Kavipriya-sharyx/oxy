@@ -48,4 +48,11 @@ export class centre extends BaseTable {
   // street address as the team typed it; the point on the map is worked out from it (Google Geocoding)
   @Column({ type: "text", nullable: true })
   address: string | null;
+
+  // how to reach the centre, and when it is open (free text, e.g. "Mon-Sat 9am-6pm")
+  @Column({ type: "varchar", nullable: true })
+  phone: string | null;
+
+  @Column({ type: "text", nullable: true })
+  opening_hours: string | null;
 }
