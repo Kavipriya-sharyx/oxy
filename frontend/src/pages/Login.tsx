@@ -96,7 +96,7 @@ export default function Login() {
         <div className="eyebrow" style={{ color: "inherit", opacity: 0.8 }}>
           How Oxxy runs
         </div>
-        <blockquote>Claude drafts. Code decides. A person confirms.</blockquote>
+        <blockquote>AI drafts. Code decides. A person confirms.</blockquote>
         <p>
           Every booking stays pending until the sales team confirms it with the centre in the CRM.
           Every price change needs two approvers.

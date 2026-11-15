@@ -36,7 +36,7 @@ import { BookingController } from "./Controller/Oxxy/Booking.controller";
 import { WhatsappClient } from "./Service/Oxxy/WhatsappClient.service";
 import { WhatsappDevSendController } from "./Controller/Oxxy/WhatsappDevSend.controller";
 import { GuardrailService } from "./Service/Oxxy/Guardrail.service";
-import { ClaudeService } from "./Service/Oxxy/Claude.service";
+import { LlmService } from "./Service/Oxxy/Llm.service";
 import { ReplyValidatorService } from "./Service/Oxxy/ReplyValidator.service";
 import { ValueCheckService } from "./Service/Oxxy/ValueCheck.service";
 import { DateWindowService } from "./Service/Oxxy/DateWindow.service";
@@ -168,7 +168,7 @@ import { HealthController, HealthDetailsController } from "./Controller/Ops/Heal
     OxxySeederService,
     WhatsappClient,
     GuardrailService,
-    ClaudeService,
+    LlmService,
     ReplyValidatorService,
     ValueCheckService,
     DateWindowService,

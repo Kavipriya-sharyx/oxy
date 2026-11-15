@@ -146,7 +146,7 @@ import { PaymentStatus } from "@Helper/Enum/PaymentStatus";
 import { ProductType } from "@Helper/Enum/ProductType";
 import { BillingCycle } from "@Helper/Enum/BillingCycle";
 import { GuardrailService, GuardrailHit, isOptIn } from "./Guardrail.service";
-import { AnswerReading, AnswerStep, ClaudeService, ChatTurn, ClaudeResult } from "./Claude.service";
+import { AnswerReading, AnswerStep, LlmService, ChatTurn, LlmResult } from "./Llm.service";
 import { ReplyValidatorService } from "./ReplyValidator.service";
 import { WhatsappClient } from "./WhatsappClient.service";
 import { ValueCheckService } from "./ValueCheck.service";
@@ -307,7 +307,7 @@ export function journeyExpired(
 // Trigger Q: one reminder this long after the link, if it is still unpaid [CONFIRM] the delay
 export const TRIGGER_Q_DELAY_MS = Number(process.env.TRIGGER_Q_DELAY_HOURS || 4) * 60 * 60 * 1000;
 
-// A reply after the activation link (plan 12.5). Short messages only: a longer one is a question for Claude.
+// A reply after the activation link (plan 12.5). Short messages only: a longer one is a question for the LLM.
 export function paymentReplyKind(text: string): "done" | "failed" | "not_now" | null {
   const t = (text || "")
     .toLowerCase()
@@ -419,7 +419,7 @@ export class ChatPipelineService {
 
   constructor(
     private readonly _Guardrail: GuardrailService,
-    private readonly _Claude: ClaudeService,
+    private readonly _Llm: LlmService,
     private readonly _Validator: ReplyValidatorService,
     private readonly _Wa: WhatsappClient,
     private readonly _ValueCheck: ValueCheckService,
@@ -696,7 +696,7 @@ export class ChatPipelineService {
     await this.sendAndSave(s.customer.id, fixedReply("opt_in", s.customer.language), m.waMessageId);
   }
 
-  // Fixed replies, no Claude. Each branch: task first (once per wamid), then state, then the reply
+  // Fixed replies, no LLM. Each branch: task first (once per wamid), then state, then the reply
   // last, so a retried job after a failed send still ends with the reply and no second task.
   private async handleGuardrail(hit: GuardrailHit, m: Inbound, s: Saved, cons: consent | null) {
     const optedOut = !!cons?.opt_out_at;
@@ -847,7 +847,7 @@ export class ChatPipelineService {
     return true;
   }
 
-  // DPDP consent step. Ends the turn. No Claude call, no health question, no other text than the fixed replies.
+  // DPDP consent step. Ends the turn. No LLM call, no health question, no other text than the fixed replies.
   //  none     -> send the notice (nothing else in this turn), then remember it was sent
   //  awaiting -> read this message as the answer: YES / NO saved first, then the reply; unclear -> ask again
   private async handleConsentStep(
@@ -1111,7 +1111,7 @@ export class ChatPipelineService {
     });
   }
 
-  // Pipeline: guardrails -> consent gate -> last 20 messages -> Claude -> validator -> send -> save
+  // Pipeline: guardrails -> consent gate -> last 20 messages -> the LLM -> validator -> send -> save
   // One customer message: the turn, then the rescue alarm if the customer goes quiet (Playbook 15)
   async process(m: Inbound, s: Saved): Promise<void> {
     await this.lookupInCrm(s);
@@ -1145,7 +1145,7 @@ export class ChatPipelineService {
 
     const cons = await consent.findOne({ where: { customer_id: s.customer.id } });
 
-    // 1. Guardrails run first: before Claude, before any context is loaded, and even for an
+    // 1. Guardrails run first: before the LLM, before any context is loaded, and even for an
     // opted-out customer (a safety reply must still go out). A hit ends the turn.
     const hit = this._Guardrail.check(m.text);
     // the customer's response to the last trigger (Trigger layer 13: trigger-to-response KPIs)
@@ -1196,9 +1196,9 @@ export class ChatPipelineService {
     }
     if (s.conversation.pending_action === PARKED_ACK) await this.setPending(s, null); // resolved meanwhile
 
-    // 1b. DPDP health-data consent gate. Server-side, before any context is loaded and before Claude is
+    // 1b. DPDP health-data consent gate. Server-side, before any context is loaded and before the LLM is
     // called, so no health question can be asked (or even generated) until YES is saved for the CURRENT
-    // notice version. Only the customer's own words decide it, never Claude. Any other state fails closed.
+    // notice version. Only the customer's own words decide it, never the LLM. Any other state fails closed.
     const consentStatus = healthConsentStatus(cons);
     // Playbook 4.1 / 4.5 and FOLLOW_UP_TIME: steps with no health question run before the consent gate
     if (await this.handleLead(m, s, consentStatus, cons)) return;
@@ -1208,7 +1208,7 @@ export class ChatPipelineService {
       await this.handleConsentStep(consentStatus, m, s, cons);
       return;
     }
-    const healthBlocked = consentStatus === "refused"; // refused: Claude may talk, but never about health
+    const healthBlocked = consentStatus === "refused"; // refused: the LLM may talk, but never about health
 
     // 1c. Opening list (plan 12.2). A new conversation gets the welcome + 4-row list (state INTENT_MENU).
     // A tap on a row goes to that row's state with a fixed reply. Anything else is a normal conversation.
@@ -1231,7 +1231,7 @@ export class ChatPipelineService {
       }
     }
 
-    // 1d. Answers the system is waiting for, and questions with an approved fixed answer (no Claude)
+    // 1d. Answers the system is waiting for, and questions with an approved fixed answer (no LLM)
     if (await this.handleCmbGate(m, s)) return;
     if (await this.handleCentreRadius(m, s)) return;
     if (await this.handleRebookOffer(m, s)) return;
@@ -1265,7 +1265,7 @@ export class ChatPipelineService {
       .reverse()
       .filter((r) => r.body)
       .map((r) => ({ role: r.direction === "in" ? "user" : "assistant", content: r.body }));
-    // Claude needs the conversation to start with and end on a user turn
+    // The LLM needs the conversation to start with and end on a user turn
     while (history.length && history[0].role !== "user") history.shift();
     if (!history.length) history.push({ role: "user", content: m.text });
     // the current message must be the last (user) turn
@@ -1280,12 +1280,12 @@ export class ChatPipelineService {
       await this.knownFacts(s, !healthBlocked),
     );
 
-    // 3. Claude + validator (retry once)
-    let result: ClaudeResult | null = null;
+    // 3. The LLM + validator (retry once)
+    let result: LlmResult | null = null;
     let feedback: string | undefined;
     for (let attempt = 0; attempt < 2 && !result; attempt++) {
       try {
-        const draft = await this._Claude.generate(history, context, feedback);
+        const draft = await this._Llm.generate(history, context, feedback);
         if (draft.needs_human && !draft.reply_text) break;
         // refused customer: a reply that asks about health is never sent (checked here, not by prompt)
         if (healthBlocked && asksHealthQuestion(draft.reply_text)) {
@@ -1410,7 +1410,7 @@ export class ChatPipelineService {
         }
       }
     }
-    // the booking flow asks its own question: Claude's draft would be a second one
+    // the booking flow asks its own question: the LLM's draft would be a second one
     if (shown.has("G")) replaceReply = true;
     // a question interrupted the gate or the booking: answer it, then ask the same question again (12.2)
     const back = extras.length ? [] : this.pendingBack(s);
@@ -1497,7 +1497,7 @@ export class ChatPipelineService {
     );
   }
 
-  // Barriers with approved wording, answered without Claude (Trigger layer 3, 5, 7 and 14.1):
+  // Barriers with approved wording, answered without the LLM (Trigger layer 3, 5, 7 and 14.1):
   //  A "is this genuine?" -> the trust pack (first time: full message + approved proof; again: the links)
   //  C "why activate?"    -> preparedness message with the customer's variant (once per journey)
   //  E "compare plans"    -> the compact four-plan comparison with one plan marked (no link)
@@ -1532,7 +1532,7 @@ export class ChatPipelineService {
 
     if (asksWhyActivate(text) && this.canWhyActivate(s)) {
       const d = await decide("C");
-      if (this._Triggers && (!d || d.suppression)) return false; // explained already: Claude answers
+      if (this._Triggers && (!d || d.suppression)) return false; // explained already: the LLM answers
       const asset = await pickAsset("C", lang, s.conversation.id);
       await reply(await this.whyActivateFor(s, asset));
       if (d)
@@ -1715,7 +1715,7 @@ export class ChatPipelineService {
 
   // `shown` collects the triggers whose content this reply really carries (D list, E plan / disclosure)
   private async applyResult(
-    r: ClaudeResult,
+    r: LlmResult,
     s: Saved,
     m: Inbound,
     shown: Set<string> = new Set(),
@@ -1735,7 +1735,7 @@ export class ChatPipelineService {
     if (Number.isFinite(Number(f.age)) && Number(f.age) > 0) c.age = Number(f.age);
 
     // rule: one active product per customer. Cut Medi Bills is set only after its eligibility gate
-    // passes (plan 12.3 / 8.2), never straight from Claude.
+    // passes (plan 12.3 / 8.2), never straight from the LLM.
     let wantsCmb = false;
     if (f.selected_product && Object.values(ProductType).includes(f.selected_product)) {
       if (c.active_product && c.active_product !== f.selected_product) {
@@ -1763,7 +1763,7 @@ export class ChatPipelineService {
     await c.save();
 
     // consent
-    // health_data_consent is NOT read from Claude: only the consent gate (the customer's own YES/NO) sets it
+    // health_data_consent is NOT read from the LLM: only the consent gate (the customer's own YES/NO) sets it
     if (f.whatsapp_consent != null) {
       const cons = await consent.findOne({ where: { customer_id: c.id } });
       if (f.whatsapp_consent != null) cons.whatsapp_consent = !!f.whatsapp_consent;
@@ -1832,7 +1832,7 @@ export class ChatPipelineService {
 
     // intent actions
     // Oxxy plan choice (12.3): age first, then by need, then the value check; an honest answer when no
-    // plan pays for itself. Prices and the saving figure come from plan_catalog, never from Claude.
+    // plan pays for itself. Prices and the saving figure come from plan_catalog, never from the LLM.
     if (
       !routedToCmb &&
       r.intent === "recommend" &&
@@ -1913,7 +1913,7 @@ export class ChatPipelineService {
       }
     }
 
-    // Trigger E comparison when Claude read the ask (the fixed phrases are handled before Claude)
+    // Trigger E comparison when the LLM read the ask (the fixed phrases are handled before the LLM)
     if (
       r.intent === "compare_plans" &&
       !routedToCmb &&
@@ -1946,7 +1946,7 @@ export class ChatPipelineService {
       extras.push(text.text);
     }
 
-    // Trigger G (Playbook 11): the step-by-step booking request, prefilled with what Claude read
+    // Trigger G (Playbook 11): the step-by-step booking request, prefilled with what the LLM read
     if (
       r.intent === "book" &&
       !isBookingPending(conv.pending_action) &&
@@ -2322,7 +2322,7 @@ export class ChatPipelineService {
     if (!pending?.startsWith("send_activation_link:")) return false;
     const answer = parseConsentAnswer(m.text);
     if (answer === "unclear") {
-      await conversation.update(s.conversation.id, { pending_action: null }); // a question etc.: Claude answers it
+      await conversation.update(s.conversation.id, { pending_action: null }); // a question etc.: the LLM answers it
       s.conversation.pending_action = null;
       return false;
     }
@@ -2654,7 +2654,7 @@ export class ChatPipelineService {
     }
   }
 
-  // Trigger B / J: insurance questions get the approved fixed answer (Claude never words this)
+  // Trigger B / J: insurance questions get the approved fixed answer (the LLM never words this)
   private async handleInsurance(m: Inbound, s: Saved): Promise<boolean> {
     const t = (m.text || "").toLowerCase();
     if (!/insurance|\bbima\b|बीमा|इंश्योरेंस/.test(t)) return false;
@@ -2709,7 +2709,7 @@ export class ChatPipelineService {
 
   // "Do I get a discount at this hospital?" (Playbook 10, Trigger layer 6 and acceptance tests): the
   // neutral savings line, never a tie-up or an implied saving. Fixed text, so it is never a rejected
-  // Claude draft. During the Cut Medi Bills gate the same gate question follows.
+  // LLM draft. During the Cut Medi Bills gate the same gate question follows.
   // Playbook 13 FAQ, 4.3, 4.4 and 16.2: the approved answer, word for word (never an LLM rewording).
   // A question asked in the middle of the gate or the booking is answered, then the same step is asked
   // again; the answer's own closing question is dropped then, so the customer gets one question (1.1).
@@ -3081,9 +3081,9 @@ export class ChatPipelineService {
     s: Saved,
     text: string,
   ): Promise<AnswerReading | null> {
-    if (typeof this._Claude?.classifyAnswer !== "function") return null;
+    if (typeof this._Llm?.classifyAnswer !== "function") return null;
     try {
-      return await this._Claude.classifyAnswer(
+      return await this._Llm.classifyAnswer(
         step,
         bookingQuestion(step, d, "en"),
         text,
@@ -3603,7 +3603,7 @@ export class ChatPipelineService {
         "K",
         s.customer.active_product,
       )) ?? null;
-    if (this._Triggers && (!d || d.suppression)) return false; // explained already: Claude answers
+    if (this._Triggers && (!d || d.suppression)) return false; // explained already: the LLM answers
     const cmb =
       (s.customer.active_product || s.conversation.selected_product) === ProductType.CutMediBills;
     await this.sendAndSave(

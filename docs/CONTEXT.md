@@ -22,18 +22,18 @@ Trigger layer section 13 are the source of the CRM work. The Actions API referen
 ## What the bot does now (all tested)
 
 Order of one turn (`ChatPipeline.service.ts`, plan 12.1):
-1. Guardrails first, fixed replies, no Claude: emergency 112/108, self-harm 14416, STOP, privacy, complaint,
+1. Guardrails first, fixed replies, no LLM: emergency 112/108, self-harm 14416, STOP, privacy, complaint,
    "talk to a person". STOP + chest pain = emergency reply, then opted out.
 2. Trigger response is recorded on the last trigger (replied / opted_out / escalated).
 3. Opted out = silent. Stale message (a newer one was already answered) = skipped, marked `stale`,
    shown as "not answered (late)" in Conversations (plan 12.10 strict order).
 4. Pause / Escalated = silent (human has it).
 5. DPDP health-data consent gate, then the 4-row opening list.
-6. Waiting answers, no Claude: Cut Medi Bills gate, activation link YES/NO, soft activation YES/NO,
+6. Waiting answers, no LLM: Cut Medi Bills gate, activation link YES/NO, soft activation YES/NO,
    payment replies after the link (DONE -> Trigger P + verify task; failed -> payment task + escalated;
    not now -> follow-up), insurance ("I have insurance" / "is Oxxy insurance?" -> Trigger B with its approved
    asset; J only on the Cut Medi Bills route), "discount at this hospital?" -> the neutral savings line (fixed).
-7. Claude drafts JSON -> ReplyValidator (also rejects any link / web address / e-mail) -> retry once -> else
+7. The LLM (Claude, OpenAI or Gemini) drafts JSON -> ReplyValidator (also rejects any link / web address / e-mail) -> retry once -> else
    holding message + task, state ESCALATED (not PAUSE: PAUSE is the safety state).
 8. Code actions: plan pick + value check (floor(spend x rate / 500) x 500 > yearly x 1.18), centre search
    (verified private only, up to 5), booking (Asia/Kolkata +3 days .. +6 months, always pending_confirmation,
@@ -41,7 +41,7 @@ Order of one turn (`ChatPipeline.service.ts`, plan 12.1):
    timing caution, activation disclosure first and the link only after YES, Trigger Q reminder after 4 h.
 9. One trigger per turn, decided before the send and recorded after it (TriggerEngine `decide` / `record`).
    D / E / I are recorded only when the list / plan / offer was really shown.
-10. Content triggers (`Helper/TriggerReplies.ts`, approved wording, fixed phrases answered before Claude):
+10. Content triggers (`Helper/TriggerReplies.ts`, approved wording, fixed phrases answered before the LLM):
    A trust pack = official website + policies + support (Playbook 21, env `OXXY_WEBSITE_URL` etc.) + up to 2
    approved A assets; a repeat in the same journey sends only the links. C = preparedness message + variant
    (elderly / recurring / major / no need), never with an active product, on Cut Medi Bills or after a decline.
@@ -81,7 +81,7 @@ Super Admin always all; nobody can remove `roles.manage` from their own role). P
   renewal, activation, pending and no-guarantee facts; "Cut Medi Bills" never translated). Hindi uses one
   (masculine) voice, "सकता हूँ", as the older fixed replies do: Playbook 22.2 open decision.
 - The reply language follows the customer's last clear message (Devanagari = hi, Hinglish words = hinglish,
-  4+ plain English words = en); Claude's `language` field can also set it. Insurance "has it" detection
+  4+ plain English words = en); the LLM's `language` field can also set it. Insurance "has it" detection
   (Trigger B / J) works in English, Hinglish and Hindi.
 
 ## LLM choice
@@ -89,7 +89,7 @@ Super Admin always all; nobody can remove `roles.manage` from their own role). P
 - Settings -> "AI Provider & Model Keys": **Preferred LLM** (Claude / OpenAI / Gemini) and **Fallback LLM**
   (`LLM_PROVIDER`, `LLM_FALLBACK`; models `ANTHROPIC_MODEL`, `OPENAI_MODEL`, `GEMINI_MODEL`; keys
   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`). Saved in `system_config`, applied at once.
-- `ClaudeService` (name kept, it is injected everywhere) is the router: preferred first, then the fallback
+- `LlmService` (`Service/Oxxy/Llm.service.ts`, renamed from `ClaudeService` on 15 Nov) is the router: preferred first, then the fallback
   on an error / timeout / bad JSON; a refusal or Gemini safety block is NOT retried elsewhere (a person
   takes over). Preferred without a key = the fallback, else the first provider that has a key. Same prompt
   and JSON for all three; every draft still goes through ReplyValidator.
@@ -114,7 +114,7 @@ Super Admin always all; nobody can remove `roles.manage` from their own role). P
   `shuru karo` / `शुरू करो` is opted in again (`isOptIn`, whole message only; "can we start the plan" is not).
   Opt-out cleared, OPTED_OUT -> NEW, CRM `set_opt_in` [CONFIRM endpoint], fixed `opt_in` reply [CONFIRM text].
   Marketing consent stays off, and the follow-ups cancelled at STOP do not come back.
-- Trigger O callback options (`CallbackFlow.ts`): "talk to a person", a complaint and Claude's `needs_human`
+- Trigger O callback options (`CallbackFlow.ts`): "talk to a person", a complaint and the LLM's `needs_human`
   replies also list three 2-hour windows inside `TEAM_HOURS` (default 10-19) on `TEAM_DAYS` (default 1-6 =
   Mon-Sat) [CONFIRM both], each at least 1 hour away. The windows shown are kept in
   `pending_action = callback_time:<task id>:<windows>`. While ESCALATED the bot reads only that answer
@@ -308,6 +308,15 @@ The client's voice AI shares details on WhatsApp after a call: `POST /Actions/St
   interrupted (`status: "context_saved"`). An older chat stopped part-way with the window closed is still 409.
 - Tests: `Service/Crm/StartConversation.spec.ts`. Not built: a template that sends plan details straight away
   (needs a new Meta template; today the customer taps "Just send details").
+
+## Provider-neutral wording (15 Nov)
+
+The bot runs on Claude, OpenAI or Gemini (Configuration → Preferred / Fallback LLM). Generic "Claude" was replaced
+with "the AI model" / "the LLM" in the console (Login quote, Plans note, Flows pages, Configuration "Fixed rules"),
+and in backend comments. Configuration "AI model" now shows the provider and model really set (it was a hard-coded
+claude-opus-5-5 while OpenAI gpt-4o-mini was running). `ClaudeService` → `LlmService`, `ClaudeResult` →
+`LlmResult`, `parseClaudeJson` → `parseLlmJson`. "Claude" stays only where it names the provider (the provider
+option and Anthropic key labels, the Go-live / no-key messages) and in the git branch name.
 
 ## No message without a reason; caches (14 Nov audit)
 

@@ -1,6 +1,6 @@
 // The 13 bot workflows of Full Development Plan section 12, as shown in the approved prototype.
 // sim = the WhatsApp messages that walk through the flow (used in the prototype simulator).
-/* eslint-disable */
+
 export interface FlowStep {
   a: string; // actor key
   k?: "q" | "end";
@@ -25,7 +25,7 @@ export interface Flow {
 export const ACTORS: Record<string, [string, string]> = {
   cust: ["Customer", "var(--info)"],
   code: ["Bot (code)", "var(--accent)"],
-  claude: ["Claude", "var(--warn)"],
+  claude: ["AI model (LLM)", "var(--warn)"], // Claude, OpenAI or Gemini: Configuration > AI provider
   crm: ["CRM", "var(--ok)"],
   sales: ["Sales team", "var(--crit)"],
   wa: ["WhatsApp", "var(--muted)"],
@@ -57,7 +57,7 @@ export const FLOWS: Flow[] = [
     id: "pipeline",
     ref: "12.1",
     title: "Every inbound message",
-    sub: "The same ordered turn runs for every message. Guardrails act before Claude; the validator acts after it.",
+    sub: "The same ordered turn runs for every message. Guardrails act before the AI model; the validator acts after it.",
     sim: ["Hi", "Is Oxxy insurance?"],
     steps: [
       {
@@ -89,7 +89,7 @@ export const FLOWS: Flow[] = [
       },
       {
         a: "claude",
-        t: "Claude drafts the reply",
+        t: "The AI model drafts the reply",
         d: "Cached system prompt + state summary + recent turns. Returns JSON: reply_text, intent, extracted_fields, barrier, proposed_action, needs_human.",
       },
       {
@@ -477,7 +477,7 @@ export const FLOWS: Flow[] = [
     id: "safety",
     ref: "12.7",
     title: "Emergency and self-harm",
-    sub: "Runs before Claude and before any sales logic. The reply is fixed approved text.",
+    sub: "Runs before the AI model and before any sales logic. The reply is fixed approved text.",
     sim: ["I have chest pain", "book a centre"],
     steps: [
       {
@@ -488,7 +488,7 @@ export const FLOWS: Flow[] = [
       {
         a: "code",
         t: "Guardrail matches first",
-        d: "Keyword list plus a classifier. Claude is not called for the reply.",
+        d: "Keyword list plus a classifier. The AI model is not called for the reply.",
       },
       {
         a: "code",
@@ -527,7 +527,7 @@ export const FLOWS: Flow[] = [
       {
         a: "cust",
         t: "Sends STOP",
-        d: "Or unsubscribe, do not contact, or a paraphrase that Claude recognises.",
+        d: "Or unsubscribe, do not contact, or a paraphrase that the AI model recognises.",
       },
       {
         a: "code",
@@ -725,7 +725,7 @@ export const FLOWS: Flow[] = [
       {
         a: "claude",
         k: "q",
-        t: "Claude answered?",
+        t: "AI model answered?",
         br: {
           l: "timeout / 429 / 5xx",
           t: "Retry twice with backoff; then “Give me a moment, a team member will reply shortly” + human task.",

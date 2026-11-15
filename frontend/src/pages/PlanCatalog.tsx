@@ -28,9 +28,9 @@ export default function PlanCatalog() {
         <div className="panel-b small row">
           <Pill tone="warn">Confirm before launch</Pill>
           <span style={{ flex: 1, minWidth: 0 }}>
-            The bot reads every price, GST rate, renewal term and link from this catalogue. Claude
-            never writes a price. Values marked [CONFIRM] are still open with Oxxy. A change needs two people:
-            one proposes it below, a different user approves it.
+            The bot reads every price, GST rate, renewal term and link from this catalogue. The AI
+            model never writes a price. Values marked [CONFIRM] are still open with Oxxy. A change
+            needs two people: one proposes it below, a different user approves it.
           </span>
         </div>
       </div>

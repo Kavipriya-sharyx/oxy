@@ -25,7 +25,7 @@ export class WhatsappInboundService implements OnModuleInit {
       this.logger.warn("WHATSAPP_APP_SECRET is not set: every webhook POST will be rejected (403)");
   }
 
-  // Save + queue. Never calls Claude or WhatsApp. One failing message never stops the others.
+  // Save + queue. Never calls the LLM or WhatsApp. One failing message never stops the others.
   async handlePayload(body: WaWebhookBody): Promise<void> {
     for (const entry of body?.entry ?? []) {
       for (const change of entry.changes ?? []) {

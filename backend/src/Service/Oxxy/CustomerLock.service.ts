@@ -55,7 +55,7 @@ export class CustomerLockService {
       await sleep(minRetry + Math.random() * (maxRetry - minRetry));
     }
 
-    // keep the lock alive while fn runs (a slow Claude call must not lose it)
+    // keep the lock alive while fn runs (a slow LLM call must not lose it)
     const timer = setInterval(() => {
       this.redis
         .eval(RENEW, 1, key, token, String(ttl))

@@ -1,5 +1,5 @@
 // LLM eval runner (Full Plan 11). Sends every EvalDataset case to the configured model through the real
-// ClaudeService (same prompt, same JSON parsing) and scores each reply with the real reply validator.
+// LlmService (same prompt, same JSON parsing) and scores each reply with the real reply validator.
 //
 //   cd backend
 //   ANTHROPIC_API_KEY=... npx ts-node -r tsconfig-paths/register src/Eval/run-eval.ts [--limit 50] [--category trust]
@@ -10,7 +10,7 @@
 import "dotenv/config"; // the same backend/.env the server reads
 import { writeFileSync } from "fs";
 import configuration from "@Root/Config/Configuration";
-import { ClaudeService } from "@Service/Oxxy/Claude.service";
+import { LlmService } from "@Service/Oxxy/Llm.service";
 import { validateReply } from "@Service/Oxxy/ReplyValidator.service";
 import { GuardrailService } from "@Service/Oxxy/Guardrail.service";
 import { matchFaq } from "@Helper/FaqReplies";
@@ -79,7 +79,7 @@ async function main() {
     console.log("eval skipped: no LLM key set (ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY)");
     return;
   }
-  const llm = new ClaudeService(config as never);
+  const llm = new LlmService(config as never);
   let cases = buildDataset();
   if (arg("category")) cases = cases.filter((c) => c.category === arg("category"));
   if (arg("limit")) cases = cases.slice(0, Number(arg("limit")));

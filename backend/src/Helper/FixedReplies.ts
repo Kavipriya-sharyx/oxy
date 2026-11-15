@@ -189,7 +189,7 @@ export const FIXED_REPLIES: Record<ReplyKey, Record<ReplyLanguage, string>> = {
   },
 };
 
-// The neutral savings line (Playbook 10, Trigger layer 6). The ONLY savings wording a Claude draft may
+// The neutral savings line (Playbook 10, Trigger layer 6). The ONLY savings wording an LLM draft may
 // contain: no promise, no number, no tie-up. Used for "do I get a discount at this centre?", the centre
 // list and after a booking; the reply validator lets it through word for word and rejects every other
 // saving / discount wording. English is the Playbook text; Hindi / Hinglish are DRAFTS: [CONFIRM].
