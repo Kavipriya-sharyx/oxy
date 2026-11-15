@@ -112,13 +112,15 @@ const VIEW_STATES: Record<string, string[]> = {
 const WAITING_SQL = `EXISTS (SELECT 1 FROM message mi WHERE mi.conversation_id = c.id AND mi.direction = 'in'
   AND mi.created_on > COALESCE((SELECT MAX(o.created_on) FROM message o
                                 WHERE o.conversation_id = c.id AND o.direction = 'out'), 'epoch'))`;
-const WINDOW_SQL = `c.last_customer_message_at > NOW() - INTERVAL '24 hours'`;
+// the cutoff goes in as a parameter (a Date), written the same way the app writes last_customer_message_at
+const windowSince = () => new Date(Date.now() - 24 * 60 * 60 * 1000);
 const PERSON_STATES = [ConversationState.Pause, ConversationState.Escalated];
 
 /** Inbox tabs that are not a plain state list: their WHERE part (me = the signed-in user) */
 export function viewWhere(view: string | undefined, me: string | null): { sql: string; params: object } | null {
   if (view === "waiting") return { sql: `${WAITING_SQL} AND c.state <> 'opted_out'`, params: {} };
-  if (view === "window") return { sql: WINDOW_SQL, params: {} };
+  if (view === "window")
+    return { sql: "c.last_customer_message_at > :since", params: { since: windowSince() } };
   if (view === "mine")
     return {
       sql: "c.taken_over_by_id = :me AND c.state IN (:...personStates)",
@@ -371,10 +373,10 @@ export class ConsoleController extends JWTAuthController {
               COUNT(*) FILTER (WHERE c.state = ANY($1))::int AS person,
               COUNT(*) FILTER (WHERE c.state = ANY($1) AND c.taken_over_by_id = $2)::int AS mine,
               COUNT(*) FILTER (WHERE c.state = ANY($3))::int AS booking,
-              COUNT(*) FILTER (WHERE ${WINDOW_SQL})::int AS "window",
+              COUNT(*) FILTER (WHERE c.last_customer_message_at > $4)::int AS "window",
               COUNT(*) FILTER (WHERE c.state = 'opted_out')::int AS opted
          FROM conversation c`,
-      [PERSON_STATES, me, VIEW_STATES.booking],
+      [PERSON_STATES, me, VIEW_STATES.booking, windowSince()],
     );
     return this.SendResponseData(r ?? {});
   }

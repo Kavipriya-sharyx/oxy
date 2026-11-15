@@ -72,7 +72,8 @@ describe("inbox tabs and what the bot waits for", () => {
 
   it("waiting / window / mine tabs filter in the database; the state tabs are not changed", () => {
     expect(viewWhere("waiting", "u1")?.sql).toMatch(/direction = 'in'[\s\S]*opted_out/);
-    expect(viewWhere("window", "u1")?.sql).toMatch(/24 hours/);
+    expect(viewWhere("window", "u1")?.sql).toBe("c.last_customer_message_at > :since");
+    expect(Date.now() - (viewWhere("window", "u1")?.params as any).since.getTime()).toBeGreaterThanOrEqual(24 * 3600000 - 1000);
     expect(viewWhere("mine", "u1")).toMatchObject({ params: { me: "u1" } });
     expect(viewWhere("mine", null)?.params).toMatchObject({ me: "-" }); // never matches everyone
     expect(viewWhere("person", "u1")).toBeNull();
