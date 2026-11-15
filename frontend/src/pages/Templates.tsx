@@ -240,18 +240,20 @@ export default function Templates() {
 
       {/* Meta WhatsApp 24-Hour Policy Notice */}
       <div className="panel" style={{ marginBottom: 16 }}>
-        <div className="panel-b small row" style={{ gap: 12, alignItems: "center" }}>
-          {issueCount > 0 ? (
-            <Pill tone="warn">{issueCount} blocked in Meta</Pill>
-          ) : (
-            <Pill tone="ok">Meta Compliance Active</Pill>
-          )}
-          <span style={{ flex: 1, minWidth: 0, color: "var(--fg)", lineHeight: 1.45 }}>
+        <div className="panel-b small tpl-notice-banner">
+          <div className="row" style={{ gap: 8, alignItems: "center" }}>
+            {issueCount > 0 ? (
+              <Pill tone="warn">{issueCount} blocked in Meta</Pill>
+            ) : (
+              <Pill tone="ok">Meta Compliance Active</Pill>
+            )}
+          </div>
+          <div className="tpl-notice-text">
             <b>24-Hour Customer Care Window:</b> Inside 24 hours of the customer&apos;s last inbound message, any normal
             session message can be sent. Outside this window, Meta strictly requires an <b>Approved Template</b> (e.g.
             follow-ups, booking updates, payment reminders). Unapproved templates are skipped by the pipeline to safeguard
             your WhatsApp Business phone number quality rating.
-          </span>
+          </div>
           {edit && (
             <button
               className="btn sm"
@@ -290,36 +292,38 @@ export default function Templates() {
           )}
         </div>
 
-        {/* Status Filter Tabs */}
-        <div className="tpl-tabs">
-          <button
-            className={`tpl-tab-btn ${statusFilter === "all" ? "active" : ""}`}
-            onClick={() => setStatusFilter("all")}
-          >
-            All ({totalCount})
-          </button>
-          <button
-            className={`tpl-tab-btn ${statusFilter === "approved" ? "active" : ""}`}
-            onClick={() => setStatusFilter("approved")}
-          >
-            Approved ({approvedCount})
-          </button>
-          <button
-            className={`tpl-tab-btn ${statusFilter === "submitted" ? "active" : ""}`}
-            onClick={() => setStatusFilter("submitted")}
-          >
-            In Review ({submittedCount})
-          </button>
-          <button
-            className={`tpl-tab-btn ${statusFilter === "issues" ? "active" : ""}`}
-            onClick={() => setStatusFilter("issues")}
-          >
-            Issues ({issueCount})
-          </button>
+        {/* Status Filter Tabs (Scrollable on small mobile screens) */}
+        <div className="tpl-tabs-wrap">
+          <div className="tpl-tabs">
+            <button
+              className={`tpl-tab-btn ${statusFilter === "all" ? "active" : ""}`}
+              onClick={() => setStatusFilter("all")}
+            >
+              All ({totalCount})
+            </button>
+            <button
+              className={`tpl-tab-btn ${statusFilter === "approved" ? "active" : ""}`}
+              onClick={() => setStatusFilter("approved")}
+            >
+              Approved ({approvedCount})
+            </button>
+            <button
+              className={`tpl-tab-btn ${statusFilter === "submitted" ? "active" : ""}`}
+              onClick={() => setStatusFilter("submitted")}
+            >
+              In Review ({submittedCount})
+            </button>
+            <button
+              className={`tpl-tab-btn ${statusFilter === "issues" ? "active" : ""}`}
+              onClick={() => setStatusFilter("issues")}
+            >
+              Issues ({issueCount})
+            </button>
+          </div>
         </div>
 
-        {/* Category Filter */}
-        <div className="row" style={{ gap: 8, alignItems: "center" }}>
+        {/* Category Filter and View Mode Switcher */}
+        <div className="tpl-controls-right">
           <select
             className="input"
             style={{ fontSize: 12, padding: "5px 10px", height: "auto" }}
@@ -476,7 +480,7 @@ export default function Templates() {
                   <div className="small muted" style={{ fontSize: 11 }}>
                     {r.last_synced_at ? `Synced ${fmtTime(r.last_synced_at)}` : "Not synced"}
                   </div>
-                  <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                  <div className="tpl-card-foot-actions">
                     {edit && (
                       <select
                         className="input"

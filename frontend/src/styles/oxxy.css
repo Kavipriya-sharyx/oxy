@@ -1634,12 +1634,13 @@ textarea.input {
 }
 
 
-/* ---- WhatsApp Templates Page Advanced Styles ---- */
+/* ---- WhatsApp Templates Page Advanced Responsive Styles ---- */
 .tpl-stats-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
+  width: 100%;
 }
 .tpl-stat-card {
   background: var(--surface);
@@ -1650,13 +1651,14 @@ textarea.input {
   flex-direction: column;
   gap: 6px;
   position: relative;
+  min-width: 0;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .tpl-stat-card:hover {
   border-color: var(--brand);
 }
 .tpl-stat-card .v {
-  font-size: 24px;
+  font-size: clamp(20px, 4vw, 24px);
   font-weight: 700;
   font-family: var(--font-head);
   color: var(--heading);
@@ -1664,13 +1666,29 @@ textarea.input {
   display: flex;
   align-items: baseline;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .tpl-stat-card .d {
   font-size: 12px;
   color: var(--muted);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+}
+
+.tpl-notice-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.tpl-notice-text {
+  flex: 1 1 280px;
+  min-width: 0;
+  color: var(--fg);
+  line-height: 1.5;
+  font-size: 12.5px;
 }
 
 .tpl-filter-bar {
@@ -1684,6 +1702,8 @@ textarea.input {
   border: 1px solid var(--line);
   border-radius: var(--r);
   margin-bottom: 16px;
+  width: 100%;
+  box-sizing: border-box;
 }
 .tpl-search-box {
   display: flex;
@@ -1693,9 +1713,10 @@ textarea.input {
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 6px 14px;
-  min-width: 240px;
-  flex: 1;
-  max-width: 360px;
+  flex: 1 1 240px;
+  min-width: 0;
+  max-width: 380px;
+  box-sizing: border-box;
 }
 .tpl-search-box input {
   border: none;
@@ -1704,16 +1725,27 @@ textarea.input {
   font-size: 13px;
   color: var(--fg);
   width: 100%;
+  min-width: 0;
   font-family: var(--font-ui);
 }
-.tpl-tabs {
+.tpl-tabs-wrap {
   display: flex;
+  align-items: center;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+}
+.tpl-tabs {
+  display: inline-flex;
   align-items: center;
   gap: 4px;
   background: var(--bg);
   padding: 3px;
   border-radius: 999px;
   border: 1px solid var(--line);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .tpl-tab-btn {
   border: none;
@@ -1725,9 +1757,10 @@ textarea.input {
   cursor: pointer;
   color: var(--muted);
   transition: all 0.15s ease;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 .tpl-tab-btn.active {
   background: var(--surface);
@@ -1735,11 +1768,19 @@ textarea.input {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   font-weight: 600;
 }
+.tpl-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 
 .tpl-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr));
   gap: 16px;
+  width: 100%;
+  box-sizing: border-box;
 }
 .tpl-card {
   background: var(--surface);
@@ -1749,6 +1790,9 @@ textarea.input {
   flex-direction: column;
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
   overflow: hidden;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 .tpl-card:hover {
   border-color: var(--brand);
@@ -1762,6 +1806,7 @@ textarea.input {
   justify-content: space-between;
   gap: 8px;
   background: var(--sunk);
+  flex-wrap: wrap;
 }
 .tpl-card-body {
   padding: 14px;
@@ -1769,6 +1814,7 @@ textarea.input {
   flex-direction: column;
   gap: 10px;
   flex: 1;
+  min-width: 0;
 }
 .tpl-card-title {
   font-family: var(--font-mono);
@@ -1778,12 +1824,17 @@ textarea.input {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-all;
 }
 .tpl-card-desc {
   font-size: 12px;
   color: var(--muted);
   line-height: 1.45;
   min-height: 32px;
+  word-break: break-word;
 }
 
 .tpl-wa-bubble {
@@ -1799,6 +1850,10 @@ textarea.input {
   flex-direction: column;
   gap: 6px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .tpl-wa-bubble .param-chip {
   background: var(--accent-soft);
@@ -1809,6 +1864,7 @@ textarea.input {
   font-size: 11px;
   font-weight: 600;
   display: inline-block;
+  word-break: break-all;
 }
 .tpl-wa-bubble .wa-meta {
   display: flex;
@@ -1838,6 +1894,7 @@ textarea.input {
   align-items: center;
   justify-content: center;
   gap: 4px;
+  word-break: break-word;
 }
 .tpl-card-foot {
   padding: 10px 14px;
@@ -1848,6 +1905,13 @@ textarea.input {
   gap: 8px;
   background: var(--surface);
   font-size: 12px;
+  flex-wrap: wrap;
+}
+.tpl-card-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .tpl-phone-mockup {
@@ -1856,6 +1920,9 @@ textarea.input {
   overflow: hidden;
   background: var(--chatbg, #eef9f7);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .tpl-phone-header {
   background: var(--navy);
@@ -1876,26 +1943,64 @@ textarea.input {
   justify-content: center;
   font-weight: 700;
   font-size: 13px;
+  flex-shrink: 0;
 }
 .tpl-phone-body {
-  padding: 16px;
-  min-height: 200px;
+  padding: 14px;
+  min-height: 180px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   justify-content: center;
 }
 
-@media (max-width: 900px) {
+/* Responsive Breakpoints */
+@media (max-width: 960px) {
   .tpl-stats-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .tpl-search-box {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+  .tpl-controls-right {
+    width: 100%;
+    justify-content: space-between;
+  }
 }
-@media (max-width: 600px) {
-  .tpl-stats-row {
-    grid-template-columns: 1fr;
+
+@media (max-width: 680px) {
+  .tpl-notice-banner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .tpl-notice-banner .btn {
+    align-self: flex-start;
   }
   .tpl-cards-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .tpl-stats-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .tpl-filter-bar {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+  .tpl-card-foot {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .tpl-card-foot-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .tpl-card-foot-actions select {
+    flex: 1;
   }
 }
