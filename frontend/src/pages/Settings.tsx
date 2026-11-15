@@ -7,7 +7,8 @@ import { testMapsKey } from "../api/centres.api";
 const GROUP_TITLES: Record<SettingItem["group"], string> = {
   whatsapp: "WhatsApp Cloud API",
   ai: "AI Provider & Model Keys",
-  crm: "In-house CRM Sync",
+  crm: "CRM push (optional; off = the client's CRM uses the Oxxy API)",
+  timings: "Timings (applied at once; empty = default) [CONFIRM with Oxxy]",
   maps: "Maps (Google Maps Platform: nearby centres, distance, address lookup)",
 };
 
@@ -69,7 +70,7 @@ export default function Settings() {
     }
   };
 
-  const groups: SettingItem["group"][] = ["whatsapp", "ai", "crm", "maps"];
+  const groups: SettingItem["group"][] = ["whatsapp", "ai", "timings", "crm", "maps"];
 
   // the AI model really in use (Claude, OpenAI or Gemini), from the saved settings below
   const val = (k: string) => String(items.find((i) => i.key === k)?.value ?? "");
@@ -83,6 +84,11 @@ export default function Settings() {
     PROVIDER[p]
       ? `${PROVIDER[p][0]} · ${val(PROVIDER[p][1]) || ph(PROVIDER[p][1]) || "default model"}`
       : "";
+  // quiet hours as saved in Timings (defaults 9 and 21)
+  const num = (k: string, d: number) => (val(k) ? Number(val(k)) : d);
+  const proFrom = num("PROACTIVE_FROM", 9);
+  const proUntil = num("PROACTIVE_UNTIL", 21);
+  const pad = (h: number) => String(h).padStart(2, "0");
   const preferred = val("LLM_PROVIDER");
   const fallback = val("LLM_FALLBACK");
   const aiModel = loading
@@ -100,7 +106,7 @@ export default function Settings() {
             <dt>Latest</dt>
             <dd>Same date 6 months later; the month's last day if that date does not exist</dd>
             <dt>Status</dt>
-            <dd>Always pending until the sales team confirms in the CRM</dd>
+            <dd>Always pending until a sales person confirms (here or through the API)</dd>
           </dl>
         </Panel>
         <Panel title="Fixed rules" note="Not editable">
@@ -115,7 +121,9 @@ export default function Settings() {
               Tele-MANAS <span className="mono">14416</span>
             </dd>
             <dt>Quiet hours</dt>
-            <dd>Proactive messages only 09:00–21:00 IST</dd>
+            <dd>
+              Proactive messages only {pad(proFrom)}:00–{pad(proUntil)}:00 IST (Timings below)
+            </dd>
             <dt>AI model</dt>
             <dd className="small">{aiModel}</dd>
             <dt>Order</dt>
@@ -140,9 +148,9 @@ export default function Settings() {
                 {grp === "maps" && (
                   <div className="small" style={{ marginBottom: 12 }}>
                     <div className="muted" style={{ marginBottom: 6 }}>
-                      Server key: enable Geocoding API, Routes API and Places API (New) in Google Cloud, with billing on.
-                      Browser key: a second key with Maps JavaScript API, restricted to this site's address. Save first,
-                      then test.
+                      Server key: enable Geocoding API, Routes API and Places API (New) in Google
+                      Cloud, with billing on. Browser key: a second key with Maps JavaScript API,
+                      restricted to this site's address. Save first, then test.
                     </div>
                     <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
                       <Button onClick={runMapsTest} loading={testing}>
@@ -152,8 +160,12 @@ export default function Settings() {
                         (["geocoding", "routes", "places"] as const).map((k) => (
                           <span key={k} title={mapsTest[k]}>
                             <Pill tone={mapsTest[k] === "ok" ? "ok" : "crit"}>
-                              {k === "geocoding" ? "Geocoding" : k === "routes" ? "Routes" : "Places"}:{" "}
-                              {mapsTest[k] === "ok" ? "working" : mapsTest[k]}
+                              {k === "geocoding"
+                                ? "Geocoding"
+                                : k === "routes"
+                                  ? "Routes"
+                                  : "Places"}
+                              : {mapsTest[k] === "ok" ? "working" : mapsTest[k]}
                             </Pill>
                           </span>
                         ))}
@@ -172,7 +184,11 @@ export default function Settings() {
                           <span>{item.label}</span>
                           <span className="mono small muted">{item.key}</span>
                           {item.type === "string" &&
-                            (item.isSet ? <Pill tone="ok">Set</Pill> : <Pill>Not set</Pill>)}
+                            (item.isSet ? (
+                              <Pill tone="ok">Set</Pill>
+                            ) : (
+                              <Pill>{grp === "timings" ? "Default" : "Not set"}</Pill>
+                            ))}
                         </span>
                       }
                     >

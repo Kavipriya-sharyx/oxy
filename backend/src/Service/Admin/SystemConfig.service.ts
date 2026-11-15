@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { system_config } from "@Database/Table/Admin/system_config";
 
@@ -6,8 +6,12 @@ export interface ConfigFieldDef {
   key: string;
   configPath: string;
   label: string;
-  group: "whatsapp" | "ai" | "crm" | "maps";
+  group: "whatsapp" | "ai" | "crm" | "maps" | "timings";
   secret?: boolean;
+  /** read the current value from process.env (values the services read live, not ConfigService) */
+  fromEnv?: boolean;
+  /** null = fine; else the reason the value is refused. Empty always means "use the default". */
+  check?: (v: string) => string | null;
   type?: "string" | "boolean" | "select";
   options?: { value: string; label: string }[]; // type "select" only
   placeholder?: string;
@@ -17,6 +21,94 @@ const LLM_OPTIONS = [
   { value: "claude", label: "Claude (Anthropic)" },
   { value: "openai", label: "OpenAI" },
   { value: "gemini", label: "Gemini (Google)" },
+];
+
+const intIn = (min: number, max: number, what: string) => (v: string) =>
+  /^\d+$/.test(v) && Number(v) >= min && Number(v) <= max
+    ? null
+    : `${what} must be a whole number from ${min} to ${max}`;
+const range = (min: number, max: number, what: string) => (v: string) => {
+  const m = v.match(/^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$/);
+  return m && Number(m[1]) >= min && Number(m[2]) <= max && Number(m[1]) < Number(m[2])
+    ? null
+    : `${what} must look like "10-19" (start before end, ${min} to ${max})`;
+};
+
+// Business timings [CONFIRM with Oxxy] (Playbook 22.2: quiet hours, team hours, callback; journey window). The
+// services read them live from process.env, so a save applies at once, without a restart. Empty = the default.
+const TIMINGS: ConfigFieldDef[] = [
+  {
+    key: "PROACTIVE_FROM",
+    configPath: "Timings.ProactiveFrom",
+    label: "Bot may message customers from (hour, IST)",
+    group: "timings",
+    fromEnv: true,
+    placeholder: "9",
+    check: intIn(0, 23, "The start hour"),
+  },
+  {
+    key: "PROACTIVE_UNTIL",
+    configPath: "Timings.ProactiveUntil",
+    label: "… until (hour, IST; quiet hours after this)",
+    group: "timings",
+    fromEnv: true,
+    placeholder: "21",
+    check: intIn(1, 24, "The end hour"),
+  },
+  {
+    key: "TEAM_HOURS",
+    configPath: "Timings.TeamHours",
+    label: "Team hours for callbacks (start-end hour)",
+    group: "timings",
+    fromEnv: true,
+    placeholder: "10-19",
+    check: range(0, 24, "Team hours"),
+  },
+  {
+    key: "TEAM_DAYS",
+    configPath: "Timings.TeamDays",
+    label: "Team days (0 = Sunday … 6 = Saturday)",
+    group: "timings",
+    fromEnv: true,
+    placeholder: "1-6",
+    check: range(0, 6, "Team days"),
+  },
+  {
+    key: "RESCUE_1_HOURS",
+    configPath: "Timings.Rescue1",
+    label: "First nudge when the customer goes quiet (hours)",
+    group: "timings",
+    fromEnv: true,
+    placeholder: "20",
+    check: intIn(1, 168, "The first nudge"),
+  },
+  {
+    key: "RESCUE_2_HOURS",
+    configPath: "Timings.Rescue2",
+    label: "Second nudge (hours after the first)",
+    group: "timings",
+    fromEnv: true,
+    placeholder: "48",
+    check: intIn(1, 168, "The second nudge"),
+  },
+  {
+    key: "TRIGGER_Q_DELAY_HOURS",
+    configPath: "Timings.TriggerQ",
+    label: "Payment reminder after the link (hours)",
+    group: "timings",
+    fromEnv: true,
+    placeholder: "4",
+    check: intIn(1, 72, "The payment reminder"),
+  },
+  {
+    key: "JOURNEY_DAYS",
+    configPath: "Timings.JourneyDays",
+    label: "Decision-journey window (days)",
+    group: "timings",
+    fromEnv: true,
+    placeholder: "7",
+    check: intIn(1, 90, "The journey window"),
+  },
 ];
 
 export const CONFIG_FIELDS: ConfigFieldDef[] = [
@@ -142,7 +234,8 @@ export const CONFIG_FIELDS: ConfigFieldDef[] = [
   {
     key: "GOOGLE_MAPS_BROWSER_KEY",
     configPath: "Maps.BrowserKey",
-    label: "Google Maps browser key for the console map (Maps JavaScript API, restricted to this site)",
+    label:
+      "Google Maps browser key for the console map (Maps JavaScript API, restricted to this site)",
     group: "maps",
   },
   {
@@ -173,6 +266,7 @@ export const CONFIG_FIELDS: ConfigFieldDef[] = [
     group: "crm",
     secret: true,
   },
+  ...TIMINGS,
 ];
 
 const MASK_PREFIX = "••••";
@@ -213,7 +307,7 @@ export class SystemConfigService implements OnModuleInit {
 
   getSettings() {
     return CONFIG_FIELDS.map((def) => {
-      const current = this._Config.get<any>(def.configPath);
+      const current = def.fromEnv ? process.env[def.key] : this._Config.get<any>(def.configPath);
       if (def.type === "boolean") {
         return {
           key: def.key,
@@ -255,6 +349,21 @@ export class SystemConfigService implements OnModuleInit {
   }
 
   async updateSettings(values: Record<string, string | boolean>) {
+    // check everything first: nothing is saved when one value is wrong
+    const problems: string[] = [];
+    for (const def of CONFIG_FIELDS) {
+      if (!def.check || !(def.key in values)) continue;
+      const v = String(values[def.key] ?? "").trim();
+      const p = v ? def.check(v) : null;
+      if (p) problems.push(p);
+    }
+    const hour = (k: string, d: number) => {
+      const v = k in values ? String(values[k] ?? "").trim() : String(process.env[k] ?? "");
+      return v ? Number(v) : d;
+    };
+    if (!problems.length && hour("PROACTIVE_FROM", 9) >= hour("PROACTIVE_UNTIL", 21))
+      problems.push("The bot's start hour must be before its end hour");
+    if (problems.length) throw new BadRequestException(problems.join(". "));
     let updated = 0;
     for (const def of CONFIG_FIELDS) {
       if (!(def.key in values)) continue;
@@ -287,4 +396,3 @@ export class SystemConfigService implements OnModuleInit {
     this.applyRuntime(def, value);
   }
 }
-

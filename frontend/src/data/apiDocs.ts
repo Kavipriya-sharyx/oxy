@@ -618,7 +618,11 @@ export const ERRORS: [number, string, string][] = [
   [404, "booking_not_found / activation_not_found / task_not_found", "No such record"],
   [409, "not_pending", "Confirm on a booking that is not pending (also status_now)"],
   [409, "booking_cancelled", "Reschedule on a cancelled booking"],
-  [409, "crm_id_in_use", "That CRM customer id is already linked to another customer"],
+  [
+    409,
+    "crm_id_in_use",
+    "That CRM id (customer, booking, activation or task) is already on another record",
+  ],
   [500, "internal_error", "Bot-side problem; retry later"],
   [503, "not_configured", "No API key exists on the server yet"],
 ];
@@ -770,7 +774,10 @@ export const SYNC_ACTIONS: DocEndpoint[] = [
     response: `{ "booking_request_id": "cd42ad49-…", "status": "confirmed", "preferred_date": "2026-11-25", "preferred_time": "10:30",
   "crm_booking_id": "BK-1001", "confirmed_by": "Priya S (sales)", "customer_notified": "booking_confirmed template" }`,
     errors:
-      "400 confirmed_by_required, invalid_id · 404 booking_not_found · 409 not_pending (with status_now)",
+      "400 confirmed_by_required, invalid_id · 404 booking_not_found · 409 not_pending (with status_now), crm_id_in_use",
+    notes: [
+      'Between 21:00 and 09:00 IST the WhatsApp message is queued and sent at 09:00 IST; customer_notified then says "… at 09:00 IST (quiet hours)". The booking is confirmed at once either way.',
+    ],
   },
   {
     id: "reschedule-booking",
@@ -797,7 +804,7 @@ export const SYNC_ACTIONS: DocEndpoint[] = [
     response: `{ "booking_request_id": "cd42ad49-…", "status": "pending_confirmation", "preferred_date": "2026-11-28",
   "preferred_time": "15:00", "crm_booking_id": "BK-1001", "confirmed_by": null, "customer_notified": "booking_rescheduled template" }`,
     errors:
-      "400 date_required, date_out_of_window, invalid_id · 404 booking_not_found · 409 booking_cancelled",
+      "400 date_required, date_out_of_window, invalid_id · 404 booking_not_found · 409 booking_cancelled, crm_id_in_use",
   },
   {
     id: "cancel-booking",
@@ -869,7 +876,7 @@ export const SYNC_ACTIONS: DocEndpoint[] = [
 }'`,
     response: `{ "activation_id": "7f1c0a52-…", "payment_status": "paid", "activation_status": "active", "already": false,
   "customer_notified": "activation_confirmed template" }`,
-    errors: "400 invalid_result, invalid_id · 404 activation_not_found",
+    errors: "400 invalid_result, invalid_id · 404 activation_not_found · 409 crm_id_in_use",
     notes: [
       "Sending paid twice is harmless: the second call answers already: true and sends nothing.",
     ],

@@ -21,7 +21,7 @@ const STATUS: Record<string, [string, Tone]> = {
 };
 
 export default function CrmSync() {
-  usePageTitle("CRM sync", "Admin · in-house CRM");
+  usePageTitle("CRM sync", "Admin · optional push to a CRM");
   const { message } = App.useApp();
   const qc = useQueryClient();
   const outbox = useQuery({
@@ -47,6 +47,13 @@ export default function CrmSync() {
 
   return (
     <>
+      <div className="panel">
+        <div className="panel-b small">
+          In the current setup the client's CRM is not pushed to: it calls the Oxxy API (changes
+          feed and update calls, see Developer). This page shows the optional push sync, used only
+          when CRM push is switched on in Configuration; until then it stays empty.
+        </div>
+      </div>
       <div className="grid g4">
         <Stat label="Pending" value={n("pending")} detail="Waiting to be sent" />
         <Stat label="Retrying" value={n("failed")} detail="1, 5, 15, 60 min, then hourly" />

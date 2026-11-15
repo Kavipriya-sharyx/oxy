@@ -4,6 +4,7 @@ import { CrmWebhookService } from "./CrmWebhook.service";
 import { crm_webhook_event } from "@Database/Table/Crm/crm_webhook_event";
 import { booking_request } from "@Database/Table/Oxxy/booking_request";
 import { conversation } from "@Database/Table/Oxxy/conversation";
+import { QuietHoursError } from "@Helper/WhatsappErrors";
 
 afterEach(() => jest.restoreAllMocks());
 
@@ -151,5 +152,39 @@ describe("customer.opted_out", () => {
       "919840012345",
       "919840012345",
     ]);
+  });
+});
+
+describe("status messages in quiet hours (never dropped)", () => {
+  it("a cancellation at night is queued for 09:00 IST, and the YES / NO offer is armed only when it is sent", async () => {
+    setup(1); // the booking / conversation stubs
+    const at = new Date("2026-11-17T03:30:00Z");
+    const send = jest.fn(async () => {
+      throw new QuietHoursError(at);
+    });
+    const scheduler = { create: jest.fn(async () => ({ id: "f1" })) };
+    const svc = new CrmWebhookService(
+      {} as never,
+      { send } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      undefined,
+      scheduler as never,
+    );
+    await svc.apply("booking.cancelled", { booking_id: "b1" });
+    expect(scheduler.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "status_update",
+        templateName: "booking_cancelled",
+        scheduledFor: at,
+        conversationId: "v1",
+        pendingAction: "rebook_offer:b1",
+      }),
+    );
+    // not armed now: the customer has not seen the question yet
+    expect(conversation.update).not.toHaveBeenCalledWith("v1", {
+      pending_action: "rebook_offer:b1",
+    });
   });
 });

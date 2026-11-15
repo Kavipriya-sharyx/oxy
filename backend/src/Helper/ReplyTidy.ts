@@ -39,8 +39,18 @@ export interface TidyOptions {
   previousBotText?: string | null;
 }
 
+/** Lines that are only list numbers ("1. 2. 3. 4.", "1. 2. K. G."): a list whose items were left out */
+export function withoutEmptyNumbering(text: string): string {
+  return (text || "")
+    .split(/\r?\n/)
+    .filter((line) => !(/\d[.)]/.test(line) && /^(\s*(\d{1,2}|[A-Za-z])[.)]\s*)+$/.test(line)))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function tidyDraft(draft: string, opts: TidyOptions = {}): string {
-  const original = (draft || "").trim();
+  const original = withoutEmptyNumbering(draft);
   let parts = splitSentences(original);
   if (!parts.length) return original;
 

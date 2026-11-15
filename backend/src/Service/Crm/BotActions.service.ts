@@ -42,7 +42,13 @@ import { BookingService } from "@Service/Oxxy/Booking.service";
 import { DateWindowService } from "@Service/Oxxy/DateWindow.service";
 import { FollowUpSchedulerService } from "@Service/Oxxy/FollowUpScheduler.service";
 import { WhatsappClient } from "@Service/Oxxy/WhatsappClient.service";
-import { isQuietHours, isWithin24h, nextAllowedAt } from "@Service/Oxxy/WhatsappRules";
+import {
+  hhmm,
+  isQuietHours,
+  isWithin24h,
+  nextAllowedAt,
+  proactiveHours,
+} from "@Service/Oxxy/WhatsappRules";
 import { cleanCallContext, describeCallContext, type CallContext } from "@Helper/CallContext";
 import { LEAD_INTRO_TEXT, LEAD_ROWS } from "@Helper/OpeningMenu";
 import { lang } from "@Helper/Lang";
@@ -487,7 +493,7 @@ export class BotActionsService {
       });
     if (isQuietHours(when))
       throw new BadRequestException({
-        message: "Follow-ups can be sent only between 09:00 and 21:00 IST",
+        message: `Follow-ups can be sent only between ${hhmm(proactiveHours().from)} and ${hhmm(proactiveHours().until)} IST`,
         code: "quiet_hours",
       });
     if (!body.reason?.trim())
@@ -695,7 +701,7 @@ export class BotActionsService {
     } catch (e) {
       if (e instanceof QuietHoursError)
         throw new ConflictException({
-          message: "Quiet hours (21:00-09:00 IST)",
+          message: `Quiet hours (${hhmm(proactiveHours().until)}-${hhmm(proactiveHours().from)} IST)`,
           code: "quiet_hours",
           next_allowed_at: e.nextAllowedAt,
         });
@@ -889,6 +895,16 @@ export class BotActionsService {
     cons.whatsapp_consent = true;
     cons.consent_source = body.consent_source.trim().slice(0, 120);
     await cons.save();
+    // the client's CRM learns the new lead from its changes feed (customer.updated), like an inbound chat
+    await this._Outbox.emit?.(CrmAction.UpsertCustomer, c.id, {
+      customer_id: c.id,
+      whatsapp: `+${wa}`,
+      first_name: c.first_name || body.first_name?.trim() || null,
+      language: c.language ?? null,
+      lead_id: c.lead_id ?? body.lead_id ?? null,
+      consent_source: cons.consent_source,
+      source: sourceOf(body.source ?? "voice_ai"),
+    });
     const conv = await this.openConversation(c.id);
     if (ctx) await this.saveCallContext(conv, ctx, !!c.active_product);
     const name = c.first_name || body.first_name?.trim() || "there";

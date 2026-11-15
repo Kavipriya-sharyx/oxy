@@ -28,12 +28,14 @@ const FEWER: L = {
   hinglish: "Mujhe us area mein sirf {n} verified option mile.",
 };
 const FOOT: L = {
-  en: "I have included specialist and multispeciality choices where relevant. Reply with 1-5, or send the name of another centre you prefer.",
-  hi: "जहाँ ज़रूरी था, मैंने स्पेशलिस्ट और मल्टीस्पेशलिटी दोनों विकल्प दिए हैं। 1-5 में से कोई नंबर लिखें, या अपनी पसंद के किसी दूसरे सेंटर का नाम भेजें।",
+  en: "I have included specialist and multispeciality choices where relevant. Reply with {range}, or send the name of another centre you prefer.",
+  hi: "जहाँ ज़रूरी था, मैंने स्पेशलिस्ट और मल्टीस्पेशलिटी दोनों विकल्प दिए हैं। {range} में से कोई नंबर लिखें, या अपनी पसंद के किसी दूसरे सेंटर का नाम भेजें।",
   hinglish:
-    "Jahan zaroori tha, maine specialist aur multispeciality dono options diye hain. 1-5 mein se number likhein, ya apni pasand ke kisi doosre centre ka naam bhejein.",
+    "Jahan zaroori tha, maine specialist aur multispeciality dono options diye hain. {range} mein se number likhein, ya apni pasand ke kisi doosre centre ka naam bhejein.",
 };
-const KIND: Record<"multi" | "specialist", L> = {
+const KIND: Record<"multi" | "specialist" | "clinic" | "diagnostic", L> = {
+  clinic: { en: "Clinic", hi: "क्लिनिक", hinglish: "Clinic" },
+  diagnostic: { en: "Diagnostic centre", hi: "डायग्नोस्टिक सेंटर", hinglish: "Diagnostic centre" },
   multi: { en: "Multispeciality", hi: "मल्टीस्पेशलिटी", hinglish: "Multispeciality" },
   specialist: { en: "Specialist", hi: "स्पेशलिस्ट", hinglish: "Specialist" },
 };
@@ -84,8 +86,18 @@ export function parseRadius(text: string): number | null {
 /** Playbook 10.1 presentation: name, locality, type and relevance; never a tie-up or discount claim */
 export function centreListText(list: CentreCard[], specialisation: string | null, l?: string | null): string {
   const cards = list.map((c, i) => {
-    const kind = say(c.centre_type === "multispeciality" ? KIND.multi : KIND.specialist, l);
-    const parts = [`${i + 1}. ${c.name}${c.branch ? `, ${c.branch}` : ""} - ${c.locality || c.city || ""}`, kind];
+    // the type label only when the directory says so ("multi_speciality", "Multi-specialty" and the like count)
+    const type = String(c.centre_type ?? "").toLowerCase().replace(/[^a-z]/g, "");
+    const kind = /^multi/.test(type)
+      ? say(KIND.multi, l)
+      : /^(speciali[sz]|specialty|speciality)/.test(type)
+        ? say(KIND.specialist, l)
+        : /^clinic/.test(type)
+          ? say(KIND.clinic, l)
+          : /^diagnos/.test(type)
+            ? say(KIND.diagnostic, l)
+        : null;
+    const parts = [`${i + 1}. ${c.name}${c.branch ? `, ${c.branch}` : ""} - ${c.locality || c.city || ""}`, ...(kind ? [kind] : [])];
     if (c.distance_km != null && Number.isFinite(c.distance_km) && c.distance_km < 500) {
       const km = c.distance_km < 10 ? Math.round(c.distance_km * 10) / 10 : Math.round(c.distance_km);
       // right next to the customer: "under 1 km", never "about 0 km"
@@ -96,7 +108,8 @@ export function centreListText(list: CentreCard[], specialisation: string | null
   });
   const head = say(specialisation ? HEAD : HEAD_AREA, l);
   const fewer = list.length < 5 ? `\n${say(FEWER, l).replace("{n}", String(list.length))}` : "";
-  return `${head}\n${cards.join("\n")}${fewer}\n\n${say(FOOT, l)}`;
+  const range = list.length <= 1 ? "1" : list.length === 2 ? "1 or 2" : `1-${list.length}`;
+  return `${head}\n${cards.join("\n")}${fewer}\n\n${say(FOOT, l).replace("{range}", range)}`;
 }
 
 // After the customer says no to another centre (CRM booking.cancelled). English approved style; hi /

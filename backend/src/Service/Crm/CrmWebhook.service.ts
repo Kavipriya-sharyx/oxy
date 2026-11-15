@@ -26,6 +26,7 @@ import { InvalidTransitionError } from "@Service/Oxxy/ConversationStateMachine";
 import { DateWindowService } from "@Service/Oxxy/DateWindow.service";
 import { WhatsappClient } from "@Service/Oxxy/WhatsappClient.service";
 import { normaliseWa } from "@Service/Crm/BotActions.service";
+import { QuietHoursError } from "@Helper/WhatsappErrors";
 import { ChangeFeedService } from "@Service/Crm/ChangeFeed.service";
 
 type Data = Record<string, unknown>;
@@ -211,19 +212,56 @@ export class CrmWebhookService implements OnModuleInit, OnModuleDestroy {
     return { b, crmId };
   }
 
-  private async sendBookingTemplate(b: booking_request, templateName: string): Promise<boolean> {
+  /** A status template now, or at 09:00 IST when it is quiet hours (never dropped). true = sent now. */
+  private async sendStatus(
+    customerId: string,
+    conversationId: string | null,
+    templateName: string,
+    params: string[],
+    pendingAction?: string,
+  ): Promise<boolean> {
     try {
       await this._Wa.send(
-        b.customer_id,
-        {
-          kind: "template",
-          name: templateName,
-          languageCode: "en",
-          params: [b.centre?.name ?? "Oxxy centre", b.preferred_date],
-        },
+        customerId,
+        { kind: "template", name: templateName, languageCode: "en", params },
         "proactive",
       );
       return true;
+    } catch (e) {
+      if (e instanceof QuietHoursError && this._Scheduler) {
+        await this._Scheduler.create({
+          customerId,
+          conversationId,
+          kind: "status_update",
+          scheduledFor: e.nextAllowedAt,
+          templateName,
+          params,
+          pendingAction,
+          reason: `${templateName}: quiet hours, sent at 09:00 IST`,
+          source: "crm",
+        });
+        this.logger.log(
+          `${templateName} for ${customerId} queued for ${e.nextAllowedAt.toISOString()} (quiet hours)`,
+        );
+        return false;
+      }
+      throw e;
+    }
+  }
+
+  private async sendBookingTemplate(
+    b: booking_request,
+    templateName: string,
+    pendingAction?: string,
+  ): Promise<boolean> {
+    try {
+      return await this.sendStatus(
+        b.customer_id,
+        b.conversation_id ?? null,
+        templateName,
+        [b.centre?.name ?? "Oxxy centre", b.preferred_date],
+        pendingAction,
+      );
     } catch (e) {
       this.logger.warn(
         `CRM webhook WhatsApp send (${templateName}) failed: ${(e as Error).message}`,
@@ -274,9 +312,11 @@ export class CrmWebhookService implements OnModuleInit, OnModuleDestroy {
       where: { conversation_id: b.conversation_id, booking_status: BookingStatus.Cancelled },
     });
     const offer = earlier <= 1 && !!b.conversation_id;
+    // queued for 09:00 in quiet hours: the YES / NO offer is armed when it is really sent
     const sent = await this.sendBookingTemplate(
       b,
       offer ? "booking_cancelled" : "booking_cancelled_info",
+      offer ? `rebook_offer:${b.id}` : undefined,
     );
     if (sent && offer)
       await conversation.update(b.conversation_id, { pending_action: `rebook_offer:${b.id}` });
@@ -334,18 +374,12 @@ export class CrmWebhookService implements OnModuleInit, OnModuleDestroy {
     );
     // Trigger P (plan 3.3): tell the customer the activation is verified
     try {
-      await this._Wa.send(
-        a.customer_id,
-        {
-          kind: "template",
-          name: "activation_confirmed",
-          languageCode: "en",
-          params: [
-            a.product === "cut_medi_bills" ? "Cut Medi Bills" : `Oxxy ${a.plan ?? ""}`.trim(),
-          ],
-        },
-        "proactive",
-      );
+      const conv = await conversation.findOne({
+        where: { customer_id: a.customer_id, closed_at: IsNull() },
+      });
+      await this.sendStatus(a.customer_id, conv?.id ?? null, "activation_confirmed", [
+        a.product === "cut_medi_bills" ? "Cut Medi Bills" : `Oxxy ${a.plan ?? ""}`.trim(),
+      ]);
     } catch (e) {
       this.logger.warn(
         `CRM webhook WhatsApp send (activation_confirmed) failed: ${(e as Error).message}`,

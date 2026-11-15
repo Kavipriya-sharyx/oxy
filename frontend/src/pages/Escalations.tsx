@@ -65,8 +65,9 @@ export default function Escalations() {
             </>
           ) : (
             <>
-              The CRM is not connected, so tasks are worked here. Marking a task done also hands its
-              chat back to the bot.
+              Your team works these tasks here, or in the client's CRM through the Oxxy API (it
+              reads them from the changes feed and closes them with Tasks / Complete). Marking a
+              task done also hands its chat back to the bot.
             </>
           )}
         </div>

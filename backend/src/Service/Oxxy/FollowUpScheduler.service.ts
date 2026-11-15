@@ -13,7 +13,7 @@ import { customer } from "@Database/Table/Oxxy/customer";
 import { follow_up } from "@Database/Table/Oxxy/follow_up";
 import { ActivationStatus } from "@Helper/Enum/ActivationStatus";
 import { PaymentStatus } from "@Helper/Enum/PaymentStatus";
-import { MAX_RESCUES, RESCUE_DELAYS_MS, RESCUE_TEMPLATES } from "./RecoveryFlow";
+import { MAX_RESCUES, RESCUE_TEMPLATES, rescueDelayMs } from "./RecoveryFlow";
 
 const QUEUE = "scheduled";
 
@@ -23,7 +23,10 @@ export type FollowUpKind =
   | "rescue"
   | "trigger_q"
   | "booking_update"
-  | "lead_intro";
+  | "lead_intro"
+  // a booking / payment status message (booking confirmed, rescheduled, cancelled; payment verified) that came in
+  // during quiet hours: sent at 09:00 IST instead of being dropped
+  | "status_update";
 
 export interface FollowUpJob {
   customerId: string;
@@ -32,6 +35,7 @@ export interface FollowUpJob {
   templateName: string;
   params?: string[];
   followUpId?: string; // the follow_up row (the record); the job is only the alarm clock
+  pendingAction?: string; // set on the conversation once sent (e.g. rebook_offer:<booking id> for the YES / NO buttons)
 }
 
 export interface NewFollowUp {
@@ -44,6 +48,7 @@ export interface NewFollowUp {
   selectedProduct?: string | null;
   source?: string | null;
   params?: string[];
+  pendingAction?: string;
 }
 
 @Injectable()
@@ -106,6 +111,7 @@ export class FollowUpSchedulerService implements OnModuleInit, OnModuleDestroy {
         templateName: f.templateName,
         params: f.params,
         followUpId: row.id,
+        ...(f.pendingAction ? { pendingAction: f.pendingAction } : {}),
       },
       f.scheduledFor.getTime() - Date.now(),
     );
@@ -180,11 +186,15 @@ export class FollowUpSchedulerService implements OnModuleInit, OnModuleDestroy {
       : null;
     if (job.conversationId && (!conv || conv.closed_at))
       return this.finish(job, "skipped", "closed");
+    // a status message about the customer's own booking / payment still goes while a person has the chat;
+    // never during a safety pause
+    const statusOnly = job.kind === "status_update";
     if (
       conv &&
       (conv.state === ConversationState.Pause ||
-        conv.state === ConversationState.Escalated ||
-        conv.state === ConversationState.OptedOut)
+        (!statusOnly &&
+          (conv.state === ConversationState.Escalated ||
+            conv.state === ConversationState.OptedOut)))
     ) {
       return this.finish(
         job,
@@ -240,6 +250,8 @@ export class FollowUpSchedulerService implements OnModuleInit, OnModuleDestroy {
       // the three lead buttons are answered by the lead_intro flow (Playbook 4.1)
       if (job.kind === "lead_intro" && conv)
         await conversation.update(conv.id, { pending_action: "lead_intro" });
+      if (job.pendingAction && conv)
+        await conversation.update(conv.id, { pending_action: job.pendingAction });
       if (job.kind === "rescue" && conv) {
         const count = conv.rescue_count + 1;
         await conversation.update(conv.id, { rescue_count: count });
@@ -250,7 +262,7 @@ export class FollowUpSchedulerService implements OnModuleInit, OnModuleDestroy {
             customerId: job.customerId,
             conversationId: conv.id,
             kind: "rescue",
-            scheduledFor: new Date(Date.now() + RESCUE_DELAYS_MS[count]),
+            scheduledFor: new Date(Date.now() + rescueDelayMs(count)),
             templateName: RESCUE_TEMPLATES[count],
             reason: `no reply, rescue ${count + 1} of ${MAX_RESCUES}`,
             selectedProduct: conv.selected_product ?? null,

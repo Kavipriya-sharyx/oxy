@@ -3,7 +3,7 @@ import client from "./client";
 export interface SettingItem {
   key: string;
   label: string;
-  group: "whatsapp" | "ai" | "crm" | "maps";
+  group: "whatsapp" | "ai" | "crm" | "maps" | "timings";
   type: "string" | "boolean" | "select";
   secret: boolean;
   isSet: boolean;
@@ -25,4 +25,3 @@ export async function updateSettings(
   });
   return res.data;
 }
-

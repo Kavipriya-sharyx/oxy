@@ -83,14 +83,14 @@ export default function Dashboard() {
         <Stat
           label="Bookings to confirm"
           value={pending.data?.length ?? "…"}
-          detail="Confirmed by the sales team in the CRM"
+          detail="Confirmed by a sales person (here or via the API)"
           to="/bookings"
         />
         <Stat label="Opted out" value={d.optedOut ?? "…"} detail="No automated messages" />
         <Stat
-          label="CRM dead letters"
+          label="CRM push errors"
           value={d.deadOutbox ?? "…"}
-          detail="Need a retry in CRM sync"
+          detail="Only when CRM push is on; the client's CRM uses the API"
           to="/crm-sync"
         />
       </div>

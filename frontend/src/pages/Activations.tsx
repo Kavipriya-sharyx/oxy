@@ -95,7 +95,7 @@ export default function Activations() {
           <span className="mono">create_activation</span>.{" "}
           {crm
             ? "The sales team checks the payment; the CRM's activation.paid / activation.failed webhook updates this list."
-            : "The CRM is not connected, so an admin records the payment result here after checking the payment system."}
+            : "After checking the payment, record the result here, or the client's CRM sends it through the Oxxy API (Activations / Payment)."}
         </div>
       </div>
       <ErrorNote error={q.error} />

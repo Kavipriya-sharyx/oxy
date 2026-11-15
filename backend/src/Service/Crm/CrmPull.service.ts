@@ -14,6 +14,13 @@ import { PaymentStatus } from "@Helper/Enum/PaymentStatus";
 import { TaskStatus } from "@Helper/Enum/TaskStatus";
 import { assertId, sourceOf } from "./BotActions.service";
 import { ChangeFeedService, FEED_PAGE_MAX } from "./ChangeFeed.service";
+import { hhmm, isQuietHours, proactiveHours } from "@Service/Oxxy/WhatsappRules";
+
+/** "booking_confirmed template", or "… at 09:00 IST" when it is queued for the end of quiet hours */
+export const notified = (template: string, now = new Date()) =>
+  isQuietHours(now)
+    ? `${template} template at ${hhmm(proactiveHours().from)} IST (quiet hours)`
+    : `${template} template`;
 import { CrmWebhookService } from "./CrmWebhook.service";
 
 // The client's CRM only calls the bot's API (it builds nothing the bot calls). It pulls changes from the feed,
@@ -261,6 +268,23 @@ export class CrmPullService {
     }
   }
 
+  /** A CRM id already on another record: a clear 409, not a database error */
+  private async crmIdFree(
+    table: { findOne: (o: object) => Promise<{ id: string } | null> },
+    column: string,
+    value: string | null,
+    ownId: string,
+  ) {
+    if (!value) return value;
+    const other = await table.findOne({ where: { [column]: value } });
+    if (other && other.id !== ownId)
+      throw new ConflictException({
+        message: `${column} ${value} is already on another record`,
+        code: "crm_id_in_use",
+      });
+    return value;
+  }
+
   private async booking(id: string) {
     const b = await booking_request.findOne({ where: { id: assertId(id, "booking_request_id") } });
     if (!b)
@@ -298,14 +322,19 @@ export class CrmPullService {
       });
     await this.run("booking.confirmed", {
       booking_id: b.id,
-      crm_booking_id: text(body.crm_booking_id, 120),
+      crm_booking_id: await this.crmIdFree(
+        booking_request as never,
+        "crm_booking_id",
+        text(body.crm_booking_id, 120),
+        b.id,
+      ),
       confirmed_by_name: by,
       confirmed_by_crm_user_id: text(body.confirmed_by_crm_user_id, 120),
       source: sourceOf(body.source),
     });
     return {
       ...this.bookingView(await this.booking(id)),
-      customer_notified: "booking_confirmed template",
+      customer_notified: notified("booking_confirmed"),
     };
   }
 
@@ -318,14 +347,19 @@ export class CrmPullService {
       });
     await this.run("booking.rescheduled", {
       booking_id: b.id,
-      crm_booking_id: text(body.crm_booking_id, 120),
+      crm_booking_id: await this.crmIdFree(
+        booking_request as never,
+        "crm_booking_id",
+        text(body.crm_booking_id, 120),
+        b.id,
+      ),
       preferred_date: text(body.preferred_date, 10),
       preferred_time: text(body.preferred_time, 20),
       source: sourceOf(body.source),
     });
     return {
       ...this.bookingView(await this.booking(id)),
-      customer_notified: "booking_rescheduled template",
+      customer_notified: notified("booking_rescheduled"),
     };
   }
 
@@ -335,7 +369,12 @@ export class CrmPullService {
       return { ...this.bookingView(b), already_cancelled: true };
     await this.run("booking.cancelled", {
       booking_id: b.id,
-      crm_booking_id: text(body.crm_booking_id, 120),
+      crm_booking_id: await this.crmIdFree(
+        booking_request as never,
+        "crm_booking_id",
+        text(body.crm_booking_id, 120),
+        b.id,
+      ),
       reason: text(body.reason, 300),
       source: sourceOf(body.source),
     });
@@ -364,7 +403,12 @@ export class CrmPullService {
       };
     await this.run(`activation.${result}`, {
       activation_id: a.id,
-      crm_activation_id: text(body.crm_activation_id, 120),
+      crm_activation_id: await this.crmIdFree(
+        activation as never,
+        "crm_activation_id",
+        text(body.crm_activation_id, 120),
+        a.id,
+      ),
       source: sourceOf(body.source),
     });
     const now = await activation.findOne({ where: { id: a.id } });
@@ -373,7 +417,7 @@ export class CrmPullService {
       payment_status: now?.payment_status,
       activation_status: now?.activation_status,
       already: false,
-      customer_notified: result === "paid" ? "activation_confirmed template" : "no message",
+      customer_notified: result === "paid" ? notified("activation_confirmed") : "no message",
     };
   }
 
@@ -383,7 +427,14 @@ export class CrmPullService {
     if (t.task_status === TaskStatus.Done)
       return { task_id: t.id, status: t.task_status, already_done: true };
     if (body.crm_task_id && !t.crm_task_id)
-      await task.update(t.id, { crm_task_id: text(body.crm_task_id, 120) });
+      await task.update(t.id, {
+        crm_task_id: await this.crmIdFree(
+          task as never,
+          "crm_task_id",
+          text(body.crm_task_id, 120),
+          t.id,
+        ),
+      });
     await this.run("task.completed", {
       task_id: t.id,
       outcome: text(body.outcome, 500),

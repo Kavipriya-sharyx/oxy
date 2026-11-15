@@ -1,7 +1,13 @@
 import { Injectable, Logger, Optional } from "@nestjs/common";
 import { freshCallContext } from "@Helper/CallContext";
 import { faqAnswer, matchFaq, withoutClosingQuestion, faqNeedsPerson } from "@Helper/FaqReplies";
-import { asksNearby, centreListText, LOCATION_ASK_T, parseRadius, RADIUS_Q } from "@Helper/CentreReplies";
+import {
+  asksNearby,
+  centreListText,
+  LOCATION_ASK_T,
+  parseRadius,
+  RADIUS_Q,
+} from "@Helper/CentreReplies";
 import { toBubbles } from "@Helper/Bubbles";
 import { detectRescueSignal, readRescue, rescueLine } from "@Helper/RescueReplies";
 import { REBOOK_DECLINED_T } from "@Helper/CentreReplies";
@@ -65,6 +71,13 @@ import {
   asksForSuggestion,
   asksToBook,
   looksLikeCentreName,
+  asksIfThere,
+  asksWhyBooking,
+  asksWhyDate,
+  dateRuleText,
+  saysYesToOffer,
+  STILL_HERE_T,
+  whyBookingText,
 } from "./BookingFlow";
 import {
   asksMedicine,
@@ -84,7 +97,7 @@ import {
   parseFollowUpTime,
   PRICE_ASK_T,
   PRICE_BUDGET_QUESTION_T,
-  RESCUE_DELAYS_MS,
+  rescueDelayMs,
   RESCUE_TEMPLATES,
   summaryLines,
   SUMMARY_CLOSE_T,
@@ -205,6 +218,13 @@ export const CALLBACK_REASON_T: L = {
   hinglish:
     "Main guess karne ke bajay aapko sahi jawab dena chahta hoon. Main ek authorised callback arrange karunga.",
 };
+// A side question the bot could not answer in the middle of the booking or the gate: said plainly, then
+// the same step again (no hand-over for one question). [CONFIRM] wording.
+export const NOT_SURE_HERE_T: L = {
+  en: "Sorry, I could not answer that here. Our team can explain it on the call after your request.",
+  hi: "क्षमा करें, मैं इसका जवाब यहाँ नहीं दे सका। आपकी रिक्वेस्ट के बाद कॉल पर हमारी टीम इसे समझा देगी।",
+  hinglish: "Sorry, main iska jawab yahan nahi de saka. Aapki request ke baad call par hamari team ise samjha degi.",
+};
 // need columns handed to the LLM as "already known" (the free-text condition is never sent)
 const KNOWN_NEED_FIELDS = [
   "beneficiary",
@@ -286,7 +306,11 @@ export interface Inbound {
 }
 
 // Playbook 1.3 / Trigger layer 1.2: the decision journey [CONFIRM the 7 days, Playbook 22.2]
-export const JOURNEY_DAYS = Number(process.env.JOURNEY_DAYS || 7);
+/** Decision-journey window in days (Configuration page JOURNEY_DAYS, read live; default 7) */
+export const journeyDays = () => {
+  const n = Number(process.env.JOURNEY_DAYS);
+  return Number.isFinite(n) && n >= 1 && n <= 90 ? n : 7;
+};
 
 /**
  * True when the open conversation's journey is over: no customer message for JOURNEY_DAYS. Never for a
@@ -303,11 +327,15 @@ export function journeyExpired(
     c.state === ConversationState.OptedOut
   )
     return false;
-  return now - new Date(c.last_customer_message_at).getTime() > JOURNEY_DAYS * 24 * 3600 * 1000;
+  return now - new Date(c.last_customer_message_at).getTime() > journeyDays() * 24 * 3600 * 1000;
 }
 
 // Trigger Q: one reminder this long after the link, if it is still unpaid [CONFIRM] the delay
-export const TRIGGER_Q_DELAY_MS = Number(process.env.TRIGGER_Q_DELAY_HOURS || 4) * 60 * 60 * 1000;
+/** Payment reminder (Trigger Q) gap in ms (Configuration page TRIGGER_Q_DELAY_HOURS, read live; default 4 h) */
+export const triggerQDelayMs = () => {
+  const n = Number(process.env.TRIGGER_Q_DELAY_HOURS);
+  return (Number.isFinite(n) && n >= 1 && n <= 72 ? n : 4) * 60 * 60 * 1000;
+};
 
 // A reply after the activation link (plan 12.5). Short messages only: a longer one is a question for the LLM.
 export function paymentReplyKind(text: string): "done" | "failed" | "not_now" | null {
@@ -969,8 +997,35 @@ export class ChatPipelineService {
   private async acknowledgeWhileParked(m: Inbound, s: Saved) {
     const conv = s.conversation;
     if (conv.taken_over_by_id) return;
-    if (conv.pending_action === PARKED_ACK || conv.pending_action?.startsWith("callback_time:"))
+    const l = s.customer.language;
+    const cb = (conv.pending_action ?? "").match(/^callback_time:([^:]+):(.*)$/);
+    if (cb && conv.state === ConversationState.Escalated) {
+      // waiting for a callback choice: never silent. A plain question gets its answer, then the options
+      // again (windows that have passed are replaced by fresh ones).
+      let options = unpackWindows(cb[2]);
+      if (!options.length || options[0].from.getTime() < Date.now()) {
+        options = callbackOptions();
+        if (options.length) await this.setPending(s, `callback_time:${cb[1]}:${packWindows(options)}`);
+      }
+      const first = asksWhyDate(m.text) ? dateRuleText(l, undefined, false) : say(STILL_HERE_T, l);
+      await this.sendAndSave(
+        s.customer.id,
+        [first, options.length ? callbackQuestion(options, l) : ""].filter(Boolean).join("\n\n"),
+        m.waMessageId,
+      );
       return;
+    }
+    if (conv.pending_action === PARKED_ACK) {
+      // after the one acknowledgement the bot stays quiet, but "are you there?" is always answered
+      if (asksIfThere(m.text))
+        await this.sendAndSave(
+          s.customer.id,
+          conv.state === ConversationState.Pause ? say(PAUSE_ACK_T, l) : say(STILL_HERE_T, l),
+          m.waMessageId,
+        );
+      return;
+    }
+    if (conv.pending_action?.startsWith("callback_time:")) return;
     const key = conv.state === ConversationState.Pause ? PAUSE_ACK_T : ESCALATED_ACK_T;
     await this.setPending(s, PARKED_ACK);
     await this.sendAndSave(s.customer.id, say(key, s.customer.language), m.waMessageId);
@@ -1318,6 +1373,18 @@ export class ChatPipelineService {
         feedback = "technical error";
       }
     }
+    if (!result && this.busyWithQuestion(s)) {
+      // mid-booking / mid-gate: no hand-over for one side question; the step is asked again
+      this.logger.warn(
+        `conversation ${s.conversation.id}: no usable draft mid-step, the step is asked again: ${feedback ?? "n/a"}`,
+      );
+      await this.sendAndSave(
+        s.customer.id,
+        [say(NOT_SURE_HERE_T, s.customer.language), ...this.pendingBack(s)].join("\n\n"),
+        m.waMessageId,
+      );
+      return;
+    }
     if (!result) {
       this.logger.warn(
         `conversation ${s.conversation.id}: draft replaced by the fixed holding message: ${feedback ?? "n/a"}`,
@@ -1342,6 +1409,15 @@ export class ChatPipelineService {
 
     // Playbook 1.1: one question per message, enforced (the LLM sometimes asks two)
     result = { ...result, reply_text: oneQuestion(result.reply_text) };
+    // A side question in the middle of the booking or the Cut Medi Bills gate is answered and the same
+    // step is asked again: the flow is still running, so the chat is not handed to a person for it.
+    // (Asking for a person, complaints and safety are caught before the LLM and still escalate.)
+    if (result.needs_human && this.busyWithQuestion(s)) {
+      this.logger.log(
+        `conversation ${s.conversation.id}: needs_human ignored, the booking/gate step continues`,
+      );
+      result = { ...result, needs_human: false };
+    }
 
     // 4. Apply extracted fields + system-built additions (prices, links, centres come from the DB)
     if (healthBlocked) {
@@ -1420,8 +1496,9 @@ export class ChatPipelineService {
         }
       }
     }
-    // the booking flow asks its own question: the LLM's draft would be a second one
-    if (shown.has("G")) replaceReply = true;
+    // the booking flow asks its own question, and the centre list is the answer: the LLM draft would be a
+    // second question or a second list (its own list is never sent: names it wrote are not checked)
+    if (shown.has("G") || shown.has("D")) replaceReply = true;
     // a question interrupted the gate or the booking: answer it, then ask the same question again (12.2)
     const back = extras.length ? [] : this.pendingBack(s);
     // the draft loses its own question when the system asks one, any "please hold on" promise, and a
@@ -1944,7 +2021,8 @@ export class ChatPipelineService {
       r.intent === "find_centre" &&
       !n?.travel_radius_km &&
       !m.location &&
-      !conv.pending_action
+      !isBookingPending(conv.pending_action) &&
+      !gateOpen
     ) {
       // Playbook 10.1: collect the travel radius before suggesting centres
       conv.pending_action = "centre_radius";
@@ -1952,7 +2030,10 @@ export class ChatPipelineService {
     } else if (r.intent === "find_centre") {
       const text = await this.centreSuggestions(s, n, m.location);
       if (text.shown) shown.add("D");
-      if (text.shown && !conv.pending_action) conv.pending_action = "centre_pick"; // "2" = the second centre
+      // "2" = the second centre. Any older marker (location or radius question) is replaced; a booking or
+      // the Cut Medi Bills gate in progress keeps its own step.
+      if (text.shown && !isBookingPending(conv.pending_action) && !gateOpen)
+        conv.pending_action = "centre_pick";
       extras.push(text.text);
     }
 
@@ -2414,7 +2495,7 @@ export class ChatPipelineService {
       customerId: s.customer.id,
       conversationId: s.conversation.id,
       kind: "trigger_q",
-      scheduledFor: new Date(Date.now() + TRIGGER_Q_DELAY_MS),
+      scheduledFor: new Date(Date.now() + triggerQDelayMs()),
       templateName: "activation_reminder",
       reason: "link sent, payment not completed",
       selectedProduct: cat.product,
@@ -2933,7 +3014,8 @@ export class ChatPipelineService {
         withPoint.map((c) => ({ latitude: Number(c.latitude), longitude: Number(c.longitude) })),
       );
       withPoint.forEach((c, i) => {
-        if (travel[i]) Object.assign(c, { distance_km: travel[i]!.distance_km, minutes: travel[i]!.minutes });
+        if (travel[i])
+          Object.assign(c, { distance_km: travel[i]!.distance_km, minutes: travel[i]!.minutes });
       });
     }
     const spec = normaliseSpecialisation(n?.specialisation) ?? null;
@@ -2956,25 +3038,37 @@ export class ChatPipelineService {
     });
     const again = isNoCentreText((last as any)?.body);
     // the team hears about the gap: always the second time, and at once when Google Maps can list what is there
-    if (again || (origin && this._Maps?.enabled)) await this.reportCentreGap(s, place, origin ?? null, n?.travel_radius_km ?? 10);
+    if (again || (origin && this._Maps?.enabled))
+      await this.reportCentreGap(s, place, origin ?? null, n?.travel_radius_km ?? 10);
     return noCentreText(place, again, l);
   }
 
   // One task per conversation for a place without a verified centre. With Google Maps the task lists the
   // hospitals and clinics that exist there, as candidates for the TEAM to verify and add to the directory.
   // They are never shown to the customer (Playbook 10: only the verified directory is suggested).
-  private async reportCentreGap(s: Saved, place: string | null, origin: GeoPoint | null, radiusKm: number) {
+  private async reportCentreGap(
+    s: Saved,
+    place: string | null,
+    origin: GeoPoint | null,
+    radiusKm: number,
+  ) {
     try {
       const exists = await task.findOne({
-        where: { conversation_id: s.conversation.id, type: TaskType.DirectoryVerification, summary: Like("No verified centre%") },
+        where: {
+          conversation_id: s.conversation.id,
+          type: TaskType.DirectoryVerification,
+          summary: Like("No verified centre%"),
+        },
       });
       if (exists) return;
       let summary = `No verified centre${place ? ` for ${place}` : ""}: the customer needs options`;
-      const near = origin && this._Maps?.enabled ? await this._Maps.nearbyCandidates(origin, radiusKm) : [];
+      const near =
+        origin && this._Maps?.enabled ? await this._Maps.nearbyCandidates(origin, radiusKm) : [];
       if (near.length)
-        summary = `${summary}. Not verified, from Google Maps, to check before adding to the directory: ${near
-          .map((c) => `${c.name} (${c.address})`)
-          .join("; ")}`.slice(0, 1800);
+        summary =
+          `${summary}. Not verified, from Google Maps, to check before adding to the directory: ${near
+            .map((c) => `${c.name} (${c.address})`)
+            .join("; ")}`.slice(0, 1800);
       await this.createTask(TaskType.DirectoryVerification, TaskPriority.Normal, s, summary);
     } catch (e) {
       this.logger.warn(`centre gap not reported: ${(e as Error).message}`);
@@ -2984,7 +3078,8 @@ export class ChatPipelineService {
   // The customer's spot for a centre search: the pin they shared, else their locality on the map. A whole
   // city or a text Google only half matched is not used (the city match in the directory is better then).
   private async originFor(n: need | null, location?: GeoPoint): Promise<GeoPoint | null> {
-    if (location && Number.isFinite(location.latitude) && Number.isFinite(location.longitude)) return location;
+    if (location && Number.isFinite(location.latitude) && Number.isFinite(location.longitude))
+      return location;
     const locality = String(n?.locality ?? "").trim();
     if (!locality || !this._Maps) return null;
     const geo = await this._Maps.geocode([locality, n?.city].filter(Boolean).join(", "));
@@ -2992,11 +3087,22 @@ export class ChatPipelineService {
   }
 
   // The centre list for a spot, sent as this turn's reply (Trigger D)
-  private async replyCentreList(m: Inbound, s: Saved, n: need | null, origin: GeoPoint | undefined, reason: string) {
+  private async replyCentreList(
+    m: Inbound,
+    s: Saved,
+    n: need | null,
+    origin: GeoPoint | undefined,
+    reason: string,
+  ) {
     await this.setState(s, [ConversationState.CentreSearch]);
     const res = await this.centreSuggestions(s, n, origin);
     const decision = res.shown
-      ? ((await this._Triggers?.decide(s.customer.id, s.conversation, "D", s.customer.active_product)) ?? null)
+      ? ((await this._Triggers?.decide(
+          s.customer.id,
+          s.conversation,
+          "D",
+          s.customer.active_product,
+        )) ?? null)
       : null;
     await this.setPending(s, res.shown ? "centre_pick" : null);
     await this.sendAndSave(s.customer.id, res.text, m.waMessageId);
@@ -3053,6 +3159,13 @@ export class ChatPipelineService {
     n.locality = (geo.locality ?? text).slice(0, 80);
     if (geo.city) n.city = geo.city;
     await n.save();
+    if (!n.travel_radius_km) {
+      // Playbook 10.1: how far the patient can travel first, then the list (from this locality)
+      await this.setState(s, [ConversationState.CentreSearch]);
+      await this.setPending(s, "centre_radius");
+      await this.sendAndSave(s.customer.id, say(RADIUS_Q, s.customer.language), m.waMessageId);
+      return true;
+    }
     await this.replyCentreList(
       m,
       s,
@@ -3085,7 +3198,8 @@ export class ChatPipelineService {
           latitude: lat,
           longitude: lon,
           name,
-          address: [(ctr as any).address, ctr.locality, ctr.city].filter(Boolean).join(", ") || undefined,
+          address:
+            [(ctr as any).address, ctr.locality, ctr.city].filter(Boolean).join(", ") || undefined,
           body: `[Map pin] ${name}`,
         },
         "reply",
@@ -3284,13 +3398,29 @@ export class ChatPipelineService {
   private async handleBooking(m: Inbound, s: Saved): Promise<boolean> {
     const d = readDraft(s.conversation.pending_action);
     if (!d) return false;
-    const text = (m.text || "").trim();
-    if (!text || /\?\s*$/.test(text)) return false;
+    const raw = (m.text || "").trim();
     const reply = (parts: string[]) =>
       this.sendAndSave(s.customer.id, parts.join("\n\n"), m.waMessageId);
+    const l = s.customer.language;
+    // questions about the booking itself get a plain answer here, never an LLM guess or a callback
+    if (d.step === "offer" && asksWhyBooking(raw)) {
+      await reply([whyBookingText(d, l)]);
+      return true;
+    }
+    if (d.step === "date" && asksWhyDate(raw)) {
+      await reply([dateRuleText(l)]);
+      return true;
+    }
+    // "tomorrow ??", "yes?": an answer with question marks is still an answer
+    const text = raw.replace(/[\s?!.]+$/, "");
+    const answerish =
+      (d.step === "date" && !!parseCustomerDate(text)) ||
+      (d.step === "offer" && saysYesToOffer(text, d.cn));
+    if (!text || (/\?\s*$/.test(raw) && !answerish)) return false;
 
     if (d.step === "offer" || d.step === "centre") {
-      const answer = parseConsentAnswer(text);
+      const answer =
+        d.step === "offer" && saysYesToOffer(text, d.cn) ? "yes" : parseConsentAnswer(text);
       if (answer === "no") {
         await this.setPending(s, null);
         await reply([say(BOOKING_OFFER_DECLINED_T, s.customer.language)]);
@@ -3385,7 +3515,11 @@ export class ChatPipelineService {
       }
       const chk = this._DateWindow.validate(iso);
       if (!chk.valid) {
-        await reply([dateProblemText(String(chk.reason), undefined, s.customer.language)]);
+        await reply([
+          chk.reason === "too_soon"
+            ? dateRuleText(l) // why the date is too soon, and the earliest date
+            : dateProblemText(String(chk.reason), undefined, l),
+        ]);
         return true;
       }
       d.d = iso;
@@ -3441,7 +3575,7 @@ export class ChatPipelineService {
         customerId: s.customer.id,
         conversationId: conv.id,
         kind: "rescue",
-        scheduledFor: new Date(Date.now() + RESCUE_DELAYS_MS[done]),
+        scheduledFor: new Date(Date.now() + rescueDelayMs(done)),
         templateName: RESCUE_TEMPLATES[done],
         reason: `no reply, rescue ${done + 1} of ${MAX_RESCUES}`,
         selectedProduct: conv.selected_product ?? null,

@@ -317,11 +317,13 @@ export class GoLiveService {
     if (!this._Config.get("Crm.Enabled"))
       return [
         {
+          // the chosen setup: the client's CRM calls the Oxxy API (changes feed + updates); nothing is pushed
           area: "CRM",
-          item: "CRM sync",
-          status: "warn",
-          detail: "Off: bookings, tasks and activations stay in the console only",
-          fix: "Settings",
+          item: "CRM connection",
+          status: "ok",
+          detail:
+            "The client's CRM uses the Oxxy API (changes feed and update calls); push sync is off as planned. It needs an Actions API key.",
+          fix: "Developer",
         },
       ];
     const url = this._Config.get<string>("Crm.BaseUrl");

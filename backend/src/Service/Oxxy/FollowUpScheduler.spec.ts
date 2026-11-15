@@ -12,15 +12,24 @@ const job = {
   templateName: "activation_reminder",
 };
 
-function setup(o: { triggers?: string[]; unpaid?: boolean; active?: string | null; hourUtc?: number } = {}) {
+function setup(
+  o: { triggers?: string[]; unpaid?: boolean; active?: string | null; hourUtc?: number } = {},
+) {
   jest.useFakeTimers().setSystemTime(new Date(Date.UTC(2026, 10, 13, o.hourUtc ?? 6, 0, 0))); // 06:00 UTC = 11:30 IST
   jest.spyOn(consent, "findOne").mockResolvedValue({} as never);
-  jest.spyOn(conversation, "findOne").mockResolvedValue({ id: "v1", state: "follow_up", rescue_count: 0 } as never);
-  jest.spyOn(customer, "findOne").mockResolvedValue({ id: "c1", active_product: o.active ?? null } as never);
-  jest.spyOn(activation, "findOne").mockResolvedValue((o.unpaid === false ? null : { id: "a1" }) as never);
+  jest
+    .spyOn(conversation, "findOne")
+    .mockResolvedValue({ id: "v1", state: "follow_up", rescue_count: 0 } as never);
+  jest
+    .spyOn(customer, "findOne")
+    .mockResolvedValue({ id: "c1", active_product: o.active ?? null } as never);
+  jest
+    .spyOn(activation, "findOne")
+    .mockResolvedValue((o.unpaid === false ? null : { id: "a1" }) as never);
   jest
     .spyOn(trigger_event, "findOne")
-    .mockImplementation((async (q: any) => ((o.triggers ?? []).includes(q.where.trigger_id) ? { id: "t" } : null)) as never);
+    .mockImplementation((async (q: any) =>
+      (o.triggers ?? []).includes(q.where.trigger_id) ? { id: "t" } : null) as never);
   const save = jest.spyOn(trigger_event, "save").mockResolvedValue({} as never);
   jest.spyOn(trigger_event, "create").mockImplementation(((x: unknown) => x) as never);
   const wa = { send: jest.fn().mockResolvedValue("wamid") };
@@ -62,17 +71,30 @@ describe("Trigger Q reminder (plan 12.5 / 12.8)", () => {
 });
 
 describe("conversation rescue (Playbook 15: at most two in a row)", () => {
-  const rescue = { customerId: "c1", conversationId: "v1", kind: "rescue" as const, templateName: "conversation_rescue_1" };
+  const rescue = {
+    customerId: "c1",
+    conversationId: "v1",
+    kind: "rescue" as const,
+    templateName: "conversation_rescue_1",
+  };
   it("after the first rescue the second is scheduled; after the second, nothing more", async () => {
     const { svc, wa } = setup();
     const upd = jest.spyOn(conversation, "update").mockResolvedValue({} as never);
     const create = jest.spyOn(svc, "create").mockResolvedValue({} as never);
     await svc.execute(rescue);
-    expect(wa.send).toHaveBeenCalledWith("c1", expect.objectContaining({ name: "conversation_rescue_1" }), "proactive");
+    expect(wa.send).toHaveBeenCalledWith(
+      "c1",
+      expect.objectContaining({ name: "conversation_rescue_1" }),
+      "proactive",
+    );
     expect(upd).toHaveBeenCalledWith("v1", { rescue_count: 1 });
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ kind: "rescue", templateName: "conversation_rescue_2" }));
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "rescue", templateName: "conversation_rescue_2" }),
+    );
 
-    jest.spyOn(conversation, "findOne").mockResolvedValue({ id: "v1", state: "discovery", rescue_count: 1 } as never);
+    jest
+      .spyOn(conversation, "findOne")
+      .mockResolvedValue({ id: "v1", state: "discovery", rescue_count: 1 } as never);
     create.mockClear();
     await svc.execute({ ...rescue, templateName: "conversation_rescue_2" });
     expect(upd).toHaveBeenCalledWith("v1", { rescue_count: 2 });
@@ -80,8 +102,47 @@ describe("conversation rescue (Playbook 15: at most two in a row)", () => {
   });
   it("a third is never sent", async () => {
     const { svc, wa } = setup();
-    jest.spyOn(conversation, "findOne").mockResolvedValue({ id: "v1", state: "discovery", rescue_count: 2 } as never);
+    jest
+      .spyOn(conversation, "findOne")
+      .mockResolvedValue({ id: "v1", state: "discovery", rescue_count: 2 } as never);
     await svc.execute(rescue);
+    expect(wa.send).not.toHaveBeenCalled();
+  });
+});
+
+describe("status_update (a booking / payment message queued over quiet hours)", () => {
+  it("is still sent while a person has the chat, and arms the pending action once sent", async () => {
+    const { svc, wa } = setup();
+    jest
+      .spyOn(conversation, "findOne")
+      .mockResolvedValue({ id: "v1", state: "escalated", rescue_count: 0 } as never);
+    const upd = jest.spyOn(conversation, "update").mockResolvedValue({} as never);
+    await svc.execute({
+      customerId: "c1",
+      conversationId: "v1",
+      kind: "status_update",
+      templateName: "booking_cancelled",
+      params: ["Sample Care", "2026-12-01"],
+      pendingAction: "rebook_offer:b1",
+    });
+    expect(wa.send).toHaveBeenCalledWith(
+      "c1",
+      expect.objectContaining({ name: "booking_cancelled" }),
+      "proactive",
+    );
+    expect(upd).toHaveBeenCalledWith("v1", { pending_action: "rebook_offer:b1" });
+  });
+  it("never during a safety pause", async () => {
+    const { svc, wa } = setup();
+    jest
+      .spyOn(conversation, "findOne")
+      .mockResolvedValue({ id: "v1", state: "pause", rescue_count: 0 } as never);
+    await svc.execute({
+      customerId: "c1",
+      conversationId: "v1",
+      kind: "status_update",
+      templateName: "booking_confirmed",
+    });
     expect(wa.send).not.toHaveBeenCalled();
   });
 });

@@ -313,6 +313,36 @@ The client's voice AI shares details on WhatsApp after a call: `POST /Actions/St
 - Tests: `Service/Crm/StartConversation.spec.ts`. Not built: a template that sends plan details straight away
   (needs a new Meta template; today the customer taps "Just send details").
 
+## Timings on the Configuration page (16 Nov)
+
+Configuration → "Timings" (system_config, group `timings`, `fromEnv`): PROACTIVE_FROM / PROACTIVE_UNTIL (quiet hours,
+default 9 / 21), TEAM_HOURS, TEAM_DAYS, RESCUE_1_HOURS, RESCUE_2_HOURS, TRIGGER_Q_DELAY_HOURS, JOURNEY_DAYS. Saved
+values go to process.env at once and the code reads them live (`proactiveHours()`, `rescueDelayMs()`,
+`triggerQDelayMs()`, `journeyDays()`, `teamHours()`), so no restart; on start-up saved rows are re-applied. Each value
+is checked on save (ranges, start before end); nothing is saved if one is wrong; empty = default. Customer and API
+texts about quiet hours use the setting ("I can message only between 10 am and 9 pm"). Tests: `Timings.spec.ts`.
+
+## End-to-end API check of both guides (16 Nov)
+
+Every call in the CRM and voice agent guides was run against a test backend (throwaway DB 5544, mock WhatsApp +
+LLM, own QUEUE_PREFIX) with keys made on the Developer page: all answered as documented (incl. 400 / 401 / 403 / 404 /
+409 cases, changes feed, payment → product lock, OptOut). Found and fixed:
+- Booking confirmed / rescheduled / cancelled and activation_confirmed messages in quiet hours were DROPPED (warning
+  only) while the API said "notified". Now `CrmWebhookService.sendStatus` queues them as follow_up kind
+  `status_update` for 09:00 IST (rebook YES / NO armed via `pendingAction` when really sent; still sent while
+  ESCALATED, never in PAUSE); `customer_notified` says "… at 09:00 IST (quiet hours)".
+- StartConversation did not tell the CRM about a new lead: it now emits upsert_customer → `customer.updated` in the
+  feed.
+- A CRM id already on another record (crm_booking_id / crm_activation_id / crm_task_id) gave 500: now 409
+  `crm_id_in_use`.
+
+## Console wording for the API model (15 Nov)
+
+The client's CRM is never "connected": it calls the Oxxy API. Texts that said "The CRM is not connected" now say
+tasks / bookings / payments are handled in the console or by the client's CRM through the API (Escalations,
+Activations, Bookings, Dashboard, Configuration, permission labels). The CRM sync page notes it is the optional push.
+Go-live "CRM sync: Off" (warn) became "CRM connection: the client's CRM uses the Oxxy API" (ok).
+
 ## Urgent safety alert to the sales team (15 Nov, Full Plan 12.7)
 
 - Any task created with priority urgent (emergency, self-harm, urgent complaint / payment dispute) calls

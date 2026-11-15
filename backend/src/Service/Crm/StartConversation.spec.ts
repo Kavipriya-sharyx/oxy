@@ -209,3 +209,22 @@ describe("queued lead_intro at 09:00", () => {
     expect(upd).toHaveBeenCalledWith("v1", { pending_action: "lead_intro" });
   });
 });
+
+describe("the CRM learns a new lead from the voice agent", () => {
+  it("StartConversation puts the customer in the changes feed (customer.updated)", async () => {
+    const t = setup({}, DAY);
+    const emit = jest.fn(async () => undefined);
+    (t.svc as any)._Outbox = { emit };
+    await t.svc.startConversation({ ...BODY, lead_id: "L-1" });
+    expect(emit).toHaveBeenCalledWith(
+      "upsert_customer",
+      C,
+      expect.objectContaining({
+        customer_id: C,
+        whatsapp: "+919840012345",
+        consent_source: "voice_ai",
+        source: "voice_ai",
+      }),
+    );
+  });
+});

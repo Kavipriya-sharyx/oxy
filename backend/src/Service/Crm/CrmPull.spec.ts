@@ -167,3 +167,19 @@ describe("CRM pull API", () => {
     expect(apply).not.toHaveBeenCalled();
   });
 });
+
+describe("CRM ids", () => {
+  it("a CRM booking id already on another booking is a 409 crm_id_in_use, not a database error", async () => {
+    const b: any = { id: ID, booking_status: "pending_confirmation" };
+    jest
+      .spyOn(booking_request, "findOne")
+      .mockImplementation((async (o: any) =>
+        o.where.crm_booking_id ? { id: "other-booking" } : b) as never);
+    const apply = jest.fn();
+    const svc = new CrmPullService(new ChangeFeedService(), { apply } as never);
+    await expect(
+      svc.confirmBooking(ID, { confirmed_by: "Priya", crm_booking_id: "BK-1" }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(apply).not.toHaveBeenCalled();
+  });
+});

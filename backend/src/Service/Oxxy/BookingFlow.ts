@@ -287,3 +287,80 @@ export const BOOKING_OFFER_DECLINED_T: L = {
   hinglish: "Koi baat nahi. Agar aap baad mein booking request chahein, to bas apni pasand ka centre bataiye.",
 };
 export const BOOKING_OFFER_DECLINED = BOOKING_OFFER_DECLINED_T.en;
+
+// ---- Plain answers the booking flow reads itself (never handed to the LLM, never escalated) ----
+
+const words = (t: string) =>
+  (t || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+const YES_WORDS = new Set(["yes", "yeah", "yep", "yup", "ya", "ok", "okay", "okk", "k", "sure", "fine", "haan", "han", "ha", "ji", "hmm", "correct", "right", "proceed", "go", "ahead", "please", "pls", "do", "it", "book", "that", "this", "one", "same", "good", "done", "sir", "madam", "thanks", "thank", "you", "हाँ", "हां", "जी", "ठीक", "है"]);
+const NOT_WORDS = /\b(no|not|dont|don|nahi|nahin|na|another|other|different|change|cancel|later|wait|stop)\b|नहीं|दूसरा/;
+
+/**
+ * "yes psg okay", "ok book it", "yes that one": a YES to the centre offered, with only filler words or words of
+ * the offered centre's own name around it. A "no", "another centre" or any other centre name is not a YES.
+ */
+export function saysYesToOffer(text: string, centreName?: string | null): boolean {
+  const w = words(text);
+  if (!w.length || w.length > 8 || NOT_WORDS.test(w.join(" "))) return false;
+  if (!["yes", "yeah", "yep", "yup", "ya", "ok", "okay", "okk", "sure", "haan", "han", "ha", "ji", "हाँ", "हां", "जी", "ठीक"].some((y) => w.includes(y)))
+    return false;
+  const own = new Set(words(centreName ?? "").filter((x) => x.length > 1));
+  return w.every((x) => YES_WORDS.has(x) || own.has(x));
+}
+
+/** "what booking?", "why do I want to book??", "why booking": the customer did not expect the booking offer */
+export function asksWhyBooking(text: string): boolean {
+  const t = (text || "").toLowerCase();
+  return /\b(what|why|which)\b[^.]{0,30}\bbook/.test(t) || /\bbook\w*\b[^.]{0,20}\bwhy\b/.test(t) || /kya booking|kaisi booking|booking kyu|booking kyon/.test(t);
+}
+
+/** "why tomorrow not possible", "why not tomorrow", "can't I go today?", "why 3 days": the date window rule */
+export function asksWhyDate(text: string): boolean {
+  const t = (text || "").toLowerCase();
+  const day = /\b(tomorrow|tommorow|tmrw|tmr|today|kal|aaj|earlier|sooner|3 days|three days|this week|date)\b/;
+  return (/\bwhy\b|\bkyu|\bkyon|\bcan'?t\b|\bcannot\b|not possible|\bnot allowed\b/.test(t) && day.test(t));
+}
+
+/** "are you there?", "hello??", "are we connected?": the customer checks the bot is still there */
+export function asksIfThere(text: string): boolean {
+  const t = (text || "").toLowerCase().trim();
+  return /^(hello+|hi+|hey+|helo+)\s*[?!.]*$|\b(are|r) (you|u|we) (there|connected|online|here|available)\b|\banyone (there|here)\b|\b(still )?there\s*\?+$|\bkoi hai\b|\bhello\?+/.test(t);
+}
+
+/** Why the bot offered a booking, with no pressure: the customer may say NO */
+export function whyBookingText(d: BookingDraft, l: string | null = "en"): string {
+  return say(
+    {
+      en: `You picked ${d.cn} from the list, so I offered to send a booking request there for you. You do not have to book. Reply YES if you want an appointment request, or NO if you do not need one now.`,
+      hi: `आपने सूची से ${d.cn} चुना, इसलिए मैंने वहाँ आपके लिए बुकिंग अनुरोध भेजने की पेशकश की। बुकिंग करना ज़रूरी नहीं है। अपॉइंटमेंट अनुरोध चाहिए तो हाँ लिखें, अभी नहीं चाहिए तो नहीं लिखें।`,
+      hinglish: `Aapne list se ${d.cn} chuna, isliye maine wahan aapke liye booking request bhejne ki offer ki. Booking zaroori nahi hai. Appointment request chahiye to YES likhein, abhi nahi chahiye to NO likhein.`,
+    },
+    l,
+  );
+}
+
+/** Why the earliest date is a few days away: the centre needs the time to confirm the appointment */
+export function dateRuleText(l: string | null = "en", now: Date = new Date(), ask = true): string {
+  const w = bookingWindow(now);
+  const min = showDate(w.min);
+  const max = showDate(w.max);
+  return say(
+    {
+      en: `A booking request needs at least 3 days so the centre and our team can confirm the appointment, so I cannot request an earlier date. The earliest date I can request is ${min} (up to ${max}). ${ask ? `Which date from ${min} works for you?` : ""}`.trim(),
+      hi: `बुकिंग अनुरोध के लिए कम से कम 3 दिन चाहिए ताकि केंद्र और हमारी टीम अपॉइंटमेंट पक्का कर सकें, इसलिए इससे पहले की तारीख संभव नहीं है। सबसे पहली तारीख ${min} है (${max} तक)। ${ask ? `${min} से कौन-सी तारीख आपके लिए ठीक है?` : ""}`.trim(),
+      hinglish: `Booking request ke liye kam se kam 3 din chahiye taaki centre aur hamari team appointment confirm kar sakein, isliye usse pehle ki date possible nahi hai. Sabse pehli date ${min} hai (${max} tak). ${ask ? `${min} se kaunsi date aapke liye theek hai?` : ""}`.trim(),
+    },
+    l,
+  );
+}
+
+export const STILL_HERE_T: L = {
+  en: "Yes, I am here. Our team has your request and will call you.",
+  hi: "जी, मैं यहीं हूँ। हमारी टीम के पास आपकी रिक्वेस्ट है और वे आपको कॉल करेंगे।",
+  hinglish: "Ji, main yahin hoon. Hamari team ke paas aapki request hai aur woh aapko call karenge.",
+};

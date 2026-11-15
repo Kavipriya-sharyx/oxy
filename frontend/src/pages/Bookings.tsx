@@ -29,7 +29,7 @@ function windowText() {
 }
 
 export default function Bookings() {
-  usePageTitle("Booking requests", "Confirmed only by the sales team in the CRM");
+  usePageTitle("Booking requests", "Confirmed only by a named sales person");
   const { message } = App.useApp();
   const qc = useQueryClient();
   const { can } = usePermissions();
@@ -53,10 +53,10 @@ export default function Bookings() {
     <>
       <div className="panel">
         <div className="panel-b small">
-          The bot saves every request as <b>pending</b> and sends it to the CRM. The sales team
-          confirms it with the centre in the CRM; the CRM's{" "}
-          <span className="mono">booking.confirmed</span> webhook updates this list and sends the
-          customer the WhatsApp template.
+          The bot saves every request as <b>pending</b>. The sales team calls the centre and
+          confirms it here, or in the client's CRM, which confirms it through the Oxxy API (
+          <span className="mono">BookingRequests / Confirm</span>). Either way the customer gets the
+          WhatsApp confirmation template.
         </div>
       </div>
       <div className="row">
@@ -147,8 +147,7 @@ export default function Bookings() {
       </div>
       {consoleConfirm && (
         <p className="small muted">
-          The CRM is not connected (no <span className="mono">VITE_CRM_BASE_URL</span>), so admins
-          confirm here after calling the centre.
+          Confirm here after calling the centre. The client's CRM can do the same through the API.
         </p>
       )}
     </>
