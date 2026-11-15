@@ -309,6 +309,12 @@ The client's voice AI shares details on WhatsApp after a call: `POST /Actions/St
 - Tests: `Service/Crm/StartConversation.spec.ts`. Not built: a template that sends plan details straight away
   (needs a new Meta template; today the customer taps "Just send details").
 
+## Go-live check: Super Admin only (15 Nov)
+
+`GET /Console/GoLive` has `@Roles(SuperAdmin)` on top of `settings.manage` (an Admin gets 403). In the console
+`ROUTE_PERMS["/go-live"] = SUPER_ADMIN_ONLY`; `usePermissions().can` checks the role for it, so the menu item is
+hidden and the URL goes to No access for everyone else. Test in `RolesGuard.service.spec.ts`.
+
 ## Provider-neutral wording (15 Nov)
 
 The bot runs on Claude, OpenAI or Gemini (Configuration → Preferred / Fallback LLM). Generic "Claude" was replaced

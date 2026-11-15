@@ -4,6 +4,9 @@ export const ROLE = {
   User: "User",
 } as const;
 
+/** A route only the Super Admin role may open (the backend checks the role too) */
+export const SUPER_ADMIN_ONLY = "role:super_admin";
+
 /** Route -> the permission it needs (null = any signed-in user). Same keys as the backend. */
 export const ROUTE_PERMS: Record<string, string | null> = {
   "/dashboard": "dashboard.view",
@@ -26,7 +29,7 @@ export const ROUTE_PERMS: Record<string, string | null> = {
   "/content": "settings.manage",
   "/follow-ups": "conversations.read",
   "/templates": "triggers.read",
-  "/go-live": "settings.manage",
+  "/go-live": SUPER_ADMIN_ONLY,
 };
 
 const LANDING_ORDER = ["/dashboard", "/live-chat", "/bookings", "/centres", "/flows"];

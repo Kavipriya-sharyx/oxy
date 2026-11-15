@@ -1,8 +1,20 @@
-import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, Put, Query } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Put,
+  Query,
+} from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { In } from "typeorm";
 import { JWTAuthController } from "@Controller/JWTAuth.controller";
 import { Permission } from "@Helper/Permissions";
+import { Roles } from "@Helper/Roles.decorator";
+import { RoleEnum } from "@Helper/Enum/RoleEnum";
 import { CurrentUser } from "@Helper/Common.helper";
 import { follow_up } from "@Database/Table/Oxxy/follow_up";
 import { job_run } from "@Database/Table/Oxxy/job_run";
@@ -37,6 +49,8 @@ export class OpsController extends JWTAuthController {
   }
 
   // ---- Go-live check: real state of settings, plans, centres, content, templates, logins ----
+  // Super Admin only: it lists which secrets are set, the demo logins and every blocker
+  @Roles(RoleEnum.SuperAdmin)
   @Permission("settings.manage")
   @Get("GoLive")
   async GoLive() {
@@ -47,7 +61,9 @@ export class OpsController extends JWTAuthController {
   @Permission("conversations.read")
   @Get("FollowUps")
   async FollowUps(@Query("status") status?: string) {
-    const st = ["scheduled", "sent", "cancelled", "skipped"].includes(String(status)) ? String(status) : "scheduled";
+    const st = ["scheduled", "sent", "cancelled", "skipped"].includes(String(status))
+      ? String(status)
+      : "scheduled";
     const rows = await follow_up
       .createQueryBuilder("f")
       .addSelect("f.created_on")
@@ -65,7 +81,8 @@ export class OpsController extends JWTAuthController {
   async CancelFollowUp(@Param("Id") Id: string, @CurrentUser() UserId: string) {
     const row = await follow_up.findOne({ where: { id: id(Id) } });
     if (!row) throw new NotFoundException("Follow-up not found");
-    if (row.follow_up_status !== "scheduled") throw new BadRequestException(`It is already ${row.follow_up_status}`);
+    if (row.follow_up_status !== "scheduled")
+      throw new BadRequestException(`It is already ${row.follow_up_status}`);
     // the BullMQ alarm still fires, finds the row cancelled and does nothing
     await follow_up.update(row.id, {
       follow_up_status: "cancelled",
@@ -85,7 +102,11 @@ export class OpsController extends JWTAuthController {
 
   @Permission("settings.manage")
   @Put("Templates/:Id")
-  async UpdateTemplate(@Param("Id") Id: string, @Body() body: { meta_status?: string; note?: string }, @CurrentUser() UserId: string) {
+  async UpdateTemplate(
+    @Param("Id") Id: string,
+    @Body() body: { meta_status?: string; note?: string },
+    @CurrentUser() UserId: string,
+  ) {
     return this.SendResponseData(await this._Templates.update(id(Id), body ?? {}, UserId));
   }
 
@@ -109,19 +130,32 @@ export class OpsController extends JWTAuthController {
     @CurrentUser() UserId: string,
   ) {
     return this.SendResponseData(
-      await this._Plans.propose(id(String(body?.catalog_id ?? "")), body?.changes ?? {}, String(body?.reason ?? ""), UserId),
+      await this._Plans.propose(
+        id(String(body?.catalog_id ?? "")),
+        body?.changes ?? {},
+        String(body?.reason ?? ""),
+        UserId,
+      ),
     );
   }
 
   @Permission("plans.approve")
   @Post("PlanChanges/:Id/Approve")
-  async ApprovePlanChange(@Param("Id") Id: string, @Body("note") note: string, @CurrentUser() UserId: string) {
+  async ApprovePlanChange(
+    @Param("Id") Id: string,
+    @Body("note") note: string,
+    @CurrentUser() UserId: string,
+  ) {
     return this.SendResponseData(await this._Plans.approve(id(Id), UserId, note));
   }
 
   @Permission("plans.approve")
   @Post("PlanChanges/:Id/Reject")
-  async RejectPlanChange(@Param("Id") Id: string, @Body("note") note: string, @CurrentUser() UserId: string) {
+  async RejectPlanChange(
+    @Param("Id") Id: string,
+    @Body("note") note: string,
+    @CurrentUser() UserId: string,
+  ) {
     return this.SendResponseData(await this._Plans.reject(id(Id), UserId, note));
   }
 
@@ -151,7 +185,10 @@ export class OpsController extends JWTAuthController {
   @Permission("privacy.handle")
   @Get("Jobs/Retention")
   async Retention() {
-    return this.SendResponseData({ days: retentionDays(), runs: await this.lastRuns("data_retention") });
+    return this.SendResponseData({
+      days: retentionDays(),
+      runs: await this.lastRuns("data_retention"),
+    });
   }
 
   @Permission("privacy.handle")
@@ -176,8 +213,17 @@ export class OpsController extends JWTAuthController {
       throw new BadRequestException(why[res.reason] ?? res.reason);
     }
     await task.update(
-      { customer_id: CustomerId, type: TaskType.PrivacyRequest, task_status: In([TaskStatus.Open, TaskStatus.InProgress]) },
-      { task_status: TaskStatus.Done, outcome: "data erased", updated_by_id: UserId, updated_on: new Date() } as any,
+      {
+        customer_id: CustomerId,
+        type: TaskType.PrivacyRequest,
+        task_status: In([TaskStatus.Open, TaskStatus.InProgress]),
+      },
+      {
+        task_status: TaskStatus.Done,
+        outcome: "data erased",
+        updated_by_id: UserId,
+        updated_on: new Date(),
+      } as any,
     );
     return this.SendResponseData({ erased: true });
   }
