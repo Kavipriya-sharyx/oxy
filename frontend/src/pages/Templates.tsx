@@ -86,13 +86,55 @@ const TEMPLATE_PREVIEWS: Record<string, TemplateMetaInfo> = {
   },
 };
 
-function formatPreviewBody(body: string, examples?: string[], useSample = false): string {
-  if (!useSample || !examples || !examples.length) return body;
-  let res = body;
-  examples.forEach((ex, idx) => {
-    res = res.replace(new RegExp(`\\{\\{${idx + 1}\\}\\}`, "g"), ex);
+function formatPreviewBody(body: string, examples?: string[], useSample = false): React.ReactNode {
+  if (!body) return null;
+  const parts = body.split(/(\{\{\d+\}\})/g);
+  return parts.map((part, i) => {
+    const match = part.match(/^\{\{(\d+)\}\}$/);
+    if (match) {
+      const idx = parseInt(match[1], 10) - 1;
+      const exampleVal = examples && examples[idx] ? examples[idx] : null;
+      if (useSample && exampleVal) {
+        return (
+          <span
+            key={i}
+            className="param-chip"
+            style={{
+              background: "rgba(3, 162, 151, 0.16)",
+              color: "var(--heading)",
+              fontWeight: 600,
+              padding: "1px 6px",
+              borderRadius: 4,
+              border: "1px solid rgba(3, 162, 151, 0.35)",
+              display: "inline-block",
+              margin: "0 2px",
+            }}
+          >
+            {exampleVal}
+          </span>
+        );
+      }
+      return (
+        <span
+          key={i}
+          className="param-chip"
+          style={{
+            background: "rgba(224, 159, 62, 0.2)",
+            color: "#92400e",
+            fontWeight: 700,
+            padding: "1px 6px",
+            borderRadius: 4,
+            border: "1px solid rgba(224, 159, 62, 0.45)",
+            display: "inline-block",
+            margin: "0 2px",
+          }}
+        >
+          {part}
+        </span>
+      );
+    }
+    return part;
   });
-  return res;
 }
 
 export default function Templates() {
@@ -611,7 +653,7 @@ export default function Templates() {
           onClose={() => setSelectedTemplate(null)}
         >
           {/* Top Info Bar */}
-          <div className="row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div className="row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
             <Pill tone={TONE[selectedTemplate.meta_status] ?? "plain"}>
               {selectedTemplate.meta_status.toUpperCase()}
             </Pill>
@@ -638,81 +680,100 @@ export default function Templates() {
             </button>
           </div>
 
-          {/* Realistic WhatsApp Phone Mockup */}
-          <div className="tpl-phone-mockup">
-            {/* Phone Top Header */}
-            <div className="tpl-phone-header">
-              <div className="tpl-phone-avatar">O</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}>
-                  Oxxy Health
-                  <span style={{ color: "#25D366", fontSize: 12 }}>✓</span>
-                </div>
-                <div style={{ fontSize: 10.5, color: "#d2e7e2" }}>Verified Business Account</div>
-              </div>
+          {/* Section Heading */}
+          <div style={{ flexShrink: 0, marginTop: 4 }}>
+            <div
+              className="small muted"
+              style={{
+                fontWeight: 600,
+                marginBottom: 8,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                fontSize: 11,
+              }}
+            >
+              <span>📱</span> WhatsApp Message Mockup
             </div>
 
-            {/* Chat Body Mockup */}
-            <div className="tpl-phone-body">
-              <div style={{ textAlign: "center", margin: "4px 0" }}>
-                <span
-                  style={{
-                    fontSize: 10.5,
-                    background: "rgba(0, 0, 0, 0.08)",
-                    padding: "2px 8px",
-                    borderRadius: 6,
-                    color: "var(--muted)",
-                  }}
-                >
-                  TODAY
-                </span>
+            {/* Realistic WhatsApp Phone Mockup */}
+            <div className="tpl-phone-mockup" style={{ flexShrink: 0 }}>
+              {/* Phone Top Header */}
+              <div className="tpl-phone-header">
+                <div className="tpl-phone-avatar">O</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}>
+                    Oxxy Health
+                    <span style={{ color: "#25D366", fontSize: 12 }}>✓</span>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "#d2e7e2" }}>Verified Business Account</div>
+                </div>
               </div>
 
-              {/* Chat Speech Bubble */}
-              <div className="tpl-wa-bubble" style={{ background: "#d9f1ed", border: "1px solid #bce1db" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)" }}>
-                  Oxxy Support
+              {/* Chat Body Mockup */}
+              <div className="tpl-phone-body" style={{ flexShrink: 0 }}>
+                <div style={{ textAlign: "center", margin: "2px 0 6px" }}>
+                  <span
+                    style={{
+                      fontSize: 10.5,
+                      background: "rgba(0, 0, 0, 0.08)",
+                      padding: "2px 8px",
+                      borderRadius: 6,
+                      color: "var(--muted)",
+                    }}
+                  >
+                    TODAY
+                  </span>
                 </div>
 
-                <div style={{ fontSize: 13, lineHeight: 1.5, wordBreak: "break-word" }}>
-                  {selectedMeta?.body ? (
-                    formatPreviewBody(selectedMeta.body, selectedMeta.examples, showSampleData)
-                  ) : (
-                    <span>{selectedTemplate.purpose ?? "Approved WhatsApp Business Message"}</span>
+                {/* Chat Speech Bubble */}
+                <div className="tpl-wa-bubble" style={{ background: "#d9f1ed", border: "1px solid #bce1db" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)" }}>
+                    Oxxy Support
+                  </div>
+
+                  <div style={{ fontSize: 13, lineHeight: 1.5, wordBreak: "break-word" }}>
+                    {selectedMeta?.body ? (
+                      formatPreviewBody(selectedMeta.body, selectedMeta.examples, showSampleData)
+                    ) : (
+                      <span>{selectedTemplate.purpose ?? "Approved WhatsApp Business Message"}</span>
+                    )}
+                  </div>
+
+                  {selectedMeta?.footer && (
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                      {selectedMeta.footer}
+                    </div>
+                  )}
+
+                  <div className="wa-meta">
+                    <span>12:30 PM</span>
+                    <span style={{ color: "#53bdeb", fontWeight: 700 }}>✓✓</span>
+                  </div>
+
+                  {/* Quick Reply Buttons */}
+                  {selectedMeta?.quickReplies && selectedMeta.quickReplies.length > 0 && (
+                    <div className="tpl-wa-btns" style={{ marginTop: 8 }}>
+                      {selectedMeta.quickReplies.map((btn) => (
+                        <div
+                          key={btn}
+                          className="tpl-wa-btn"
+                          style={{ background: "#ffffff", color: "var(--brand)", fontWeight: 600 }}
+                        >
+                          <span style={{ fontSize: 11 }}>↩</span> {btn}
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
-
-                {selectedMeta?.footer && (
-                  <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-                    {selectedMeta.footer}
-                  </div>
-                )}
-
-                <div className="wa-meta">
-                  <span>12:30 PM</span>
-                  <span style={{ color: "#53bdeb", fontWeight: 700 }}>✓✓</span>
-                </div>
-
-                {/* Quick Reply Buttons */}
-                {selectedMeta?.quickReplies && selectedMeta.quickReplies.length > 0 && (
-                  <div className="tpl-wa-btns" style={{ marginTop: 8 }}>
-                    {selectedMeta.quickReplies.map((btn) => (
-                      <div
-                        key={btn}
-                        className="tpl-wa-btn"
-                        style={{ background: "#ffffff", color: "var(--brand)", fontWeight: 600 }}
-                      >
-                        <span style={{ fontSize: 11 }}>↩</span> {btn}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
           </div>
 
           {/* Details & Configuration Panel */}
-          <div className="panel" style={{ marginTop: 8 }}>
+          <div className="panel" style={{ marginTop: 12, flexShrink: 0 }}>
             <div className="panel-h">
               <h2>Template Details & Actions</h2>
             </div>
