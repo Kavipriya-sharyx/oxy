@@ -15,6 +15,14 @@ export async function listConversations(
   return res.data;
 }
 
+export type InboxCounts = Record<"all" | "waiting" | "person" | "mine" | "booking" | "window" | "opted", number>;
+
+/** The number on each inbox tab */
+export async function getConversationCounts(): Promise<InboxCounts> {
+  const res = await client.get<InboxCounts>("/Console/Conversations/Counts");
+  return res.data;
+}
+
 /** The newest MESSAGE_PAGE messages (oldest first); before = created_on of the oldest one shown */
 export const MESSAGE_PAGE = 200;
 export async function listMessages(conversationId: string, before?: string): Promise<Message[]> {

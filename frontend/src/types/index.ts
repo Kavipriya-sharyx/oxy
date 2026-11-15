@@ -89,6 +89,8 @@ export interface Conversation {
   } | null;
   waiting?: number; // customer messages after the last reply
   open_booking?: boolean; // a pending booking request (an opted-out customer may still be answered about it)
+  pending_step?: string | null; // what the bot is waiting for, in words
+  handled_by?: string | null; // the team member who has the chat (taken over)
 }
 
 export interface Message {

@@ -94,6 +94,9 @@ export class WhatsappInboundService implements OnModuleInit {
       // Meta's marketing limit arrives here, after the send was accepted: frequency_cap, not an error to retry
       const capped = (st.errors ?? []).some((x) => FREQUENCY_CAP_CODES.includes(Number(x.code)));
       row.message_status = capped ? "frequency_cap" : "failed";
+      this.logger.warn(
+        `Meta delivery failed for message ${st.id} (status: failed): ${JSON.stringify(st.errors ?? [])}`,
+      );
     } else if ((STATUS_RANK[st.status] ?? 0) > (STATUS_RANK[row.message_status] ?? 0)) {
       row.message_status = st.status; // never go backwards (read -> delivered)
     } else {

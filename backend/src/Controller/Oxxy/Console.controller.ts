@@ -101,6 +101,59 @@ const VIEW_STATES: Record<string, string[]> = {
   opted: [ConversationState.OptedOut],
 };
 
+/** Customer messages after the last reply (bot or team): the customer is waiting for an answer */
+const WAITING_SQL = `EXISTS (SELECT 1 FROM message mi WHERE mi.conversation_id = c.id AND mi.direction = 'in'
+  AND mi.created_on > COALESCE((SELECT MAX(o.created_on) FROM message o
+                                WHERE o.conversation_id = c.id AND o.direction = 'out'), 'epoch'))`;
+const WINDOW_SQL = `c.last_customer_message_at > NOW() - INTERVAL '24 hours'`;
+const PERSON_STATES = [ConversationState.Pause, ConversationState.Escalated];
+
+/** Inbox tabs that are not a plain state list: their WHERE part (me = the signed-in user) */
+export function viewWhere(view: string | undefined, me: string | null): { sql: string; params: object } | null {
+  if (view === "waiting") return { sql: `${WAITING_SQL} AND c.state <> 'opted_out'`, params: {} };
+  if (view === "window") return { sql: WINDOW_SQL, params: {} };
+  if (view === "mine")
+    return {
+      sql: "c.taken_over_by_id = :me AND c.state IN (:...personStates)",
+      params: { me: me ?? "-", personStates: PERSON_STATES },
+    };
+  return null;
+}
+
+const BOOKING_STEP: Record<string, string> = {
+  offer: "Booking: yes / no to the centre",
+  centre: "Booking: centre name",
+  landmark: "Booking: area or landmark",
+  specialisation: "Booking: specialisation",
+  date: "Booking: preferred date",
+  time: "Booking: preferred time",
+};
+const STEP_LABEL: Record<string, string> = {
+  centre_pick: "Picking a centre from the list",
+  centre_radius: "Travel distance",
+  centre_location: "Location or area",
+  follow_up_time: "Follow-up time",
+  soft_activation: "Activation answer",
+  lead_intro: "Reply to the first message",
+  after_consent: "Health-data consent",
+};
+/** What the bot is waiting for, in words for the team (pending_action is an internal marker) */
+export function pendingStepLabel(p: string | null | undefined): string | null {
+  if (!p || p === "parked_ack") return null;
+  if (p.startsWith("booking:")) {
+    try {
+      return BOOKING_STEP[JSON.parse(p.slice(8))?.step] ?? "Booking request";
+    } catch {
+      return "Booking request";
+    }
+  }
+  if (p.startsWith("callback_time:")) return "Callback time choice";
+  if (p.startsWith("cmb_gate:")) return "Cut Medi Bills eligibility check";
+  if (p.startsWith("rebook_offer:")) return "Another centre after a cancellation";
+  const key = p.split(":")[0];
+  return STEP_LABEL[key] ?? key.replace(/_/g, " ");
+}
+
 /** 1..300 rows, 100 by default */
 export const pageSize = (v?: string) => Math.min(300, Math.max(1, Math.floor(Number(v)) || 100));
 
@@ -138,6 +191,12 @@ export async function withInboxSummary(rows: conversation[]) {
       [rows.map((r) => r.customer_id), BookingStatus.PendingConfirmation],
     ),
   ]);
+  // who has the chat (a person took it over)
+  const takers = [...new Set(rows.map((r) => r.taken_over_by_id).filter(Boolean))] as string[];
+  const people: any[] = takers.length
+    ? await conversation.query(`SELECT id::text AS id, first_name, email FROM "user" WHERE id::text = ANY($1)`, [takers])
+    : [];
+  const nameBy = new Map<string, string>(people.map((p: any) => [p.id, p.first_name || p.email]));
   const lastBy = new Map<string, any>(last.map((m: any) => [m.conversation_id, m]));
   const waitBy = new Map<string, number>(waiting.map((w: any) => [w.conversation_id, Number(w.n)]));
   const booked = new Set<string>(bookings.map((b: any) => b.customer_id));
@@ -155,6 +214,11 @@ export async function withInboxSummary(rows: conversation[]) {
         : null,
       waiting: waitBy.get(r.id) ?? 0,
       open_booking: booked.has(r.customer_id),
+      pending_step: pendingStepLabel(r.pending_action),
+      handled_by:
+        r.taken_over_by_id && PERSON_STATES.includes(r.state as ConversationState)
+          ? (nameBy.get(r.taken_over_by_id) ?? "A team member")
+          : null,
     };
   });
 }
@@ -264,11 +328,14 @@ export class ConsoleController extends JWTAuthController {
     @Query("q") q?: string,
     @Query("view") view?: string,
     @Query("limit") limit?: string,
+    @Req() req?: any,
   ) {
     // Inbox list: search and tab filter run in the database, so a customer beyond the newest page is still found
     const qb = conversation.createQueryBuilder("c").leftJoinAndSelect("c.customer", "customer");
     const states = VIEW_STATES[view ?? ""];
     if (states) qb.andWhere("c.state IN (:...states)", { states });
+    const extra = viewWhere(view, req?.user?.user_id ?? null);
+    if (extra) qb.andWhere(extra.sql, extra.params);
     const search = inboxSearch(q);
     if (search) {
       const parts = ["LOWER(customer.first_name) LIKE :term", "c.state LIKE :term"];
@@ -284,6 +351,25 @@ export class ConsoleController extends JWTAuthController {
       .take(pageSize(limit))
       .getMany();
     return this.SendResponseData(await withInboxSummary(rows));
+  }
+
+  // The number on each inbox tab (one query)
+  @Permission("conversations.read")
+  @Get("Conversations/Counts")
+  async ConversationCounts(@Req() req: any) {
+    const me = req?.user?.user_id ?? "-";
+    const [r] = await conversation.query(
+      `SELECT COUNT(*)::int AS all,
+              COUNT(*) FILTER (WHERE ${WAITING_SQL} AND c.state <> 'opted_out')::int AS waiting,
+              COUNT(*) FILTER (WHERE c.state = ANY($1))::int AS person,
+              COUNT(*) FILTER (WHERE c.state = ANY($1) AND c.taken_over_by_id = $2)::int AS mine,
+              COUNT(*) FILTER (WHERE c.state = ANY($3))::int AS booking,
+              COUNT(*) FILTER (WHERE ${WINDOW_SQL})::int AS "window",
+              COUNT(*) FILTER (WHERE c.state = 'opted_out')::int AS opted
+         FROM conversation c`,
+      [PERSON_STATES, me, VIEW_STATES.booking],
+    );
+    return this.SendResponseData(r ?? {});
   }
 
   @Permission("conversations.read")
