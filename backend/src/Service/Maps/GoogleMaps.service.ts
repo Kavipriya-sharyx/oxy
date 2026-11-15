@@ -184,7 +184,8 @@ export class GoogleMapsService {
   }
 
   get browserKey(): string {
-    return String(this._Config.get<string>("Maps.BrowserKey") ?? "").trim();
+    const custom = String(this._Config.get<string>("Maps.BrowserKey") ?? "").trim();
+    return custom || this.key();
   }
 
   get enabled(): boolean {

@@ -22,7 +22,11 @@ interface GMapsApi {
   InfoWindow: new () => { setContent(s: string): void; open(o: Record<string, unknown>): void };
   LatLngBounds: new () => GBounds;
 }
-type MapsWindow = Window & { google?: { maps: GMapsApi }; __oxxyMaps?: Promise<GMapsApi> };
+type MapsWindow = Window & {
+  google?: { maps: GMapsApi };
+  __oxxyMaps?: Promise<GMapsApi>;
+  gm_authFailure?: () => void;
+};
 
 function loadMaps(key: string): Promise<GMapsApi> {
   const w = window as MapsWindow;
@@ -52,6 +56,14 @@ function LiveMap({ data }: { data: CentresMapData }) {
   const [failed, setFailed] = useState("");
   useEffect(() => {
     let off = false;
+    const w = window as MapsWindow;
+    w.gm_authFailure = () => {
+      if (!off) {
+        setFailed(
+          "Google Maps authentication error (HTTP 403 / Referer restriction). Please ensure your API key has HTTP referrers set to https://oxxy.sharyx.ai/* in Google Cloud Console.",
+        );
+      }
+    };
     loadMaps(data.browser_key || ENV_KEY)
       .then((g) => {
         if (off || !ref.current) return;
@@ -116,8 +128,68 @@ function LiveMap({ data }: { data: CentresMapData }) {
   }, [data]);
   if (failed)
     return (
-      <div className="panel-b small" style={{ color: "var(--crit)" }}>
-        {failed}
+      <div
+        className="panel-b"
+        style={{
+          padding: "1.25rem",
+          background: "var(--surface-sunken, #f8fafc)",
+          border: "1px dashed var(--crit, #e53e3e)",
+          borderRadius: 8,
+          margin: "0.5rem 0",
+        }}
+      >
+        <div
+          style={{
+            color: "var(--crit, #e53e3e)",
+            fontWeight: 600,
+            fontSize: "0.95rem",
+            marginBottom: "0.35rem",
+          }}
+        >
+          ⚠️ Google Maps could not be loaded
+        </div>
+        <div className="small muted" style={{ marginBottom: "1rem", lineHeight: 1.5 }}>
+          {failed}
+        </div>
+        <div className="small" style={{ fontWeight: 600, marginBottom: "0.5rem" }}>
+          Centres with coordinates:
+        </div>
+        <div className="tbl-wrap" style={{ maxHeight: 260, overflowY: "auto" }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Centre</th>
+                <th>Location</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {data.centres
+                .filter((c) => c.latitude && c.longitude)
+                .map((c) => (
+                  <tr key={c.id}>
+                    <td>
+                      <strong>{c.name}</strong>
+                    </td>
+                    <td className="small">
+                      {[c.branch, c.locality, c.city].filter(Boolean).join(", ")}
+                    </td>
+                    <td>
+                      <Pill tone={c.verified && c.active ? "ok" : "plain"}>
+                        {c.verified && c.active ? "Verified" : "Inactive"}
+                      </Pill>
+                    </td>
+                    <td className="small">
+                      <a href={mapsLink(c.latitude!, c.longitude!)} target="_blank" rel="noreferrer">
+                        Open in Google Maps ↗
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   return <div ref={ref} style={{ height: 460, width: "100%" }} />;
