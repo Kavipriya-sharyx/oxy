@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import client, { getToken } from "../api/client";
-import { ROUTE_PERMS } from "../auth/roles";
+import { ROLE, ROUTE_PERMS, SUPER_ADMIN_ONLY } from "../auth/roles";
 
 interface Mine {
   role: string | null;
@@ -18,7 +18,9 @@ export function usePermissions() {
     refetchInterval: 60_000,
   });
   const perms = q.data?.permissions ?? [];
-  const can = (key: string | null | undefined) => key == null || perms.includes(key);
+  const role = q.data?.role ?? null;
+  const can = (key: string | null | undefined) =>
+    key == null || (key === SUPER_ADMIN_ONLY ? role === ROLE.SuperAdmin : perms.includes(key));
   const canOpen = (path: string) => can(ROUTE_PERMS[path] ?? null);
-  return { loading: q.isLoading, perms, can, canOpen, role: q.data?.role ?? null };
+  return { loading: q.isLoading, perms, can, canOpen, role };
 }

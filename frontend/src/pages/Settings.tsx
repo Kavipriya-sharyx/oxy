@@ -56,6 +56,25 @@ export default function Settings() {
 
   const groups: SettingItem["group"][] = ["whatsapp", "ai", "crm"];
 
+  // the AI model really in use (Claude, OpenAI or Gemini), from the saved settings below
+  const val = (k: string) => String(items.find((i) => i.key === k)?.value ?? "");
+  const ph = (k: string) => items.find((i) => i.key === k)?.placeholder ?? "";
+  const PROVIDER: Record<string, [string, string]> = {
+    claude: ["Claude (Anthropic)", "ANTHROPIC_MODEL"],
+    openai: ["OpenAI", "OPENAI_MODEL"],
+    gemini: ["Gemini (Google)", "GEMINI_MODEL"],
+  };
+  const modelOf = (p: string) =>
+    PROVIDER[p]
+      ? `${PROVIDER[p][0]} · ${val(PROVIDER[p][1]) || ph(PROVIDER[p][1]) || "default model"}`
+      : "";
+  const preferred = val("LLM_PROVIDER");
+  const fallback = val("LLM_FALLBACK");
+  const aiModel = loading
+    ? "…"
+    : (modelOf(preferred) || "Not set") +
+      (fallback && fallback !== preferred ? `; fallback ${modelOf(fallback)}` : "; no fallback");
+
   return (
     <>
       <div className="grid g2">
@@ -74,7 +93,7 @@ export default function Settings() {
             <dt>Emergency</dt>
             <dd>
               <span className="mono">112</span> / <span className="mono">108</span>, checked before
-              Claude
+              the AI model
             </dd>
             <dt>Self-harm</dt>
             <dd>
@@ -83,9 +102,9 @@ export default function Settings() {
             <dt>Quiet hours</dt>
             <dd>Proactive messages only 09:00–21:00 IST</dd>
             <dt>AI model</dt>
-            <dd className="mono small">claude-opus-5-5</dd>
+            <dd className="small">{aiModel}</dd>
             <dt>Order</dt>
-            <dd>Guardrails → Claude draft → rule validator → send</dd>
+            <dd>Guardrails → AI draft → rule validator → send</dd>
           </dl>
         </Panel>
       </div>

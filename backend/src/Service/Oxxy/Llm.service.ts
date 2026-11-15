@@ -9,7 +9,7 @@ export interface ChatTurn {
   content: string;
 }
 
-export interface ClaudeResult {
+export interface LlmResult {
   reply_text: string;
   intent: string;
   extracted_fields: Record<string, any>;
@@ -57,10 +57,10 @@ Return ONLY a JSON object, no other text:
  "needs_human": boolean}
 Only include extracted_fields you actually learned. Dates are YYYY-MM-DD.`;
 
-export function parseClaudeJson(raw: string): ClaudeResult {
+export function parseLlmJson(raw: string): LlmResult {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
-  if (start < 0 || end < start) throw new Error("no JSON in Claude reply");
+  if (start < 0 || end < start) throw new Error("no JSON in the LLM reply");
   const o = JSON.parse(raw.slice(start, end + 1));
   return {
     reply_text: String(o.reply_text ?? ""),
@@ -153,10 +153,10 @@ class RefusedError extends Error {}
 class BadJsonError extends Error {}
 
 // Every provider gets the same prompt and returns the same JSON; ReplyValidator checks every draft.
-// The class keeps its name (it is injected as ClaudeService everywhere).
+// The class keeps its name (it is injected as LlmService everywhere).
 @Injectable()
-export class ClaudeService {
-  private readonly logger = new Logger(ClaudeService.name);
+export class LlmService {
+  private readonly logger = new Logger(LlmService.name);
   private client: Anthropic | null = null;
   private clientApiKey = "";
 
@@ -183,7 +183,7 @@ export class ClaudeService {
     );
   }
 
-  async generate(history: ChatTurn[], context: string, feedback?: string): Promise<ClaudeResult> {
+  async generate(history: ChatTurn[], context: string, feedback?: string): Promise<LlmResult> {
     const extra =
       `Known about this customer:
 ${context}` +
@@ -203,9 +203,9 @@ Your previous draft was rejected: ${feedback}. Rewrite it without those problems
     for (const provider of order) {
       try {
         const text = await this.call(provider, history, extra);
-        let parsed: ClaudeResult;
+        let parsed: LlmResult;
         try {
-          parsed = parseClaudeJson(text);
+          parsed = parseLlmJson(text);
         } catch (e) {
           throw new BadJsonError(`bad JSON: ${(e as Error).message}`);
         }

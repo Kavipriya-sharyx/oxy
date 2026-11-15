@@ -37,7 +37,7 @@ export interface TriggerDecision {
 }
 
 // Fired only when the pipeline really showed them (a centre list, a plan / disclosure, the Cut Medi
-// Bills gate result), never just because Claude named the intent: "find a hospital" + ASK_CITY is not D.
+// Bills gate result), never just because the LLM named the intent: "find a hospital" + ASK_CITY is not D.
 export const NEEDS_SHOWN: TriggerId[] = ["D", "E", "F", "I"];
 
 const PRIORITY: TriggerId[] = [

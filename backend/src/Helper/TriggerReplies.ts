@@ -1,5 +1,5 @@
 // Approved texts for the content triggers of the WhatsApp Trigger & Conversion Layer (A, C, E comparison,
-// F, L) and the phrases that fire them (Trigger layer 14.1). System-built: Claude never words these.
+// F, L) and the phrases that fire them (Trigger layer 14.1). System-built: the LLM never words these.
 // Links and contacts come from Playbook 21 (approved reference links); env vars may override them.
 // Every text: English (approved) + Hindi / Hinglish drafts (Helper/Lang.ts); the last argument is the language.
 import { L, lang, say } from "./Lang";

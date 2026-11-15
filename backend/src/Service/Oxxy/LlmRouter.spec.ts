@@ -1,12 +1,12 @@
 // The admin chooses the LLM (Claude, OpenAI or Gemini) and an optional fallback; every draft is the same JSON
-import { parseAnswerJson } from "./Claude.service";
+import { parseAnswerJson } from "./Llm.service";
 import axios from "axios";
-import { ClaudeService, geminiBody, providerOrder } from "./Claude.service";
+import { LlmService, geminiBody, providerOrder } from "./Llm.service";
 
 const draftJson = JSON.stringify({ reply_text: "Hello", intent: "greeting", extracted_fields: {}, needs_human: false });
 
 function service(cfg: Record<string, string>) {
-  return new ClaudeService({ get: (k: string) => cfg[k] } as never);
+  return new LlmService({ get: (k: string) => cfg[k] } as never);
 }
 const history = [{ role: "user" as const, content: "hi" }];
 

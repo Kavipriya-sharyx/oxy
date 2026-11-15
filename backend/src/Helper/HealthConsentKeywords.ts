@@ -67,7 +67,7 @@ export const CONSENT_NO: string[] = [
 ];
 
 // Words that make a SENTENCE a health question when it is a question (or an ask like "please tell me ...").
-// Used only for customers who refused: Claude's reply is checked before it is sent.
+// Used only for customers who refused: the LLM's reply is checked before it is sent.
 export const HEALTH_QUESTION_TERMS: string[] = [
   "symptom",
   "medical history",
@@ -116,7 +116,7 @@ export const HEALTH_QUESTION_TERMS: string[] = [
   "दर्द",
 ];
 
-// Fields Claude may extract that are health information: dropped for a customer who refused.
+// Fields the LLM may extract that are health information: dropped for a customer who refused.
 export const HEALTH_FIELDS: string[] = [
   "healthcare_need",
   "specialisation",

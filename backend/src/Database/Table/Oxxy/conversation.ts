@@ -81,7 +81,7 @@ export class conversation extends BaseTable {
   @Column({ type: "timestamp", nullable: true })
   handed_back_at: Date | null;
 
-  @Column({ type: "text", nullable: true }) // shown to Claude as team_note on the next turns
+  @Column({ type: "text", nullable: true }) // shown to the LLM as team_note on the next turns
   handback_note: string | null;
 
   // What the customer already told the voice AI on the phone (StartConversation context). Shown to the LLM

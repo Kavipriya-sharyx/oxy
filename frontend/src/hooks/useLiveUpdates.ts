@@ -59,7 +59,7 @@ export function useLiveUpdates(enabled: boolean): LiveStatus {
       while (!stopped) {
         try {
           setStatus("connecting");
-          const res = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/Console/Live`, {
+          const res = await fetch(`${import.meta.env.VITE_API_URL || ""}/api/v1/Console/Live`, {
             headers: { Authorization: `Bearer ${getToken() ?? ""}`, Accept: "text/event-stream" },
             signal: ctrl.signal,
           });

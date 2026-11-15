@@ -40,7 +40,7 @@ const YES = CONSENT_YES.map(normalise);
 const NO = CONSENT_NO.map(normalise);
 
 // Deterministic: the WHOLE message must be a listed answer. Silence, a different question or
-// "yes but no" are "unclear". Never decided by Claude.
+// "yes but no" are "unclear". Never decided by the LLM.
 export function parseConsentAnswer(text: string): "yes" | "no" | "unclear" {
   const t = normalise(text);
   if (!t) return "unclear";
@@ -65,7 +65,7 @@ export function asksHealthQuestion(text: string): boolean {
   });
 }
 
-// Health fields removed from what Claude extracted (customer refused)
+// Health fields removed from what the LLM extracted (customer refused)
 export function withoutHealthFields<T extends Record<string, unknown>>(fields: T): T {
   const copy: Record<string, unknown> = { ...fields };
   for (const k of HEALTH_FIELDS) delete copy[k];

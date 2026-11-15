@@ -1,5 +1,5 @@
 // Approved WhatsApp answers (Playbook 13 FAQ, 4.3 "does not remember", 4.4 identity, 16.2 medical-advice
-// boundary). Answered before Claude, word for word: Claude never rewords these. English is the approved
+// boundary). Answered before the LLM, word for word: the LLM never rewords these. English is the approved
 // text; Hindi / Hinglish are drafts [CONFIRM] (Helper/Lang.ts). Product-aware: answers on the Oxxy route
 // never mention Cut Medi Bills (Playbook 22.1), and the Cut Medi Bills route gets its own lines.
 // Insurance (Trigger B / J), medicines (Trigger K), trust / verify (Trigger A) and centre discounts (neutral
@@ -26,7 +26,7 @@ export type FaqKey =
   | "cmb_cancel"
   | "early_activation";
 
-const MAX_LEN = 220; // a longer message is more than one question: Claude handles it
+const MAX_LEN = 220; // a longer message is more than one question: the LLM handles it
 
 // Order matters: the first match wins (specific before general).
 const MATCHERS: [FaqKey, RegExp][] = [
