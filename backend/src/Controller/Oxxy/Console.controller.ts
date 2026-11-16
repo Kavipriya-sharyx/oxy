@@ -108,6 +108,10 @@ const VIEW_STATES: Record<string, string[]> = {
   opted: [ConversationState.OptedOut],
 };
 
+/** The customer's newest conversation (a restart or a new journey opens another; the inbox shows one row) */
+const LATEST_SQL = `c.id = (SELECT x.id FROM conversation x WHERE x.customer_id = c.customer_id
+                            ORDER BY x.created_on DESC, x.id DESC LIMIT 1)`;
+
 /** Customer messages after the last reply (bot or team): the customer is waiting for an answer */
 const WAITING_SQL = `EXISTS (SELECT 1 FROM message mi WHERE mi.conversation_id = c.id AND mi.direction = 'in'
   AND mi.created_on > COALESCE((SELECT MAX(o.created_on) FROM message o
@@ -341,6 +345,7 @@ export class ConsoleController extends JWTAuthController {
   ) {
     // Inbox list: search and tab filter run in the database, so a customer beyond the newest page is still found
     const qb = conversation.createQueryBuilder("c").leftJoinAndSelect("c.customer", "customer");
+    qb.andWhere(LATEST_SQL); // one row per customer: the current chat (older ones show in its thread)
     const states = VIEW_STATES[view ?? ""];
     if (states) qb.andWhere("c.state IN (:...states)", { states });
     const extra = viewWhere(view, req?.user?.user_id ?? null);
@@ -375,7 +380,7 @@ export class ConsoleController extends JWTAuthController {
               COUNT(*) FILTER (WHERE c.state = ANY($3))::int AS booking,
               COUNT(*) FILTER (WHERE c.last_customer_message_at > $4)::int AS "window",
               COUNT(*) FILTER (WHERE c.state = 'opted_out')::int AS opted
-         FROM conversation c`,
+         FROM conversation c WHERE ${LATEST_SQL}`,
       [PERSON_STATES, me, VIEW_STATES.booking, windowSince()],
     );
     return this.SendResponseData(r ?? {});
@@ -385,10 +390,15 @@ export class ConsoleController extends JWTAuthController {
   @Get("Conversations/:Id/Messages")
   async Messages(@Param("Id") Id: string, @Query("before") before?: string) {
     // the NEWEST messages (oldest first on screen); "before" pages back to older ones
+    // the customer's whole history, every chat (a restart or a new journey adds a "new chat" line on screen)
     const qb = message
       .createQueryBuilder("m")
       .addSelect("m.created_on")
-      .where("m.conversation_id = :Id", { Id });
+      .where(
+        `m.conversation_id IN (SELECT y.id FROM conversation y WHERE y.customer_id =
+           (SELECT z.customer_id FROM conversation z WHERE z.id = :Id))`,
+        { Id },
+      );
     const until = before ? new Date(before) : null;
     if (until && !isNaN(until.getTime())) qb.andWhere("m.created_on < :until", { until });
     const rows = await qb
@@ -397,6 +407,21 @@ export class ConsoleController extends JWTAuthController {
       .take(MESSAGE_PAGE)
       .getMany();
     return this.SendResponseData(rows.reverse());
+  }
+
+  // "Restart chat": the bot starts again from the welcome, as for a new customer (demos, a muddled chat).
+  // The old messages stay in the thread above a "new chat" line.
+  @Permission("conversations.reply")
+  @Post("Conversations/:Id/Restart")
+  async Restart(
+    @Param("Id") Id: string,
+    @Body() body: { forget_earlier?: boolean; ask_consent_again?: boolean },
+  ) {
+    const fresh = await this._ConvRepo.restart(Id, {
+      forgetEarlier: body?.forget_earlier !== false,
+      askConsentAgain: body?.ask_consent_again === true,
+    });
+    return this.SendResponseData({ conversation_id: fresh.id });
   }
 
   // the sales team (User role) chats with customers too (Full Plan 12.9)

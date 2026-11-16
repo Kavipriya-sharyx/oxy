@@ -15,7 +15,10 @@ export async function listConversations(
   return res.data;
 }
 
-export type InboxCounts = Record<"all" | "waiting" | "person" | "mine" | "booking" | "window" | "opted", number>;
+export type InboxCounts = Record<
+  "all" | "waiting" | "person" | "mine" | "booking" | "window" | "opted",
+  number
+>;
 
 /** The number on each inbox tab */
 export async function getConversationCounts(): Promise<InboxCounts> {
@@ -55,5 +58,17 @@ export async function replyToConversation(
   const res = await client.post<ApiEnvelope>(`/Console/Conversations/${conversationId}/Reply`, {
     body,
   });
+  return res.data;
+}
+
+/** "Restart chat": the bot starts again from the welcome. Returns the new conversation's id. */
+export async function restartConversation(
+  conversationId: string,
+  opts: { forget_earlier: boolean; ask_consent_again: boolean },
+): Promise<{ conversation_id: string }> {
+  const res = await client.post<{ conversation_id: string }>(
+    `/Console/Conversations/${conversationId}/Restart`,
+    opts,
+  );
   return res.data;
 }

@@ -28,3 +28,4 @@ export class SeedCalculatorAsset1794720000000 implements MigrationInterface {
     `);
   }
 }
+

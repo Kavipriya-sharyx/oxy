@@ -2737,3 +2737,18 @@ tr.clickable:hover td {
   background: var(--warn-soft);
   color: var(--warn);
 }
+.newchat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 6px;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.newchat::before,
+.newchat::after {
+  content: "";
+  flex: 1;
+  border-top: 1px dashed var(--accent);
+}

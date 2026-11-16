@@ -1,7 +1,9 @@
-import { Injectable } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { DataSource, EntityManager, IsNull } from "typeorm";
 import { conversation } from "@Database/Table/Oxxy/conversation";
 import { consent } from "@Database/Table/Oxxy/consent";
+import { customer } from "@Database/Table/Oxxy/customer";
+import { follow_up } from "@Database/Table/Oxxy/follow_up";
 import { ConversationState as S } from "@Helper/Enum/ConversationState";
 import {
   InvalidTransitionError,
@@ -31,6 +33,17 @@ const LEGACY: Record<string, S> = {
 };
 
 const PARKING: readonly S[] = [S.Pause, S.Escalated, S.FollowUp]; // states that remember where to return to
+
+/** outcome of a conversation closed by "Restart chat"; "restarted_fresh" = the bot also forgets what was said */
+export const RESTARTED = "restarted";
+export const RESTARTED_FRESH = "restarted_fresh";
+
+export interface RestartOptions {
+  /** the bot does not use the need, city, spend, plan or age from before (default true) */
+  forgetEarlier?: boolean;
+  /** the health-data consent notice is shown again on the next message (default false) */
+  askConsentAgain?: boolean;
+}
 
 // The ONLY place that changes conversation.state.
 @Injectable()
@@ -164,5 +177,58 @@ export class ConversationRepository {
     if (!res.affected) throw new ConcurrentTransitionError(conv.id, from, to);
     Object.assign(conv, set);
     return conv;
+  }
+
+  /**
+   * Console "Restart chat": the customer's chat starts again from NEW, as for a new customer. The open
+   * conversation is closed (its messages stay, shown above the new start), scheduled messages are cancelled,
+   * and the 24-hour window carries over. Never for an opted-out customer (STOP stays until they send START)
+   * or during a safety pause (a person must hand it back first).
+   */
+  async restart(conversationId: string, opts: RestartOptions = {}): Promise<conversation> {
+    const forget = opts.forgetEarlier !== false;
+    return await this._DataSource.transaction(async (m) => {
+      const given = await m.findOne(conversation, { where: { id: conversationId } });
+      if (!given) throw new NotFoundException("Conversation not found");
+      const open = await this.findOpenByCustomer(given.customer_id, m);
+      const cons = await m.findOne(consent, { where: { customer_id: given.customer_id } });
+      if (cons?.opt_out_at || open?.state === S.OptedOut)
+        throw new ConflictException("The customer opted out. The chat starts again only when they send START.");
+      if (open?.state === S.Pause)
+        throw new ConflictException("A safety pause is open. Hand the chat back first, then restart it.");
+
+      await m.update(
+        follow_up,
+        { customer_id: given.customer_id, follow_up_status: "scheduled" },
+        { follow_up_status: "cancelled", skip_reason: "chat restarted", updated_on: new Date() } as any,
+      );
+      // closed_at by the database clock, the same clock as created_on (the "forget" cut-off compares them)
+      await m.query(
+        `UPDATE "conversation" SET "closed_at" = now(), "state" = $2, "outcome" = $3, "pending_action" = NULL,
+           "resume_state" = NULL, "taken_over_by_id" = NULL, "updated_on" = now()
+         WHERE "customer_id" = $1 AND "closed_at" IS NULL`,
+        [given.customer_id, S.Closed, forget ? RESTARTED_FRESH : RESTARTED],
+      );
+      const fresh = await m.save(
+        m.create(conversation, {
+          customer_id: given.customer_id,
+          state: S.New,
+          // the WhatsApp 24-hour window belongs to the customer, not to the conversation
+          last_customer_message_at: open?.last_customer_message_at ?? given.last_customer_message_at ?? null,
+        }),
+      );
+      if (forget) await m.update(customer, { id: given.customer_id }, { age: null } as any);
+      if (opts.askConsentAgain && cons)
+        await m.update(consent, { id: cons.id }, {
+          health_data_consent: false,
+          notice_version: null,
+          consent_timestamp: null,
+          health_refused_at: null,
+          health_refused_version: null,
+          notice_sent_at: null,
+          notice_sent_version: null,
+        } as any);
+      return fresh;
+    });
   }
 }

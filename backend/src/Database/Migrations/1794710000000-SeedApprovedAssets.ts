@@ -31,3 +31,4 @@ export class SeedApprovedAssets1794710000000 implements MigrationInterface {
     `);
   }
 }
+

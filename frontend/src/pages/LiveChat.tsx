@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getConversationCounts,
   handBackConversation,
+  restartConversation,
   listConversations,
   listMessages,
   MESSAGE_PAGE,
@@ -287,6 +288,8 @@ export default function LiveChat() {
   const [qrOpen, setQrOpen] = useState(false);
   const [replies, setReplies] = useState<string[]>(loadReplies);
   const [handBackNote, setHandBackNote] = useState<string | null>(null); // null = the note box is closed
+  // "Restart chat" options; null = the box is closed
+  const [restartBox, setRestartBox] = useState<{ forget: boolean; consent: boolean } | null>(null);
   const msgsRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -410,6 +413,17 @@ export default function LiveChat() {
     },
     onError,
   });
+  const restart = useMutation({
+    mutationFn: (v: { id: string; forget: boolean; consent: boolean }) =>
+      restartConversation(v.id, { forget_earlier: v.forget, ask_consent_again: v.consent }),
+    onSuccess: async (r) => {
+      setRestartBox(null);
+      message.success("Chat restarted. The bot greets the customer as new on their next message.");
+      setSelectedId(r.conversation_id);
+      await refresh();
+    },
+    onError,
+  });
   const handBack = useMutation({
     mutationFn: ({ id, note }: { id: string; note?: string }) => handBackConversation(id, note),
     onSuccess: async () => {
@@ -432,6 +446,7 @@ export default function LiveChat() {
   const pick = (id: string) => {
     setSelectedId(id);
     setHandBackNote(null);
+    setRestartBox(null);
     setFindOpen(false);
     setFind("");
     setQrOpen(false);
@@ -623,7 +638,17 @@ export default function LiveChat() {
   const rows: ReactNode[] = [];
   let lastDay = "";
   let prev: Message | null = null;
+  let lastConv = "";
   for (const m of shown) {
+    if (lastConv && m.conversation_id && m.conversation_id !== lastConv) {
+      rows.push(
+        <div key={`n-${m.id}`} className="newchat">
+          <span>New chat started</span>
+        </div>,
+      );
+      prev = null;
+    }
+    if (m.conversation_id) lastConv = m.conversation_id;
     const day = m.created_on ? ymd(new Date(m.created_on)) : "";
     if (day && day !== lastDay) {
       rows.push(
@@ -874,6 +899,19 @@ export default function LiveChat() {
                 >
                   Record
                 </button>
+                {canReply && !optedOut && active.state !== "pause" && (
+                  <button
+                    className={`btn sm icon ${restartBox ? "on" : ""}`}
+                    title="Restart chat: the bot starts again from the welcome"
+                    aria-label="Restart chat"
+                    disabled={restart.isPending}
+                    onClick={() =>
+                      setRestartBox(restartBox ? null : { forget: true, consent: false })
+                    }
+                  >
+                    ↻
+                  </button>
+                )}
                 {!optedOut &&
                   canReply &&
                   (withPerson ? (
@@ -978,6 +1016,43 @@ export default function LiveChat() {
                 <div className="notice small">
                   This chat is no longer in this tab (its state changed). It stays open until you
                   pick another one.
+                </div>
+              )}
+              {restartBox && (
+                <div className="notice small">
+                  <div style={{ marginBottom: 6 }}>
+                    <b>Restart this chat?</b> The bot starts again from the welcome message, as for
+                    a new customer. Messages so far stay here; scheduled messages are cancelled. A
+                    booking request already made is kept.
+                  </div>
+                  <label className="row" style={{ gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={restartBox.forget}
+                      onChange={(e) => setRestartBox({ ...restartBox, forget: e.target.checked })}
+                    />
+                    Forget what they told the bot (need, city, spend, plan, age)
+                  </label>
+                  <label className="row" style={{ gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={restartBox.consent}
+                      onChange={(e) => setRestartBox({ ...restartBox, consent: e.target.checked })}
+                    />
+                    Ask the health-data consent again
+                  </label>
+                  <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                    <button
+                      className="btn sm pri"
+                      disabled={restart.isPending}
+                      onClick={() => restart.mutate({ id: active.id, ...restartBox })}
+                    >
+                      {restart.isPending ? "Restarting…" : "Restart chat"}
+                    </button>
+                    <button className="btn sm" onClick={() => setRestartBox(null)}>
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               )}
               {handBackNote !== null && (

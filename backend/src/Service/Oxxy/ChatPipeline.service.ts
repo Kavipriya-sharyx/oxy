@@ -176,7 +176,7 @@ import { DateWindowService } from "./DateWindow.service";
 import { DataSource } from "typeorm";
 import { CrmOutboxService } from "@Service/Crm/CrmOutbox.service";
 import { CrmAction } from "@Helper/Enum/CrmAction";
-import { ConversationRepository } from "./ConversationRepository.service";
+import { ConversationRepository, RESTARTED_FRESH } from "./ConversationRepository.service";
 import { isPlaceholder, planProblems, planReady } from "@Helper/GoLive";
 import { hasQuestion, statedYearlySpend, tidyDraft } from "@Helper/ReplyTidy";
 import { GeoPoint, GoogleMapsService } from "@Service/Maps/GoogleMaps.service";
@@ -1911,7 +1911,9 @@ export class ChatPipelineService {
           .createQueryBuilder("n")
           .innerJoin(conversation, "c", "c.id = n.conversation_id")
           .where(
-            "c.customer_id = :cid AND c.id <> :cur AND n.created_on > now() - interval '90 days'",
+            `c.customer_id = :cid AND c.id <> :cur AND n.created_on > now() - interval '90 days'
+             AND n.created_on > COALESCE((SELECT MAX(x.closed_at) FROM conversation x
+                                           WHERE x.customer_id = :cid AND x.outcome = '${RESTARTED_FRESH}'), 'epoch')`,
             {
               cid: s.customer.id,
               cur: conv.id,
