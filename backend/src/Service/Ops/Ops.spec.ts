@@ -262,6 +262,18 @@ describe("WhatsApp template status", () => {
     expect(await templateLanguage("agreed_follow_up", "en", "en")).toBe("en");
     expect(await templateLanguage("hello_world", "en_US", null)).toBe("en_US");
   });
+
+  it("Hindi asked for directly: English goes out when only the English version is approved", async () => {
+    jest.spyOn(wa_template, "find").mockImplementation((async (o: any) =>
+      o.where.name === "lead_intro"
+        ? [{ name: "lead_intro", language: "en", meta_status: "approved" }]
+        : o.where.name === "asset_hi"
+          ? [{ name: "asset_hi", language: "hi", meta_status: "approved" }]
+          : []) as never);
+    expect(await templateLanguage("lead_intro", "hi", "hi")).toBe("en"); // no Hindi version: never a refused send
+    expect(await templateLanguage("asset_hi", "hi", "hi")).toBe("hi");
+    expect(await templateLanguage("unknown_here", "hi", "hi")).toBe("hi"); // not in the list: left to Meta
+  });
 });
 
 describe("live events (console updates)", () => {
@@ -392,6 +404,9 @@ describe("go-live: no sample or placeholder data", () => {
     expect(one[0].status).toBe("blocker");
     expect(one[0].detail).toContain("booking_confirmed (draft)");
     expect(one[1].status).toBe("warn"); // no Hindi versions yet
+    // the first-contact template is checked too: a warning (only the lead flow needs it), never silent
+    expect(templateChecks(all)[2]).toMatchObject({ item: "First-contact template (lead_intro)", status: "warn" });
+    expect(templateChecks([...all, { name: "lead_intro", language: "en", meta_status: "approved" }])[2].status).toBe("ok");
   });
 });
 

@@ -417,11 +417,91 @@ export function isShortYes(text: string): boolean {
 }
 
 /** The bot's last question was about the price ("Would you like to know the price now?") */
-export function askedAboutPrice(lastBotText: string | null | undefined): boolean {
-  const t = String(lastBotText ?? "");
-  const q = t.slice(t.lastIndexOf("\n") + 1);
-  return /\?/.test(q) && /\b(price|cost|pricing|how much)\b|कीमत/i.test(q);
+/** The bot's last question sentence ("… plus GST. Would you like X?" -> "Would you like X?") */
+export function lastQuestionOf(lastBotText: string | null | undefined): string {
+  const t = String(lastBotText ?? "").trim();
+  const m = t.match(/[^.?!\n।]*\?\s*$/u);
+  return m ? m[0].trim() : "";
 }
+
+export function askedAboutPrice(lastBotText: string | null | undefined): boolean {
+  // the QUESTION must be about the price: "… is ₹1,999 plus GST. Would you like the plan details?" is not
+  return /\b(price|cost|pricing|how much)\b|कीमत/i.test(lastQuestionOf(lastBotText));
+}
+
+/** The bot's last question offered activation ("help activating it?", "proceed with activation?") */
+export function askedAboutActivation(lastBotText: string | null | undefined): boolean {
+  return /activat|proceed|एक्टिवेट/i.test(lastQuestionOf(lastBotText));
+}
+
+/** The bot's last question offered the plan details ("Would you like the plan details?") */
+export function askedAboutPlanDetails(lastBotText: string | null | undefined): boolean {
+  const q = lastQuestionOf(lastBotText);
+  return /plan details|प्लान की जानकारी/i.test(q) && !/activat|एक्टिवेट/i.test(q);
+}
+
+/** "I want to activate", "I'll take this plan", "apply", "go ahead", "proceed", "buy" */
+export function wantsToActivate(text: string): boolean {
+  const t = (text || "").toLowerCase();
+  if (/\b(not|don'?t|do not|later|no)\b/.test(t)) return false;
+  return /\b(activate|activation|proceed|go ahead|apply|apoy|aply|buy|purchase|take (this|the|it)|subscribe|i want (this|it|the) plan|sign me up|let'?s do it)\b/.test(t);
+}
+
+/** "please share the plan details", "plan details", "details please", "tell me more" */
+export function wantsPlanDetails(text: string): boolean {
+  return /\b(plan )?details\b|\btell me more\b|\bmore (info|information)\b|\bwhat (does|do) (it|the plan) (cover|include)\b/i.test(text || "");
+}
+
+// Playbook 7 "best-fit description" per plan: what the plan is for (no saving figure: that is the illustration)
+const PLAN_DETAILS: Record<string, L> = {
+  everyday: {
+    en: "routine OPD visits, new illnesses, and eye and dental check-ups, for eligible bills up to ₹10 lakh; for ages up to 70",
+    hi: "नियमित OPD, नई बीमारियाँ और आँख व दाँत की जाँच, ₹10 लाख तक के योग्य बिलों के लिए; 70 वर्ष तक की उम्र",
+    hinglish: "routine OPD, nayi bimariyan aur aankh-daant ki jaanch, ₹10 lakh tak ke eligible bills ke liye; 70 saal tak",
+  },
+  vital: {
+    en: "broader OPD and hospitalisation (IPD), with eye, dental and skin check-ups, for eligible bills up to ₹20 lakh; for ages up to 75",
+    hi: "व्यापक OPD और अस्पताल में भर्ती (IPD), आँख, दाँत और त्वचा की जाँच के साथ, ₹20 लाख तक के योग्य बिलों के लिए; 75 वर्ष तक",
+    hinglish: "broader OPD aur hospitalisation (IPD), aankh-daant-skin check-ups ke saath, ₹20 lakh tak ke eligible bills; 75 saal tak",
+  },
+  thrive: {
+    en: "new and pre-existing conditions with broader cover of expenses, for eligible bills up to ₹30 lakh; for ages up to 80",
+    hi: "नई और पहले से मौजूद बीमारियाँ, ज़्यादा खर्चों के साथ, ₹30 लाख तक के योग्य बिलों के लिए; 80 वर्ष तक",
+    hinglish: "nayi aur pehle se maujood bimariyan, zyada kharchon ke saath, ₹30 lakh tak ke eligible bills; 80 saal tak",
+  },
+  infinity: {
+    en: "the broadest OPD and IPD scope with no upper bill limit, including pregnancy, IVF, cosmetic, hair and bariatric needs; no age limit",
+    hi: "सबसे व्यापक OPD और IPD, बिल की कोई ऊपरी सीमा नहीं, गर्भावस्था, IVF, कॉस्मेटिक, बाल और बैरिएट्रिक ज़रूरतों सहित; कोई उम्र सीमा नहीं",
+    hinglish: "sabse broad OPD aur IPD, bill ki koi upper limit nahi, pregnancy, IVF, cosmetic, hair aur bariatric bhi; koi age limit nahi",
+  },
+};
+
+/** The plan's details (Playbook 7), its price, then the activation question */
+export function planDetailsText(
+  plan: string,
+  yearly: number | null,
+  monthly: number | null,
+  l: string | null = "en",
+): string {
+  const p = title(plan);
+  const what = PLAN_DETAILS[plan] ? say(PLAN_DETAILS[plan], l) : planReason(plan, l);
+  const price = yearly ? priceText(yearly, monthly, l || "en") : null;
+  switch (lang(l)) {
+    case "hi":
+      return `${p} प्लान: ${what}।${price ? ` कीमत ${price} और लागू GST।` : ""} आप इसे इस्तेमाल करने से पहले Oxxy से संपर्क करते हैं, ताकि योग्य बचत तय की जा सके। क्या आप इसे एक्टिवेट करना चाहेंगे?`;
+    case "hinglish":
+      return `${p} plan: ${what}.${price ? ` Price ${price} plus applicable GST.` : ""} Service lene se pehle Oxxy ko contact karte hain, taaki eligible saving coordinate ho sake. Kya aap ise activate karna chahenge?`;
+    default:
+      return `The ${p} plan covers ${what}.${price ? ` The price is ${price} plus applicable GST.` : ""} You contact Oxxy before the service, so the eligible saving can be arranged. Would you like help activating it?`;
+  }
+}
+
+// Activation asked but the official link is not in the catalogue yet: said plainly, a person sends it
+export const ACTIVATION_BY_TEAM_T: L = {
+  en: "To activate the {plan} plan, our team will send you the official secure activation link and help you complete it. You never need to share card or bank details in this chat.",
+  hi: "{plan} प्लान एक्टिवेट करने के लिए हमारी टीम आपको आधिकारिक सुरक्षित एक्टिवेशन लिंक भेजेगी और पूरा करने में मदद करेगी। इस चैट में कार्ड या बैंक की जानकारी कभी न दें।",
+  hinglish: "{plan} plan activate karne ke liye hamari team aapko official secure activation link bhejegi aur complete karne mein madad karegi. Is chat mein card ya bank details kabhi share na karein.",
+};
 
 /** One plan's price, then the Playbook 7 question */
 export function planPriceText(

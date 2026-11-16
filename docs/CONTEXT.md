@@ -549,6 +549,26 @@ Real chat: the customer typed "coimbatore peelamedu", then "you can suggest hosp
 - Not checked on real WhatsApp. Tests: `LocationAsk.spec.ts`, `ReplyTidy.spec.ts`, the "Real chat, 16 Nov" block
   in `ChatPipeline.plan.spec.ts`.
 
+## Template audit (16 Nov): three fixes
+
+Every `kind: "template"` send was compared with `Helper/TemplateDefinitions.ts` (variable count and order).
+The ten templates match, except:
+
+- **CRM `create_follow_up` sent `agreed_follow_up` without its three variables** (Meta refuses it, 132000).
+  `BotActionsService.createFollowUp` now sends the same values as a follow-up agreed in the chat: first name
+  (or "there"), "your healthcare requirement", "Oxxy" / "Cut Medi Bills". Another template name: no variables
+  are guessed.
+- **`lead_intro` was asked in Hindi for a Hindi customer although only the English version exists.** It is now
+  asked in "en" like every other template (`templateLanguage` switches to Hindi once that version is approved).
+  `templateLanguage` also falls back to an approved English version when Hindi is asked for directly and the
+  Hindi version is known and not approved (an approved asset's template); a template not in the list is left
+  to Meta.
+- **Go-live did not look at `lead_intro`.** `templateChecks` has a third row, "First-contact template
+  (lead_intro)": a warning, not a blocker (only the Voice AI / CRM lead flow needs it).
+- Still open: booking templates carry the date as "2026-11-20" (the chat shows "20 Nov 2026"); the variables of
+  a scheduled follow-up live only in the queue job, not in the `follow_up` row; an approved asset's own
+  template (title, link) must be created in Meta by hand.
+
 ## Nearby centres with Google Maps Platform (15 Nov)
 
 - Rule kept (Playbook 10): Google Maps says WHERE things are, never WHICH centre to suggest. Customers only
@@ -740,3 +760,14 @@ template approvals above. The token was shared in chat, so rotate it. Update 14 
 - **Welcome + options when the chat is opened.** Configuration > "Chat opening on WhatsApp" sets Meta's
   conversational automation: the welcome-message event (`request_welcome` -> the bot sends the welcome and
   the 4 options before the customer types) and up to 4 ice breakers (default: the 4 menu row titles).
+- **16 Nov afternoon test chats (fixes).** Price reply looped on "yes" (`askedAboutPrice` now reads only the
+  last question sentence). "yes" to "plan details or help activating it?" / "I'll take this plan" / the
+  Activate button start the activation (`startActivation`: disclosure, or "our team will send the official
+  link" + callback when the catalogue has no link); "yes" to "Would you like the plan details?" sends
+  `planDetailsText`. Draft guard `draftProblem`: no "booking noted" while a booking is open, no payment
+  method / "I will process the payment", no medicine names. Booking: a centre from the list ("1", "Kmch")
+  switches the request (`centreSwitch`); "I don't know which doctor" = "Not sure - please advise"; a date
+  given early is kept (or the 3-day rule said at once). Centre search: no distance given = 10 km list;
+  no verified centre = the cities that have one (pending `centre_city`); empty "1. 2. 3." stripped inside
+  a line; the LLM draft is dropped next to the city / distance / no-centre text; the same open question
+  is not appended twice in a row.

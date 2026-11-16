@@ -8,6 +8,7 @@ import { range } from "./Analytics.service";
 import { validApiKey } from "@Controller/Crm/Actions.controller";
 import { customer } from "@Database/Table/Oxxy/customer";
 import { consent } from "@Database/Table/Oxxy/consent";
+import { conversation } from "@Database/Table/Oxxy/conversation";
 import { centre } from "@Database/Table/Oxxy/centre";
 import { task } from "@Database/Table/Oxxy/task";
 import { plan_catalog } from "@Database/Table/Oxxy/plan_catalog";
@@ -151,6 +152,26 @@ describe("create_follow_up (17.1)", () => {
     await expect(
       svc.createFollowUp({ customer_id: U, scheduled_for: "2020-01-01T05:00:00Z", reason: "x" }),
     ).rejects.toThrow(/future/);
+  });
+
+  it("agreed_follow_up goes out with its three variables (without them Meta refuses the template)", async () => {
+    jest.spyOn(customer, "findOne").mockResolvedValue({ id: "c1", first_name: "Priya" } as never);
+    jest.spyOn(conversation, "update").mockResolvedValue({} as never);
+    const { svc, deps } = service();
+    jest.spyOn(svc, "logTrigger").mockResolvedValue(undefined as never);
+    const day = new Date(Date.now() + 2 * 86400000);
+    day.setUTCHours(6, 0, 0, 0); // 11:30 IST
+    await svc.createFollowUp({ customer_id: U, scheduled_for: day.toISOString(), reason: "asked to call back" });
+    expect(deps.scheduler.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateName: "agreed_follow_up",
+        params: ["Priya", "your healthcare requirement", "Oxxy"],
+      }),
+    );
+    // another template: its variables are not guessed
+    deps.scheduler.create.mockClear();
+    await svc.createFollowUp({ customer_id: U, scheduled_for: day.toISOString(), reason: "x", template_name: "conversation_rescue_1", kind: "rescue" });
+    expect((deps.scheduler.create.mock.calls[0] as any[])[0].params).toBeUndefined();
   });
 
   it("refuses an opted-out customer", async () => {

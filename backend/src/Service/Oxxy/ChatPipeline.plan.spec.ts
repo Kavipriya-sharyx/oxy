@@ -366,7 +366,7 @@ describe("one question, no repeat, no stalling", () => {
         save: async () => undefined,
       },
     });
-    await t.run("ok tell me more");
+    await t.run("ok, thanks");
     const context = JSON.parse(String((t.generate.mock.calls[0] as unknown[])[1]));
     expect(context.known).toMatchObject({
       beneficiary: "mother",
@@ -585,11 +585,11 @@ describe("activation (12.5): disclosure first, link only after YES", () => {
     await t.run("I want to activate");
     expect(t.out.join("\n\n")).not.toContain("Shall I send the official secure activation link?");
     expect(t.out.join("\n\n")).not.toMatch(/https?:|CONFIRM|example/);
-    expect(t.conv.pending_action).toBeNull();
+    // said plainly + callback times (never "send your payment method"), and a task for the team
+    expect(t.out.join(" ")).toMatch(/our team will send you the official secure activation link/);
+    expect(t.conv.pending_action).toMatch(/^callback_time:/);
     expect(
-      t.saved.some((r) =>
-        String(r.summary).startsWith("Plan not ready to sell, missing: official activation link"),
-      ),
+      t.saved.some((r) => /plan not ready to sell, missing: official activation link/.test(String(r.summary))),
     ).toBe(true);
   });
 
@@ -1504,7 +1504,9 @@ describe("plan choice and price after the booking (no repeats, no callback for t
     const t = setup([draft("Great.")], { recommended: "vital" });
     lastBot("Would you like to proceed with activating the Oxxy Vital plan?");
     await t.run("Okay");
-    expect(t.generate).toHaveBeenCalled();
+    // the activation itself starts (price, GST, renewal first), not an LLM guess
+    expect(t.generate).not.toHaveBeenCalled();
+    expect(t.out.length).toBeGreaterThan(0);
     expect(t.out.join(" ")).not.toMatch(/main benefit or the price/);
   });
 
@@ -1540,5 +1542,109 @@ describe("plan choice and price after the booking (no repeats, no callback for t
     expect(parsePatientAge("not sure")).toBeNull();
     expect(isShortYes("Yes")).toBe(true);
     expect(isShortYes("yes but later")).toBe(false);
+  });
+});
+
+// Reported 16 Nov afternoon (two test chats): the price reply looping on "yes", the bot taking "GPay", the
+// booking stuck asking the specialisation ten times, "1. 2. 3." empty lists, a booking "noted" that was not.
+describe("16 Nov test chats: no loops, no false promises", () => {
+  const KMCH = { id: "ctrK", name: "KMCH HOSPITAL", branch: "CHITRA", city: "Coimbatore", verified: true, active: true };
+  const lastBot = (body: string) =>
+    jest
+      .spyOn(message, "findOne")
+      .mockImplementation((async (o: any) => (o?.where?.reply_to_wa_message_id ? null : { body })) as never);
+  const PRICE_Q =
+    "The current price of the Vital plan is ₹1,999 monthly or ₹20,000 yearly plus applicable GST. Would you like the official plan details or help activating it?";
+
+  it('"yes" to "plan details or help activating it?" starts the activation, never the price again', async () => {
+    const t = setup([], { recommended: "vital" });
+    lastBot(PRICE_Q);
+    await t.run("yes");
+    expect(t.generate).not.toHaveBeenCalled();
+    expect(t.out.join(" ")).not.toContain("The current price of the Vital plan is");
+    expect(t.conv.pending_action).toMatch(/^send_activation_link:/); // price, GST, renewal shown; link after YES
+  });
+
+  it('"Ok" after "… against a plan price of ₹10,000. Would you like the plan details?" = the plan details', async () => {
+    const t = setup([], { recommended: "everyday" });
+    lastBot("You mentioned a yearly healthcare spend of about ₹3,00,000. As an easy illustration, the Everyday plan could help you save about ₹60,000 a year, against a plan price of ₹10,000 plus GST. Would you like the plan details?");
+    await t.run("Ok");
+    expect(t.out[0]).toMatch(/^The Everyday plan covers routine OPD visits/);
+    expect(t.out[0]).toMatch(/Would you like help activating it\?$/);
+  });
+
+  it('"I apoy this plan" = activate; the LLM never asks for a payment method', async () => {
+    const t = setup([], { recommended: "everyday" });
+    await t.run("I apoy this plan");
+    expect(t.generate).not.toHaveBeenCalled();
+    expect(t.conv.pending_action).toMatch(/^send_activation_link:/);
+    const { draftProblem } = jest.requireActual("./ChatPipeline.service");
+    expect(draftProblem("Great choice! Please confirm your preferred payment method so I can assist.", false)).toMatch(/never ask how they will pay/);
+    expect(draftProblem("I will now initiate the activation process for the Everyday plan using GPay.", false)).toBeTruthy();
+    expect(draftProblem("No problem! Your booking request for tomorrow at 11 AM is noted.", true)).toMatch(/NOT made yet/);
+    expect(draftProblem("What specific medicines do they need?", false)).toMatch(/medicines/);
+    expect(draftProblem("Oxxy helps with eligible bills.", true)).toBeNull();
+  });
+
+  const atSpec = (cn: string, u: boolean) =>
+    `booking:${JSON.stringify({ step: "specialisation", c: u ? null : "ctrP", cn, u, ok: true, l: u ? "-" : null })}`;
+
+  it('"Kmch" from the list while the request is for the typed centre: the booking moves to KMCH', async () => {
+    const t = setup([], {
+      pending: atSpec("Oxxy Healthcare", true),
+      needRow: { suggested_centre_ids: ["ctrK"], save: async () => undefined },
+      centres: [KMCH],
+    });
+    await t.run("Kmch");
+    expect(t.out[0]).toContain("Done, the booking request is now for KMCH HOSPITAL, CHITRA.");
+    expect(t.conv.pending_action).toContain('"c":"ctrK"');
+  });
+
+  it('"I don\'t know which doctor": marked not sure, the next step comes (never the same question ten times)', async () => {
+    const needRow: Record<string, unknown> = { save: async () => undefined };
+    const t = setup([], { pending: atSpec("PSG HOSPITAL, PEELAMEDU", false), needRow, centres: [] });
+    await t.run("i do not kow whci doctor could you tell me that");
+    expect(t.generate).not.toHaveBeenCalled();
+    expect(needRow.specialisation).toBe("Not sure - please advise");
+    expect(t.out.join(" ")).toMatch(/the centre will suggest the right doctor/);
+    expect(t.out.join(" ")).toMatch(/What date would you prefer\?/);
+  });
+
+  it('"Tomorrow 11 am" at the specialisation step: the date rule now, the time kept, never "noted"', async () => {
+    const t = setup([], { pending: atSpec("PSG HOSPITAL, PEELAMEDU", false), needRow: { save: async () => undefined } });
+    await t.run("Tomorrow 11 am");
+    expect(t.out.join(" ")).toMatch(/A booking request needs at least 3 days/);
+    expect(t.out.join(" ")).toMatch(/Which doctor specialisation/);
+    expect(t.out.join(" ")).not.toMatch(/noted/i);
+    expect(t.conv.pending_action).toContain('"t":"11 am"');
+  });
+
+  it('a valid early date is kept, so the date is never asked again ("I already said …")', async () => {
+    const t = setup([], { pending: atSpec("PSG HOSPITAL, PEELAMEDU", false), needRow: { save: async () => undefined } });
+    const d = new Date(Date.now() + 5.5 * 3600000 + 5 * 86400000);
+    const dd = `${d.getUTCDate()}/${d.getUTCMonth() + 1}/${d.getUTCFullYear()}`;
+    await t.run(`${dd} 11 am`);
+    expect(t.out[0]).toMatch(/^Noted /);
+    expect(t.conv.pending_action).toContain('"d":"');
+  });
+
+  it("no distance given (\"I want the hospital details\"): the list within about 10 km, not the question again", async () => {
+    const needRow: Record<string, unknown> = { city: "Coimbatore", locality: "Peelamedu", save: async () => undefined };
+    const t = setup([], {
+      pending: "centre_radius",
+      needRow,
+      found: () => [{ id: "ctr9", name: "ABC Hospital", locality: "Peelamedu", city: "Coimbatore", centre_type: "multispeciality", verified: true, active: true }],
+    });
+    await t.run("what is this i wan the hospital detail");
+    expect(t.out[0]).toMatch(/^Here are verified options within about 10 km/);
+    expect(t.out[0]).toContain("ABC Hospital");
+    expect(needRow.travel_radius_km).toBe(10);
+  });
+
+  it('the LLM\'s empty "1. 2. 3." in front of a sentence goes', () => {
+    const { withoutEmptyNumbering } = jest.requireActual("@Helper/ReplyTidy");
+    expect(withoutEmptyNumbering("1. 2. 3. If yes, please share your preferred date for the check-up.")).toBe(
+      "If yes, please share your preferred date for the check-up.",
+    );
   });
 });

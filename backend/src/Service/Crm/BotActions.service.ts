@@ -519,14 +519,29 @@ export class BotActionsService {
       ? (body.kind as "agreed_follow_up")
       : "agreed_follow_up";
     const conv = await this.openConversation(c.id);
+    const templateName = body.template_name?.trim() || "agreed_follow_up";
+    const followUpProduct = product ?? conv.selected_product ?? null;
     const row = await this._Scheduler.create({
       customerId: c.id,
       conversationId: conv.id,
       kind,
       scheduledFor: when,
-      templateName: body.template_name?.trim() || "agreed_follow_up",
+      templateName,
+      // agreed_follow_up has three variables (First_Name, Need, Selected_Product, Playbook 18): the same
+      // values as a follow-up agreed in the chat, no health detail. Without them Meta refuses the template.
+      ...(templateName === "agreed_follow_up"
+        ? {
+            params: [
+              c.first_name || "there",
+              "your healthcare requirement",
+              (c.active_product || followUpProduct) === ProductType.CutMediBills
+                ? "Cut Medi Bills"
+                : "Oxxy",
+            ],
+          }
+        : {}),
       reason: body.reason.trim().slice(0, 500),
-      selectedProduct: product ?? conv.selected_product ?? null,
+      selectedProduct: followUpProduct,
       source: sourceOf(body.source),
     });
     await conversation.update(conv.id, { follow_up_at: when });
@@ -967,7 +982,7 @@ export class BotActionsService {
         {
           kind: "template",
           name: "lead_intro",
-          languageCode: c.language === "hi" ? "hi" : "en",
+          languageCode: "en", // Hindi customers get the Hindi version once Meta approved it (templateLanguage)
           params: [name],
         },
         "proactive",

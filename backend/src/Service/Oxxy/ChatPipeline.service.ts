@@ -35,6 +35,12 @@ import { BookingStatus } from "@Helper/Enum/BookingStatus";
 import { centreSavingReply, fixedReply, NOTICE_VERSION } from "@Helper/FixedReplies";
 import { detectLanguage, L, lang, say } from "@Helper/Lang";
 import {
+  ACTIVATION_BY_TEAM_T,
+  askedAboutActivation,
+  askedAboutPlanDetails,
+  planDetailsText,
+  wantsPlanDetails,
+  wantsToActivate,
   askedAboutPrice,
   asksCentreSaving,
   asksPrice,
@@ -73,6 +79,7 @@ import {
   bookingQuestion,
   bookingSavedText,
   dateProblemText,
+  showDate,
   isBookingPending,
   nextStep,
   parseCustomerDate,
@@ -245,6 +252,61 @@ export const CONSENT_REMINDER_T: L = {
   hi: "स्वास्थ्य से जुड़ी मदद के लिए, क्या मैं ऊपर बताए अनुसार आपकी स्वास्थ्य जानकारी का उपयोग कर सकता हूँ? कृपया YES या NO लिखें।",
   hinglish:
     "Health need mein madad ke liye, kya main upar bataye anusaar aapki health details use kar sakta hoon? YES ya NO likhein.",
+};
+// After "no verified centre here": where verified centres are
+export const CENTRE_CITIES_T: L = {
+  en: "Verified centres are available now in: {cities}. Send one of these cities to see the options there.",
+  hi: "सत्यापित केंद्र अभी इन शहरों में उपलब्ध हैं: {cities}। विकल्प देखने के लिए इनमें से किसी शहर का नाम भेजें।",
+  hinglish: "Verified centres abhi in shehron mein available hain: {cities}. Options dekhne ke liye inmein se koi city bhejein.",
+};
+/** What a draft must never say (null = fine): checked in code, the prompt alone was not enough */
+export function draftProblem(text: string, bookingOpen: boolean): string | null {
+  const t = (text || "").toLowerCase();
+  if (
+    bookingOpen &&
+    /\b(booking|request|appointment)\b[^.]{0,40}\b(is |has been |was )?(noted|made|recorded|received|placed|booked|confirmed|done)\b|\b(noted|recorded) (your|the) booking\b/.test(
+      t,
+    )
+  )
+    return "the booking request is NOT made yet (the system asks its own next step): never say it is noted, made or confirmed";
+  if (
+    /\b(payment method|pay (via|using|through|with)|g ?pay|phone ?pe|paytm|upi|card details|bank details|account number)\b|\b(i will|i'll|let me) (now )?(initiate|process|proceed with|start) (the )?(activation|payment)\b/.test(
+      t,
+    )
+  )
+    return "never ask how they will pay and never say you process an activation or payment: the system sends the official link";
+  if (/\b(which|what)( specific| exact)? (medicines?|drugs?|tablets?)\b[^?]*\?/.test(t))
+    return "never ask for the names of medicines";
+  return null;
+}
+// Booking request, side answers
+export const CENTRE_CHANGED_T: L = {
+  en: "Done, the booking request is now for {centre}.",
+  hi: "ठीक है, बुकिंग अनुरोध अब {centre} के लिए है।",
+  hinglish: "Theek hai, booking request ab {centre} ke liye hai.",
+};
+export const DATE_NOTED_T: L = {
+  en: "Noted {date}.",
+  hi: "{date} नोट कर लिया।",
+  hinglish: "{date} note kar liya.",
+};
+export const DOCTOR_NOT_SURE_T: L = {
+  en: "No problem. I will mark the request \"not sure, please advise\": the centre will suggest the right doctor.",
+  hi: "कोई बात नहीं। मैं अनुरोध में \"पता नहीं, कृपया सलाह दें\" लिख दूँगा: केंद्र सही डॉक्टर बताएगा।",
+  hinglish: "Koi baat nahi. Main request mein \"not sure, please advise\" likh dunga: centre sahi doctor batayega.",
+};
+export const NOT_SURE_SPECIALISATION = "Not sure - please advise";
+/** "I don't know which doctor", "you tell me", "not sure", "any doctor" */
+export function knowsNotWhichDoctor(text: string): boolean {
+  return /\b(don'?t|do not|dont|dunno)\s+(know|kow|knw|kno|no)\b|\bnot sure\b|\bno idea\b|\b(you|u) (tell|suggest|decide)\b|\b(tell|suggest) me\b|\bwhich doctor\b|\bany doctor\b|\bpata nahi|पता नहीं/i.test(
+    text || "",
+  );
+}
+// The customer did not give a distance ("I want the hospital details"): the list within about 10 km
+export const RADIUS_DEFAULT_T: L = {
+  en: "Here are verified options within about 10 km. Tell me if the patient can travel further.",
+  hi: "लगभग 10 km के अंदर के सत्यापित विकल्प ये हैं। अगर मरीज़ और दूर जा सकते हैं तो बताइए।",
+  hinglish: "Lagbhag 10 km ke andar ke verified options ye hain. Agar patient aur door ja sakte hain to bataiye.",
 };
 // The bot keeps answering while the team has the case (no second callback offer)
 export const TEAM_HAS_IT_T: L = {
@@ -1414,6 +1476,7 @@ export class ChatPipelineService {
     if (await this.handleLocationShare(m, s)) return;
     if (await this.handleCentreLocationText(m, s)) return;
     if (await this.handleCentreRadius(m, s)) return;
+    if (await this.handleCentreCity(m, s)) return;
     if (await this.handleRebookOffer(m, s)) return;
     if (await this.handleCentrePick(m, s)) return;
     if (await this.handleBooking(m, s)) return;
@@ -1428,6 +1491,7 @@ export class ChatPipelineService {
     if (await this.handleInsurance(m, s)) return;
     if (await this.handleCentreSaving(m, s)) return;
     if (await this.handleFaq(m, s, healthBlocked)) return;
+    if (await this.handlePlanNextStep(m, s)) return;
     if (await this.handleServiceRequest(m, s)) return;
     if (await this.handleBarrier(m, s)) return;
     if (await this.handleMedicine(m, s, healthBlocked)) return;
@@ -1472,6 +1536,13 @@ export class ChatPipelineService {
         // refused customer: a reply that asks about health is never sent (checked here, not by prompt)
         if (healthBlocked && asksHealthQuestion(draft.reply_text)) {
           feedback = "do not ask any health question";
+          continue;
+        }
+        // promises the bot cannot keep (seen 16 Nov): a booking "noted" before it is saved, a payment taken
+        // in the chat, the names of medicines
+        const wrong = draftProblem(draft.reply_text, isBookingPending(s.conversation.pending_action));
+        if (wrong) {
+          feedback = wrong;
           continue;
         }
         // prices and plan names only from plan_catalog; nothing about a second product
@@ -1629,12 +1700,16 @@ export class ChatPipelineService {
     // second question or a second list (its own list is never sent: names it wrote are not checked)
     // (the same for a plan recommendation, the price disclosure and the age question: the LLM's own
     // recommendation next to it is what made the customer read the same plan twice)
-    if (shown.has("G") || shown.has("D") || shown.has("E") || shown.has("AGE")) replaceReply = true;
+    // (and the city / travel-distance question or the no-centre answer: the LLM wrote empty "1. 2. 3." lists there)
+    if (["G", "D", "E", "AGE", "ASK"].some((k) => shown.has(k))) replaceReply = true;
     // a centre step (location, radius, list, no centre): the system's text is the whole reply. A list of
     // hospitals the LLM wrote by itself must never ride along with it.
     if (shown.has("LOC") || shown.has("CENTRE_STEP")) replaceReply = true;
     // a question interrupted the gate or the booking: answer it, then ask the same question again (12.2)
-    const back = extras.length ? [] : this.pendingBack(s);
+    let back = extras.length ? [] : this.pendingBack(s);
+    // the same open question is not repeated under every answer: the last bot message already asked it
+    const prevBot = [...history].reverse().find((t) => t.role === "assistant")?.content ?? "";
+    if (back.length && prevBot.trim().endsWith(back[back.length - 1].trim())) back = [];
     // the draft loses its own question when the system asks one, any "please hold on" promise, and a
     // "Thank you for sharing" opener right after another one (Helper/ReplyTidy.ts)
     let callbackText = "";
@@ -2278,6 +2353,7 @@ export class ChatPipelineService {
       shown.add("LOC");
     } else if (r.intent === "find_centre" && !m.location && !n?.city) {
       extras.push(say(ASK_CITY_T, s.customer.language)); // never list centres from another city
+      shown.add("ASK");
       shown.add("CENTRE_STEP");
     } else if (
       r.intent === "find_centre" &&
@@ -2289,11 +2365,15 @@ export class ChatPipelineService {
       // Playbook 10.1: collect the travel radius before suggesting centres
       conv.pending_action = "centre_radius";
       extras.push(say(RADIUS_Q, s.customer.language));
+      shown.add("ASK");
       shown.add("CENTRE_STEP");
+    } else if (r.intent === "find_centre" && readDraft(conv.pending_action)?.c) {
+      // a booking for a verified centre is in progress: the list again would only confuse ("which doctor?")
     } else if (r.intent === "find_centre") {
       const text = await this.centreSuggestions(s, n, m.location);
       shown.add("CENTRE_STEP");
       if (text.shown) shown.add("D");
+      else shown.add("ASK"); // no verified centre: that answer stands alone
       // "2" = the second centre. Any older marker (location or radius question) is replaced; a booking or
       // the Cut Medi Bills gate in progress keeps its own step.
       if (text.shown && !isBookingPending(conv.pending_action) && !gateOpen)
@@ -2367,12 +2447,18 @@ export class ChatPipelineService {
           ),
         );
       } else if (conv.selected_product || conv.recommended_plan) {
-        await this.createTask(
+        const taskId = await this.createTaskOnce(
           TaskType.Activation,
           TaskPriority.Normal,
           s,
-          `Plan not ready to sell, missing: ${planProblems(cat).join(", ")}`,
+          `Customer wants to activate; plan not ready to sell, missing: ${planProblems(cat).join(", ")}`,
         );
+        const l = s.customer.language;
+        const label = cat ? this.productLabel(cat, l) : (conv.recommended_plan ?? "Oxxy");
+        extras.push(
+          await this.withCallbackOptions(s, taskId, say(ACTIVATION_BY_TEAM_T, l).replace("{plan}", label)),
+        );
+        shown.add("E"); // the fixed text answers it: the LLM's "I will process your payment" never goes out
       }
     }
 
@@ -2874,45 +2960,74 @@ export class ChatPipelineService {
       );
       return true;
     }
+    await this.startActivation(m, s);
+    return true;
+  }
+
+  // Playbook 12.1: the customer wants to activate. Price, GST and renewal first (the link only after their
+  // YES, handleActivationAnswer). No plan picked yet = the spend question. No official link in the catalogue
+  // yet = said plainly, a person sends it (a task and callback times), never "send your payment method".
+  private async startActivation(m: Inbound, s: Saved) {
+    const l = s.customer.language;
     const cat = await this.activationRow(s.conversation);
-    if (cat && !planReady(cat)) {
-      // the official link / terms of this plan are not in the catalogue yet: never a placeholder, a person helps
-      await this.createTaskOnce(
+    if (!cat) {
+      await this.sendAndSave(s.customer.id, say(T.spendFirst, l), m.waMessageId);
+      return;
+    }
+    if (!planReady(cat)) {
+      const taskId = await this.createTaskOnce(
         TaskType.Activation,
         TaskPriority.Normal,
         s,
-        `Plan not ready to sell, missing: ${planProblems(cat).join(", ")}`,
+        `Customer wants to activate; plan not ready to sell, missing: ${planProblems(cat).join(", ")}`,
       );
-      await this.sendAndSave(
-        s.customer.id,
-        say(HOLDING_MESSAGE_T, s.customer.language),
-        m.waMessageId,
-      );
-      return true;
+      const text = say(ACTIVATION_BY_TEAM_T, l).replace("{plan}", this.productLabel(cat, l));
+      await this.sendAndSave(s.customer.id, await this.withCallbackOptions(s, taskId, text), m.waMessageId);
+      return;
     }
-    if (!cat) {
-      // no plan picked yet: the value check needs the yearly spend first
-      await this.sendAndSave(s.customer.id, say(T.spendFirst, s.customer.language), m.waMessageId);
-      return true;
-    }
-    await conversation.update(s.conversation.id, {
-      pending_action: `send_activation_link:${cat.id}`,
-    });
+    await conversation.update(s.conversation.id, { pending_action: `send_activation_link:${cat.id}` });
     s.conversation.pending_action = `send_activation_link:${cat.id}`;
     await this.setState(s, this.activationPath(cat.product));
     await this.sendAndSave(
       s.customer.id,
       disclosureText(
-        this.productLabel(cat, s.customer.language),
+        this.productLabel(cat, l),
         Number(cat.price),
         cat.billing,
         cat.renewal_terms,
         cat.activation_time,
-        s.customer.language,
+        l,
       ),
       m.waMessageId,
     );
-    return true;
+  }
+
+  // After a plan was named: "yes" to "help activating it?" / "proceed with activation?", "I'll take this plan",
+  // the Activate button = the activation (above); "yes" to "Would you like the plan details?" or "details" =
+  // the plan's details (Playbook 7). Never left to the LLM: it used to promise payments it cannot take.
+  private async handlePlanNextStep(m: Inbound, s: Saved): Promise<boolean> {
+    if (s.conversation.pending_action || s.customer.active_product) return false;
+    const text = (m.text || "").trim();
+    if (!text || /\?\s*$/.test(text)) return false; // a question: answered normally
+    const plan = s.conversation.recommended_plan;
+    const cmb = s.conversation.selected_product === ProductType.CutMediBills;
+    if (!plan && !cmb) return false;
+    const last = await this.lastBotText(s);
+    const yes = isShortYes(text) || parseConsentAnswer(text) === "yes";
+    if (wantsToActivate(text) || (yes && askedAboutActivation(last))) {
+      await this.startActivation(m, s);
+      return true;
+    }
+    if (plan && !cmb && (wantsPlanDetails(text) || (yes && askedAboutPlanDetails(last)))) {
+      const p = await this._ValueCheck.prices(ProductType.Oxxy, plan);
+      await this.sendAndSave(
+        s.customer.id,
+        planDetailsText(plan, p.yearly ? Number(p.yearly) : null, p.monthly ? Number(p.monthly) : null, s.customer.language),
+        m.waMessageId,
+      );
+      return true;
+    }
+    return false;
   }
 
   // Replies after the activation link (plan 12.5, AWAITING_PAYMENT). Charged twice is a complaint and
@@ -3307,7 +3422,45 @@ export class ChatPipelineService {
     // the team hears about the gap: always the second time, and at once when Google Maps can list what is there
     if (again || (origin && this._Maps?.enabled))
       await this.reportCentreGap(s, place, origin ?? null, n?.travel_radius_km ?? 10);
-    return noCentreText(place, again, l);
+    // where verified centres ARE (customers asked "in which area do you have centres?"); naming one of those
+    // cities next searches there (handleCentreCity)
+    const cities = await this.centreCities();
+    const here = String(n?.city ?? "").trim().toLowerCase();
+    const others = cities.filter((c) => c.toLowerCase() !== here);
+    if (!others.length) return noCentreText(place, again, l);
+    await this.setPending(s, "centre_city");
+    return `${noCentreText(place, again, l)}\n\n${say(CENTRE_CITIES_T, l).replace("{cities}", others.slice(0, 6).join(", "))}`;
+  }
+
+  /** Cities with at least one verified, active centre */
+  private async centreCities(): Promise<string[]> {
+    try {
+      const rows = await centre.find({ where: { verified: true, active: true } as any, take: 2000 });
+      const seen = new Map<string, string>();
+      for (const r of rows) {
+        const c = String((r as any).city ?? "").trim();
+        if (c && !seen.has(c.toLowerCase())) seen.set(c.toLowerCase(), c);
+      }
+      return [...seen.values()].sort();
+    } catch {
+      return [];
+    }
+  }
+
+  // After "no verified centre here … Verified centres are available in: Coimbatore": a city from that list
+  // searches there (the travel distance already given stays). Anything else: answered normally.
+  private async handleCentreCity(m: Inbound, s: Saved): Promise<boolean> {
+    if (s.conversation.pending_action !== "centre_city") return false;
+    await this.setPending(s, null);
+    const text = (m.text || "").trim().toLowerCase();
+    const city = (await this.centreCities()).find((c) => text.includes(c.toLowerCase()));
+    if (!city) return false;
+    const n = await this.needRow(s);
+    n.city = city;
+    n.locality = null as any;
+    await n.save();
+    await this.replyCentreList(m, s, n, undefined, `centres in ${city} after none nearby`);
+    return true;
   }
 
   // One task per conversation for a place without a verified centre. With Google Maps the task lists the
@@ -3536,11 +3689,15 @@ export class ChatPipelineService {
   // The answer to the radius question: then the list (Trigger D). A question returns false (answered normally).
   private async handleCentreRadius(m: Inbound, s: Saved): Promise<boolean> {
     if (s.conversation.pending_action !== "centre_radius") return false;
-    const km = parseRadius(m.text);
+    let km = parseRadius(m.text);
+    let note = "";
     if (km == null) {
-      if (/\?\s*$/.test(m.text.trim())) return false;
-      await this.sendAndSave(s.customer.id, say(RADIUS_Q, s.customer.language), m.waMessageId);
-      return true;
+      // a question about something else: answered normally. "I want the hospital details" / "ok" / anything
+      // that is not a distance: the list within about 10 km, never the same distance question again
+      if (/\?\s*$/.test(m.text.trim()) && !/hospital|centre|center|clinic|detail|list|suggest|option/i.test(m.text))
+        return false;
+      km = 10;
+      note = say(RADIUS_DEFAULT_T, s.customer.language);
     }
     let n = await need.findOne({ where: { conversation_id: s.conversation.id } });
     if (!n) n = need.create({ conversation_id: s.conversation.id } as any);
@@ -3557,7 +3714,9 @@ export class ChatPipelineService {
         )) ?? null)
       : null;
     if (res.shown) await this.setPending(s, "centre_pick");
-    await this.sendAndSave(s.customer.id, res.text, m.waMessageId);
+    await this.sendAndSave(s.customer.id, note ? `${note}
+
+${res.text}` : res.text, m.waMessageId);
     if (decision)
       await this._Triggers!.record(
         s.customer.id,
@@ -3744,6 +3903,48 @@ export class ChatPipelineService {
     const text = answerish ? bare : raw;
     if (!text || (/\?\s*$/.test(raw) && !answerish)) return false;
 
+    // reported 16 Nov: the customer chose "KMCH" from the list while the request was still for the centre
+    // they typed first, gave "tomorrow 11 am" at the specialisation step, and "I don't know" the doctor.
+    if (d.step !== "offer" && d.step !== "centre") {
+      const sw = await this.centreSwitch(text, s);
+      if (sw && sw.c !== d.c) {
+        Object.assign(d, sw);
+        const done = say(CENTRE_CHANGED_T, l).replace("{centre}", String(sw.cn));
+        await reply([done, ...(await this.advanceBooking(s, d))]);
+        return true;
+      }
+    }
+    if ((d.step === "landmark" || d.step === "specialisation") && !d.d) {
+      const early = parseCustomerDate(text);
+      if (early) {
+        const tm = text.match(/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\b(?:morning|afternoon|evening)\b/i);
+        if (tm && !d.t) d.t = tm[0];
+        const chk = this._DateWindow.validate(early);
+        if (chk.valid) {
+          d.d = early;
+          await reply([say(DATE_NOTED_T, l).replace("{date}", showDate(early)), ...(await this.advanceBooking(s, d))]);
+        } else {
+          // the rule now, then the same step: the date is asked again when its turn comes
+          await this.setPending(s, writeDraft(d));
+          await reply([
+            chk.reason === "too_soon"
+              ? dateRuleText(l, undefined, false)
+              : dateProblemText(String(chk.reason), undefined, l),
+            bookingQuestion(d.step, d, l),
+          ]);
+        }
+        return true;
+      }
+    }
+    if (d.step === "specialisation" && knowsNotWhichDoctor(text)) {
+      const n = (await need.findOne({ where: { conversation_id: s.conversation.id } })) ??
+        need.create({ conversation_id: s.conversation.id } as any);
+      n.specialisation = NOT_SURE_SPECIALISATION;
+      await n.save();
+      await reply([say(DOCTOR_NOT_SURE_T, l), ...(await this.advanceBooking(s, d))]);
+      return true;
+    }
+
     if (d.step === "offer" || d.step === "centre") {
       const answer =
         d.step === "offer" && saysYesToOffer(text, d.cn) ? "yes" : parseConsentAnswer(text);
@@ -3859,6 +4060,38 @@ export class ChatPipelineService {
     }
     await reply(await this.advanceBooking(s, d));
     return true;
+  }
+
+  // A centre from the list just shown ("1", "2") or named ("KMCH", "PSG") while a booking is being taken:
+  // the booking moves to that verified centre. null = not a centre from the list.
+  private async centreSwitch(
+    text: string,
+    s: Saved,
+  ): Promise<Pick<BookingDraft, "c" | "cn" | "u" | "l"> | null> {
+    const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
+    const ids = n?.suggested_centre_ids ?? [];
+    if (!ids.length) return null;
+    const t = text.trim().toLowerCase();
+    let id: string | undefined;
+    const k = t.match(/^(?:option|no\.?|number)?\s*([1-9])\.?$/);
+    if (k) {
+      const last = String((await this.lastBotText(s)) ?? "");
+      if (/Reply with (1|1 or 2|1-\d)\b|(1|1 or 2|1-\d) (mein se|में से)/i.test(last)) id = ids[Number(k[1]) - 1];
+    }
+    if (!id && t.split(/\s+/).length <= 6) {
+      for (const cid of ids) {
+        const c = await centre.findOne({ where: { id: cid } });
+        const key = String(c?.name ?? "").toLowerCase().split(/[\s,]+/).find((w) => w.length >= 3);
+        if (key && new RegExp(`\\b${key.replace(/[^a-z0-9]/g, "")}\\b`).test(t.replace(/[^a-z0-9\s]/g, " "))) {
+          id = cid;
+          break;
+        }
+      }
+    }
+    if (!id) return null;
+    const ctr = await centre.findOne({ where: { id, verified: true, active: true } as any });
+    if (!ctr) return null;
+    return { c: ctr.id, cn: ctr.branch ? `${ctr.name}, ${ctr.branch}` : ctr.name, u: false, l: null };
   }
 
   // ---- Recovery: objections (M), agreed follow-ups (N), medicines (K), rescue (Playbook 14, 15) ----

@@ -43,6 +43,9 @@ export const REQUIRED_TEMPLATES = [
   "conversation_rescue_2",
 ];
 
+/** Needed only for the lead flow (Voice AI / CRM start_whatsapp_lead): a warning, not a blocker */
+export const LEAD_TEMPLATE = "lead_intro";
+
 const planLabel = (r: { product: string; plan: string; billing: string }) =>
   `${r.product === "oxxy" ? `Oxxy ${r.plan}` : "Cut Medi Bills"} ${r.billing}`;
 
@@ -168,6 +171,16 @@ export function templateChecks(
       status: hi.length === REQUIRED_TEMPLATES.length ? "ok" : "warn",
       detail: `${hi.length} of ${REQUIRED_TEMPLATES.length} approved in Hindi: Hindi customers get the English template for the rest`,
       fix: "Meta Business Manager, then Templates",
+    },
+    {
+      area: "WhatsApp",
+      item: "First-contact template (lead_intro)",
+      status: en(LEAD_TEMPLATE)?.meta_status === "approved" ? "ok" : "warn",
+      detail:
+        en(LEAD_TEMPLATE)?.meta_status === "approved"
+          ? "lead_intro is approved"
+          : `lead_intro is ${en(LEAD_TEMPLATE)?.meta_status ?? "missing"} in Meta: a lead from the Voice AI or the CRM cannot get the first WhatsApp message. Not needed when only customers who message first are served.`,
+      fix: "Templates (Read status from Meta)",
     },
   ];
 }

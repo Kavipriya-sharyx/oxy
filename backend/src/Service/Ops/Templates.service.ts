@@ -48,6 +48,20 @@ export async function templateLanguage(
   customerLanguage: string | null | undefined,
 ): Promise<string> {
   const asked = requested || "en";
+  // Hindi asked for directly (an approved asset's own template): kept when that version is approved or
+  // unknown here; when it is known and not approved while the English one is, English goes out instead
+  if (asked.toLowerCase().split(/[_-]/)[0] === "hi") {
+    try {
+      const rows = await wa_template.find({ where: { name } });
+      const of = (l: string) => rows.find((r) => r.language.toLowerCase().split(/[_-]/)[0] === l);
+      const hiRow = of("hi");
+      const enRow = of("en");
+      if (hiRow?.meta_status !== "approved" && enRow?.meta_status === "approved") return enRow.language;
+    } catch {
+      /* keep the request */
+    }
+    return asked;
+  }
   if (customerLanguage !== "hi" || asked.toLowerCase().split(/[_-]/)[0] !== "en") return asked;
   try {
     const hi = await wa_template.findOne({ where: { name, language: "hi" } });

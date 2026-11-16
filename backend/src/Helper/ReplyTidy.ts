@@ -44,6 +44,8 @@ export function withoutEmptyNumbering(text: string): string {
   return (text || "")
     .split(/\r?\n/)
     .filter((line) => !(/\d[.)]/.test(line) && /^(\s*(\d{1,2}|[A-Za-z])[.)]\s*)+$/.test(line)))
+    // "1. 2. 3. If yes, please …": the empty numbers at the start of a line go, the sentence stays
+    .map((line) => line.replace(/^(\s*\d{1,2}[.)]\s*){2,}(?=\S)/, ""))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
