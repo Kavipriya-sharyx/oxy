@@ -15,6 +15,17 @@ export const CONSENT_YES: string[] = [
   "yes i consent",
   "i accept",
   "accept",
+  "agreed",
+  // Tamil / Tanglish yes (customers in Tamil Nadu)
+  "aama",
+  "aamaa",
+  "ama",
+  "amam",
+  "aamam",
+  "aama sari",
+  "kandippa",
+  "ஆமா",
+  "ஆம்",
   // Hinglish
   "haan",
   "han",
@@ -35,6 +46,28 @@ export const CONSENT_YES: string[] = [
   "सहमत",
 ];
 
+// "ok", "sure", "sari": a yes ONLY to the notice's own "Is that okay?" (elsewhere, e.g. the Cut Medi Bills
+// questions "has anything been paid?", an "ok" is not an answer and is asked again)
+export const NOTICE_OK: string[] = [
+  "ok",
+  "okay",
+  "okk",
+  "ok sure",
+  "sure",
+  "fine",
+  "yes ok",
+  "ok yes",
+  "its ok",
+  "it is ok",
+  "thats fine",
+  "sari",
+  "seri",
+  "sariya",
+  "ok sari",
+  "ok seri",
+  "சரி",
+];
+
 export const CONSENT_NO: string[] = [
   "no",
   "n",
@@ -50,6 +83,15 @@ export const CONSENT_NO: string[] = [
   "refuse",
   "i do not consent",
   "i dont consent",
+  // Tamil / Tanglish
+  "illa",
+  "illai",
+  "venaam",
+  "vendam",
+  "venda",
+  "vendaam",
+  "இல்லை",
+  "வேண்டாம்",
   // Hinglish
   "nahi",
   "nahin",

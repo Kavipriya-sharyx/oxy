@@ -1,5 +1,6 @@
 import { Permission } from "@Helper/Permissions";
-import { caseRef, refPrefix } from "@Service/Oxxy/CallbackFlow";
+import { Brackets } from "typeorm";
+import { caseRef, refPrefix, showWindow } from "@Service/Oxxy/CallbackFlow";
 import { TaskType } from "@Helper/Enum/TaskType";
 import { GoogleMapsService } from "@Service/Maps/GoogleMaps.service";
 import {
@@ -487,6 +488,18 @@ export class ConsoleController extends JWTAuthController {
       sender: "agent",
       actorId: req.user?.user_id,
     });
+    // a team member writing to the customer is handling the chat: the bot pauses, so the customer never gets
+    // two different answers (it resumes on "Hand back to bot")
+    if (!conv.taken_over_by_id) {
+      if (conv.state !== ConversationState.Pause && conv.state !== ConversationState.Escalated) {
+        try {
+          await this._ConvRepo.transition(Id, ConversationState.Escalated, { reason: "agent replied" });
+        } catch {
+          /* a state the machine does not allow: the take-over below still pauses the bot */
+        }
+      }
+      await conversation.update(Id, { taken_over_by_id: req.user?.user_id ?? null, taken_over_at: new Date() });
+    }
     return this.SendResponse(ResponseEnum.Success, "Sent");
   }
 
@@ -502,7 +515,16 @@ export class ConsoleController extends JWTAuthController {
       .addSelect("t.created_on")
       .leftJoinAndSelect("t.customer", "customer")
       .leftJoinAndSelect("t.assigned_to", "assigned_to")
-      .where("t.priority = :p", { p: TaskPriority.Urgent })
+      // urgent cases, and callbacks whose time has come (or comes within 10 minutes) and are still open
+      .where(
+        new Brackets((w) =>
+          w
+            .where("t.priority = :p", { p: TaskPriority.Urgent })
+            .orWhere("t.callback_from IS NOT NULL AND t.callback_from <= :soon", {
+              soon: new Date(Date.now() + 10 * 60 * 1000),
+            }),
+        ),
+      )
       .andWhere("t.task_status <> :done", { done: TaskStatus.Done })
       .orderBy("t.created_on", "DESC")
       .take(20)
@@ -511,7 +533,10 @@ export class ConsoleController extends JWTAuthController {
       rows.map((t: any) => ({
         task_id: t.id,
         type: t.type,
-        label: urgentLabel(t.type),
+        label:
+          t.priority !== TaskPriority.Urgent && t.callback_from
+            ? `Callback due (${showWindow({ from: t.callback_from, to: t.callback_to ?? t.callback_from })}, ${caseRef(t.id)})`
+            : urgentLabel(t.type),
         status: t.task_status,
         handled_by: t.assigned_to ? t.assigned_to.first_name || t.assigned_to.email : null,
         conversation_id: t.conversation_id ?? null,

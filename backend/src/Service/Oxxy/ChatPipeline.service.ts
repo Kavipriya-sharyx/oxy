@@ -37,6 +37,9 @@ import { detectLanguage, L, lang, say } from "@Helper/Lang";
 import {
   ACTIVATION_BY_TEAM_T,
   askedAboutActivation,
+  asksSpend,
+  spendAnswer,
+  lastQuestionOf,
   askedAboutPlanDetails,
   planDetailsText,
   wantsPlanDetails,
@@ -279,6 +282,37 @@ export function draftProblem(text: string, bookingOpen: boolean): string | null 
     return "never ask for the names of medicines";
   return null;
 }
+/** The draft's question asks for something the customer already answered (null = fine) */
+export function asksKnownAgain(
+  text: string,
+  n: { beneficiary?: string | null; healthcare_need?: string | null; city?: string | null; locality?: string | null; annual_medical_spend?: number | string | null } | null,
+): string | null {
+  if (!n) return null;
+  const q = lastQuestionOf(text).toLowerCase();
+  if (!q) return null;
+  if (n.beneficiary && /\b(you|yourself)\b[^?]{0,30}\bor\b[^?]{0,30}\bfamily\b|\bwho is (this|it|the care) for\b/.test(q))
+    return `already known: the care is for "${n.beneficiary}". Do not ask it again; ask the next missing thing`;
+  if (n.healthcare_need && /\bwhat( specific| kind of| type of)? (consultation|test|medicine|treatment|surgery|expense)/.test(q))
+    return "already known: the need. Do not ask it again; ask the next missing thing";
+  if (n.city && n.locality && /\b(which|what) city\b|\bwhere do(es)? (you|the patient) live\b|\bcity and locality\b/.test(q))
+    return `already known: ${n.locality}, ${n.city}. Do not ask it again`;
+  if (n.annual_medical_spend && /\bhow much\b[^?]*\bspend/.test(q))
+    return "already known: the yearly spend. Do not ask it again";
+  return null;
+}
+
+// Media the bot cannot read (it never downloads files or sends them to the LLM)
+const MEDIA_TYPES = new Set(["audio", "voice", "image", "document", "video", "sticker", "reaction"]);
+export const MEDIA_VOICE_T: L = {
+  en: "Sorry, I cannot listen to voice notes yet. Please type your question in a few words and I will reply right away.",
+  hi: "माफ़ कीजिए, मैं अभी वॉइस नोट नहीं सुन सकता। कृपया अपना सवाल कुछ शब्दों में लिखें, मैं तुरंत जवाब दूँगा।",
+  hinglish: "Sorry, main abhi voice note nahi sun sakta. Kripya apna sawaal kuch shabdon mein likhein, main turant jawab dunga.",
+};
+export const MEDIA_FILE_T: L = {
+  en: "Thank you, I have received your file. I cannot open files here, so our team will look at it. Please also type your question in a few words and I will help right away.",
+  hi: "धन्यवाद, आपकी फ़ाइल मिल गई। मैं यहाँ फ़ाइलें नहीं खोल सकता, हमारी टीम इसे देखेगी। कृपया अपना सवाल भी कुछ शब्दों में लिखें, मैं तुरंत मदद करूँगा।",
+  hinglish: "Dhanyavaad, aapki file mil gayi. Main yahan files nahi khol sakta, hamari team ise dekhegi. Kripya apna sawaal bhi kuch shabdon mein likhein, main turant madad karunga.",
+};
 // Booking request, side answers
 export const CENTRE_CHANGED_T: L = {
   en: "Done, the booking request is now for {centre}.",
@@ -996,7 +1030,8 @@ export class ChatPipelineService {
     const text = (m.text || "").trim();
     if (s.conversation.state === ConversationState.New) return true; // the welcome and the options first
     if (!text || m.location) return true;
-    if (parseConsentAnswer(text) !== "unclear") return true; // YES / NO: the notice, or the answer to it
+    // YES / NO ("ok", "sari" too, to the notice's own question): the notice, or the answer to it
+    if (parseConsentAnswer(text, status === "awaiting") !== "unclear") return true;
     if (isGreeting(text)) return true; // "hi" again: the notice (the welcome and options came first)
     // health detail is never sent to the LLM before the consent (DPDP): the notice first, the answer after YES
     if (sharesHealthDetail(text)) return true;
@@ -1070,7 +1105,7 @@ export class ChatPipelineService {
       return;
     }
 
-    const answer = parseConsentAnswer(m.text);
+    const answer = parseConsentAnswer(m.text, true);
     if (answer === "yes") {
       // saved BEFORE the reply: if saving fails nothing is sent and nothing is allowed (the job is retried)
       await this.saveConsentRow(customerId, cons, (c) => {
@@ -1388,6 +1423,15 @@ export class ChatPipelineService {
       return;
     }
 
+    // A voice note, photo, file or sticker with no text: the bot cannot read it, so it says so and asks for a
+    // few typed words (a photo or file goes to the team as a task: it may be a bill or a prescription).
+    // A photo WITH a caption carries on with the caption as the message.
+    const media = (m.type ?? "text").toLowerCase();
+    if (MEDIA_TYPES.has(media) && !(m.text || "").trim()) {
+      await this.handleMedia(media, m, s);
+      return;
+    }
+
     // The customer opened the chat for the first time (WhatsApp "welcome message" event, before they type):
     // the welcome and the options at once (client, 16 Nov 2026). No consent or health question in it.
     if (m.type === "request_welcome") {
@@ -1482,6 +1526,7 @@ export class ChatPipelineService {
     if (await this.handleBooking(m, s)) return;
     if (await this.handleNearbyAsk(m, s)) return;
     if (await this.handleFollowUpTime(m, s)) return;
+    if (await this.handlePlanSpend(m, s)) return;
     if (await this.handlePlanAge(m, s)) return;
     if (await this.handlePriceSpend(m, s)) return;
     if (await this.handleCloseOffer(m, s)) return;
@@ -1529,6 +1574,14 @@ export class ChatPipelineService {
     // 3. The LLM + validator (retry once)
     let result: LlmResult | null = null;
     let feedback: string | undefined;
+    // what the customer already answered: a draft that asks it again is rewritten (seen 16 Nov: "what
+    // consultation …?" asked twice, "for you or a family member?" after "for me")
+    let knownNeed: need | null = null;
+    try {
+      knownNeed = await need.findOne({ where: { conversation_id: s.conversation.id } });
+    } catch {
+      knownNeed = null; // no check is better than no reply
+    }
     for (let attempt = 0; attempt < 2 && !result; attempt++) {
       try {
         const draft = await this._Llm.generate(history, context, feedback);
@@ -1540,7 +1593,9 @@ export class ChatPipelineService {
         }
         // promises the bot cannot keep (seen 16 Nov): a booking "noted" before it is saved, a payment taken
         // in the chat, the names of medicines
-        const wrong = draftProblem(draft.reply_text, isBookingPending(s.conversation.pending_action));
+        const wrong =
+          draftProblem(draft.reply_text, isBookingPending(s.conversation.pending_action)) ??
+          asksKnownAgain(draft.reply_text, knownNeed as any);
         if (wrong) {
           feedback = wrong;
           continue;
@@ -1744,6 +1799,8 @@ export class ChatPipelineService {
             [...history].reverse().find((t) => t.role === "assistant")?.content ?? null,
         });
     const finalText = [draftText, ...systemParts].filter((x): x is string => !!x).join("\n\n");
+    if (!s.conversation.pending_action && !s.customer.active_product && asksSpend(finalText) && !healthBlocked)
+      await this.setPending(s, "plan_spend");
     // the location question goes out with the "Send location" button
     const withPinButton = shown.has("LOC") && [...finalText].length <= 1024;
     await this.sendAndSave(
@@ -1949,6 +2006,26 @@ export class ChatPipelineService {
     };
   }
 
+  // The answer to "how much does your family spend on healthcare?" (client, 16 Nov: "it asked the expenses,
+  // then the age, then the expenses again"): read here, never left to the LLM, saved as the yearly amount,
+  // then the age question (pending plan_age) or ONE plan with its price. Not an amount = answered normally.
+  private async handlePlanSpend(m: Inbound, s: Saved): Promise<boolean> {
+    if (s.conversation.pending_action !== "plan_spend") return false;
+    await this.setPending(s, null);
+    const amount = spendAnswer(m.text);
+    if (!amount) return false;
+    const cons = await consent.findOne({ where: { customer_id: s.customer.id } });
+    if (healthConsentStatus(cons) !== "granted") return false; // the spend is health data: only with consent
+    const n = await this.needRow(s);
+    n.annual_medical_spend = amount;
+    await n.save();
+    const pick = await this.oxxyPlanByValue(s, n);
+    if (!pick) return false;
+    if (pick.askAge) await this.setPending(s, "plan_age");
+    await this.sendAndSave(s.customer.id, pick.text, m.waMessageId);
+    return true;
+  }
+
   // The answer to "may I know the patient's age?" (asked for the plan choice): saved, then ONE plan with its
   // price, by value when the yearly spend is known, else by need. Not an age = answered normally.
   private async handlePlanAge(m: Inbound, s: Saved): Promise<boolean> {
@@ -2015,6 +2092,22 @@ export class ChatPipelineService {
     }
     const n = await need.findOne({ where: { conversation_id: conv.id } });
     return await this.comparison(s, n);
+  }
+
+  private async handleMedia(media: string, m: Inbound, s: Saved) {
+    if (media === "sticker" || media === "reaction") return; // nothing to answer
+    const l = s.customer.language;
+    if (media === "audio" || media === "voice") {
+      await this.sendAndSave(s.customer.id, say(MEDIA_VOICE_T, l), m.waMessageId);
+      return;
+    }
+    await this.createTaskOnce(
+      TaskType.Servicing,
+      TaskPriority.Normal,
+      s,
+      `Customer sent a ${media} (bill, prescription or report?): open the chat to see it`,
+    );
+    await this.sendAndSave(s.customer.id, say(MEDIA_FILE_T, l), m.waMessageId);
   }
 
   /** The bot's last message in this chat (to read a short "yes" / "ok" as the answer to it) */
@@ -2971,6 +3064,7 @@ export class ChatPipelineService {
     const l = s.customer.language;
     const cat = await this.activationRow(s.conversation);
     if (!cat) {
+      await this.setPending(s, "plan_spend"); // the answer is read by handlePlanSpend
       await this.sendAndSave(s.customer.id, say(T.spendFirst, l), m.waMessageId);
       return;
     }

@@ -206,9 +206,9 @@ function setup(
     },
     conversation: conv,
   } as never;
-  const run = (text: string, location?: { latitude: number; longitude: number }) => {
+  const run = (text: string, location?: { latitude: number; longitude: number }, type?: string) => {
     replied = false;
-    return pipeline.process({ waNumber: "919800000001", waMessageId: "wamid.IN1", text, location }, s);
+    return pipeline.process({ waNumber: "919800000001", waMessageId: "wamid.IN1", text, location, type }, s);
   };
   return { run, out, generate, conv, saved, enqueue, mg, bookings, send };
 }
@@ -1646,5 +1646,97 @@ describe("16 Nov test chats: no loops, no false promises", () => {
     expect(withoutEmptyNumbering("1. 2. 3. If yes, please share your preferred date for the check-up.")).toBe(
       "If yes, please share your preferred date for the check-up.",
     );
+  });
+});
+
+// "ellamae fix pannu" (16 Nov): Tamil / Tanglish words, voice notes and photos, no re-asking known answers
+describe("Tamil customers, media, known answers", () => {
+  it("Tanglish and typo dates: naalaikku, tmrw, 17 Now", () => {
+    const { parseCustomerDate } = jest.requireActual("./BookingFlow");
+    const now = new Date("2026-11-16T06:00:00Z");
+    expect(parseCustomerDate("naalaikku 11 am", now)).toBe("2026-11-17");
+    expect(parseCustomerDate("tmrw", now)).toBe("2026-11-17");
+    expect(parseCustomerDate("inniku", now)).toBe("2026-11-16");
+    expect(parseCustomerDate("17 Now 2026 11 am", now)).toBe("2026-11-17");
+    expect(parseCustomerDate("I am free now", now)).toBeNull();
+  });
+
+  it('"ok" stays unclear outside the notice (a Cut Medi Bills question is asked again, never read as yes)', () => {
+    const { parseConsentAnswer } = jest.requireActual("./HealthConsent");
+    expect(parseConsentAnswer("ok")).toBe("unclear");
+    expect(parseConsentAnswer("ok", true)).toBe("yes");
+    expect(parseConsentAnswer("aama")).toBe("yes");
+    expect(parseConsentAnswer("vendam")).toBe("no");
+  });
+
+  it("a voice note gets 'please type', no LLM; a photo is answered and becomes a team task", async () => {
+    const t = setup([]);
+    await t.run("", undefined, "audio");
+    expect(t.out[0]).toMatch(/^Sorry, I cannot listen to voice notes yet/);
+    expect(t.generate).not.toHaveBeenCalled();
+    const p = setup([]);
+    await p.run("", undefined, "image");
+    expect(p.out[0]).toMatch(/I have received your file/);
+    expect(p.saved.some((r) => /Customer sent a image/.test(String(r.summary)))).toBe(true);
+    expect(p.generate).not.toHaveBeenCalled();
+  });
+
+  it("the LLM may not ask again what the customer already answered", () => {
+    const { asksKnownAgain } = jest.requireActual("./ChatPipeline.service");
+    expect(asksKnownAgain("Thanks! Is this for you or a family member?", { beneficiary: "self" })).toMatch(/already known/);
+    expect(asksKnownAgain("What specific consultation, test, medicine, treatment, or surgery do you need help with?", { healthcare_need: "blood test" })).toMatch(/already known/);
+    expect(asksKnownAgain("Which city and locality do you live in?", { city: "Tiruppur", locality: "Avinashi" })).toMatch(/already known/);
+    expect(asksKnownAgain("Which city and locality do you live in?", { city: "Tiruppur" })).toBeNull(); // locality still missing
+    expect(asksKnownAgain("Is this for you or a family member?", {})).toBeNull();
+  });
+});
+
+// Client, 16 Nov: "first it asked the expenses, then the patient's age; I said 60; again it asked the expenses"
+describe("spend -> age -> plan, never the spend twice", () => {
+  it("the spend answer is read and kept (even '5000' with no period), then the age, then ONE plan", async () => {
+    const needRow: Record<string, unknown> = { save: async () => undefined };
+    jest.spyOn(jest.requireActual("@Database/Table/Oxxy/customer").customer, "update").mockResolvedValue({} as never);
+    const opts: Record<string, unknown> = {
+      pending: "soft_activation",
+      planRow: null,
+      needRow,
+      age: null,
+      recommend: { status: "ask_age" },
+    };
+    const t = setup([], opts);
+    await t.run("yes");
+    expect(t.out[0]).toMatch(/roughly how much does your family spend on healthcare in a year\?/);
+    expect(t.conv.pending_action).toBe("plan_spend");
+
+    t.out.length = 0;
+    await t.run("5000");
+    expect(needRow.annual_medical_spend).toBe(5000);
+    expect(t.out[0]).toBe("To suggest the right plan, may I know the patient's age?");
+    expect(t.conv.pending_action).toBe("plan_age");
+
+    t.out.length = 0;
+    opts.recommend = { status: "not_worth_it", plan: "everyday", price: 10000, spend: 5000 };
+    await t.run("60");
+    expect(t.out).toHaveLength(1);
+    expect(t.out[0]).toMatch(/^Based on what you shared, the Everyday plan fits best/);
+    expect(t.out.join(" ")).not.toMatch(/how much does your family spend/);
+    expect(t.generate).not.toHaveBeenCalled();
+  });
+
+  it("spend answers people actually type", () => {
+    const { spendAnswer, asksSpend } = jest.requireActual("@Helper/PlanReplies");
+    expect(spendAnswer("5000")).toBe(5000);
+    expect(spendAnswer("5k")).toBe(5000);
+    expect(spendAnswer("monthly 5000")).toBe(60000);
+    expect(spendAnswer("5000 per month")).toBe(60000);
+    expect(spendAnswer("2 lakh")).toBe(200000);
+    expect(spendAnswer("more than one lakh")).toBe(100000);
+    expect(spendAnswer("3 lacks")).toBe(300000);
+    expect(spendAnswer("about 17500 a year")).toBe(17500);
+    expect(spendAnswer("60")).toBeNull(); // an age, not money
+    expect(spendAnswer("how much is the plan?")).toBeNull();
+    expect(asksSpend("Happy to help. Roughly how much does your family spend on healthcare in a year?")).toBe(true);
+    expect(asksSpend("What are your monthly medical expenses?")).toBe(true); // the client saw this wording
+    expect(asksSpend("How much do you spend on medicines every month?")).toBe(true);
   });
 });

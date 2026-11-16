@@ -413,7 +413,7 @@ export function asksPrice(text: string): boolean {
 /** "yes", "ok", "sure", "haan": a short yes (to the bot's last question) */
 export function isShortYes(text: string): boolean {
   const t = (text || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-  return /^(yes|yeah|yep|yup|ya|y|ok|okay|okk|k|sure|fine|haan|han|ha|ji|haan ji|yes please|ok please|please|tell me|go ahead|हाँ|हां|जी)( please| sir| madam| ji)?$/u.test(t);
+  return /^(yes|yeah|yep|yup|ya|y|ok|okay|okk|k|sure|fine|haan|han|ha|ji|haan ji|yes please|ok please|please|tell me|go ahead|aama|aamaa|ama|sari|seri|ok seri|ok sari|kandippa|हाँ|हां|जी|ஆமா|சரி)( please| sir| madam| ji)?$/u.test(t);
 }
 
 /** The bot's last question was about the price ("Would you like to know the price now?") */
@@ -549,6 +549,39 @@ export function cmbPriceText(monthly: number | null, yearly: number | null, l: s
         ? "Aap kaunsa option chahenge?"
         : "Which option would you prefer?";
   return [...parts, ask].join("\n");
+}
+
+/** The bot's question asks the yearly (or monthly) healthcare spend */
+export function asksSpend(text: string): boolean {
+  return /\b(how much|roughly how much|approximately how much)\b[^?]{0,80}\b(spend|spends|spending|spent|expense|expenses|expenditure)\b|\b(yearly|annual|monthly) (medical|healthcare) (spend|expense|expenses|expenditure)\b|saal mein[^?]{0,40}kharch|साल में[^?]{0,40}खर्च/i.test(
+    lastQuestionOf(text) || text,
+  );
+}
+
+const WORD_NUM: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  half: 0.5, ek: 1, do: 2, teen: 3, char: 4, paanch: 5, oru: 1, rendu: 2, moonu: 3, naalu: 4, anju: 5,
+};
+
+/**
+ * The answer to "how much does your family spend on healthcare?" as a YEARLY amount: "5000" (the question
+ * asked for a year), "5k", "2 lakh", "more than one lakh", "monthly 5000" / "5000 per month" (x 12),
+ * a tapped range ("about 17500 a year"). null = no amount.
+ */
+export function spendAnswer(text: string): number | null {
+  let t = (text || "").toLowerCase().replace(/,/g, "").replace(/₹|rs\.?|inr|rupees?/g, " ");
+  if (/\?\s*$/.test(t.trim())) return null;
+  t = t.replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten|half|ek|do|teen|char|paanch|oru|rendu|moonu|naalu|anju)\s+(lakhs?|lacs?|lac|lakh|thousand|k)\b/g, (_m, w, u) => `${WORD_NUM[w]} ${u}`);
+  const m = t.match(/(\d+(?:\.\d+)?)\s*(lakhs?|lacs?|lac|l\b|k\b|thousand|hazaar|hazar|aayiram)?/);
+  if (!m) return null;
+  let n = Number(m[1]);
+  const unit = m[2] || "";
+  if (/lakh|lac|^l$/.test(unit)) n *= 100000;
+  else if (/k|thousand|haz|aayiram/.test(unit)) n *= 1000;
+  if (!Number.isFinite(n) || n < 100) return null; // "2 people", "60": not money
+  if (/\b(month|monthly|per month|a month|mahina|mahine|maasam|maadham|masam)\b/.test(t)) n *= 12;
+  const total = Math.round(n);
+  return total <= 100_000_000 ? total : null;
 }
 
 /** "50+", "52", "he is 60 years", "around 45": the patient's age. null = not an age. */

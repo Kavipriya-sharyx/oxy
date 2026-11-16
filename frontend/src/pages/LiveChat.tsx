@@ -1155,8 +1155,8 @@ export default function LiveChat() {
                 <>
                   {!withPerson && (
                     <div className="notice small subtle">
-                      The bot is answering. Your message goes out as the Oxxy team; use “Take over”
-                      to pause the bot first.
+                      The bot is answering. Sending a message takes the chat over: the bot pauses
+                      until you hand it back.
                     </div>
                   )}
                   {composer}

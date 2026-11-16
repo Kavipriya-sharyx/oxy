@@ -2,6 +2,7 @@ import { NOTICE_VERSION } from "@Helper/FixedReplies";
 import {
   CONSENT_NO,
   CONSENT_YES,
+  NOTICE_OK,
   HEALTH_FIELDS,
   HEALTH_QUESTION_TERMS,
 } from "@Helper/HealthConsentKeywords";
@@ -37,13 +38,15 @@ export function healthConsentStatus(
 }
 
 const YES = CONSENT_YES.map(normalise);
+const NOTICE_YES = NOTICE_OK.map(normalise);
 const NO = CONSENT_NO.map(normalise);
 
 // Deterministic: the WHOLE message must be a listed answer. Silence, a different question or
 // "yes but no" are "unclear". Never decided by the LLM.
-export function parseConsentAnswer(text: string): "yes" | "no" | "unclear" {
+export function parseConsentAnswer(text: string, toNotice = false): "yes" | "no" | "unclear" {
   const t = normalise(text);
   if (!t) return "unclear";
+  if (toNotice && NOTICE_YES.includes(t)) return "yes";
   const yes = YES.includes(t);
   const no = NO.includes(t);
   if (yes && !no) return "yes";

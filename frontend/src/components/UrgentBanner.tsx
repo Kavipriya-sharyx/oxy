@@ -53,11 +53,14 @@ function beep() {
 function notify(a: UrgentAlert) {
   try {
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-    const n = new Notification(`URGENT: ${a.label}`, {
-      body: `${a.customer?.first_name || "Customer"} · open the Oxxy console now`,
-      tag: a.task_id,
-      requireInteraction: true,
-    });
+    const n = new Notification(
+      a.label.startsWith("Callback due") ? a.label : `URGENT: ${a.label}`,
+      {
+        body: `${a.customer?.first_name || "Customer"} · open the Oxxy console now`,
+        tag: a.task_id,
+        requireInteraction: true,
+      },
+    );
     n.onclick = () => window.focus();
   } catch {
     /* notifications blocked */

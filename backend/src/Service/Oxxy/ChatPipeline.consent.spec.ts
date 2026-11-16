@@ -262,11 +262,26 @@ describe("DPDP health-data consent gate", () => {
     expect(JSON.parse(t.generate.mock.calls[0][1] as string).health_questions_allowed).toBe(false);
   });
 
+  it.each(["ok", "Okay", "sari", "seri", "aama", "சரி"])("8b. %s to the notice (\"Is that okay?\") is a YES (Tanglish / Tamil too)", async (word) => {
+    const t = setup();
+    await t.run("hi");
+    await t.run(word);
+    expect(t.cons.health_data_consent).toBe(true);
+  });
+
+  it("8c. illa / vendam is a NO", async () => {
+    const t = setup();
+    await t.run("hi");
+    await t.run("illa");
+    expect(t.cons.health_data_consent).toBe(false);
+    expect(t.cons.health_refused_at).toBeInstanceOf(Date);
+  });
+
   it("8. unclear answers repeat the YES/NO question and never ask for health information", async () => {
     const t = setup();
     await t.run("hi");
     // not a question, or health detail: asked again (a real question is answered: test 0e)
-    for (const msg of ["maybe", "ok", "I have a heart problem"]) await t.run(msg);
+    for (const msg of ["maybe", "hmm", "I have a heart problem"]) await t.run(msg);
     expect(texts(t).slice(1)).toEqual(Array(3).fill(fixedReply("health_consent_unclear", "en")));
     expect(t.cons.health_data_consent).toBe(false);
     expect(t.cons.health_refused_at).toBeNull();

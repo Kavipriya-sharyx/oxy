@@ -19,7 +19,7 @@ interface ChoiceSet {
 const SETS: ChoiceSet[] = [
   {
     name: "beneficiary",
-    when: /\b(for )?(you|yourself)\b[^?]{0,25}\bor\b[^?]{0,25}\bfamily member\b|\bwho is (this|the care|it) for\b|aapke liye ya (parivar|family)|आपके लिए या परिवार/i,
+    when: /\b(for )?(you|yourself)\b[^?]{0,25}\bor\b[^?]{0,25}\b(a |your )?(family member|someone (else )?in your family|someone else|family)\b|\bwho is (this|the care|it) for\b|aapke liye ya (parivar|family)|आपके लिए या परिवार/i,
     options: [
       { id: "it is for me", en: "For myself", hi: "मेरे लिए" },
       { id: "it is for a family member", en: "Family member", hi: "परिवार के सदस्य" },

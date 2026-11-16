@@ -771,3 +771,16 @@ template approvals above. The token was shared in chat, so rotate it. Update 14 
   no verified centre = the cities that have one (pending `centre_city`); empty "1. 2. 3." stripped inside
   a line; the LLM draft is dropped next to the city / distance / no-centre text; the same open question
   is not appended twice in a row.
+- **"ellamae fix pannu" (16 Nov evening).** Tamil / Tanglish: aama / illa / vendam in the YES / NO lists;
+  "ok", "sure", "sari", "seri" are a YES only to the notice's "Is that okay?" (`NOTICE_OK`, never to the
+  Cut Medi Bills questions); dates naalaikku / inniku / tmrw / "17 Now"; the LLM replies in Tamil or Tanglish
+  when the customer writes so (fixed texts stay en / hi / hinglish). Voice note = "please type"; photo,
+  file or video = "received, the team will look" + a task (captions are read as text; files are never
+  downloaded). `asksKnownAgain` rewrites a draft asking what is already stored; the LLM answers every message
+  of a burst. A team member's console reply takes the chat over (the bot pauses until hand-back); callbacks
+  due within 10 minutes and still open show in the urgent banner ("Callback due …").
+- **Spend asked twice (client, 16 Nov).** The spend question had no pending step, so the answer went to the
+  LLM and "5000" / "5k" (no "a year") was not saved; after the age the plan pick had no spend and asked
+  again. Now the spend question sets `plan_spend` (`startActivation`, or any bot reply whose question asks
+  the spend: `asksSpend`); `handlePlanSpend` reads it (`spendAnswer`: 5000, 5k, 2 lakh, "more than one
+  lakh", monthly x 12, tapped ranges), saves it (consent granted only), then the age (`plan_age`) or ONE plan.

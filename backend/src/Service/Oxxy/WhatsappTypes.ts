@@ -11,6 +11,10 @@ export interface WaMessage {
     list_reply?: { id?: string; title?: string };
   };
   location?: { latitude: number; longitude: number };
+  // media: only the caption is read (the file itself is never downloaded or sent to the LLM)
+  image?: { caption?: string };
+  document?: { caption?: string; filename?: string };
+  video?: { caption?: string };
 }
 
 export interface WaStatus {

@@ -201,16 +201,21 @@ export function normaliseHindiDate(text: string): string {
 }
 
 export function parseCustomerDate(text: string, now: Date = new Date()): string | null {
-  const t = normaliseHindiDate(text).toLowerCase().trim();
+  let t = normaliseHindiDate(text).toLowerCase().trim();
   const today = todayIST(now);
   const [ty, tm, td] = today.split("-").map(Number);
   const plusDays = (n: number) => {
     const x = new Date(Date.UTC(ty, tm - 1, td + n));
     return iso(x.getUTCFullYear(), x.getUTCMonth() + 1, x.getUTCDate());
   };
-  if (/\b(today|aaj)\b/.test(t)) return today;
-  if (/\b(day after tomorrow|parso)\b/.test(t)) return plusDays(2);
-  if (/\b(tomorrow|kal)\b/.test(t)) return plusDays(1);
+  // English (with the usual typos), Hindi and Tamil / Tanglish words
+  // "17 Now 2026" / "17th now": the November typo (only right after a day number)
+  t = t.replace(/\b(\d{1,2})(st|nd|rd|th)?\s+now\b/g, "$1 nov");
+  if (/\b(today|aaj|inniku|innaiku|innaikku|indru)\b|இன்று/.test(t)) return today;
+  if (/\b(day after tomorrow|day after tmrw|parso|naalanniku|nalanniku|nalaniku|naalai marunaal)\b|நாளை மறுநாள்/.test(t))
+    return plusDays(2);
+  if (/\b(tomorrow|tomorow|tommorow|tommorrow|tomorro|tmrw|tmr|tmro|tomo|kal|naalai|naalaikku|nalaiku|nalaikku|naalaiku)\b|நாளை/.test(t))
+    return plusDays(1);
 
   let y: number | null = null;
   let m: number | null = null;
@@ -297,8 +302,8 @@ const words = (t: string) =>
     .split(/\s+/)
     .filter(Boolean);
 
-const YES_WORDS = new Set(["yes", "yeah", "yep", "yup", "ya", "ok", "okay", "okk", "k", "sure", "fine", "haan", "han", "ha", "ji", "hmm", "correct", "right", "proceed", "go", "ahead", "please", "pls", "do", "it", "book", "that", "this", "one", "same", "good", "done", "sir", "madam", "thanks", "thank", "you", "हाँ", "हां", "जी", "ठीक", "है"]);
-const NOT_WORDS = /\b(no|not|dont|don|nahi|nahin|na|another|other|different|change|cancel|later|wait|stop)\b|नहीं|दूसरा/;
+const YES_WORDS = new Set(["aama", "aamaa", "ama", "amam", "sari", "seri", "ஆமா", "சரி", "yes", "yeah", "yep", "yup", "ya", "ok", "okay", "okk", "k", "sure", "fine", "haan", "han", "ha", "ji", "hmm", "correct", "right", "proceed", "go", "ahead", "please", "pls", "do", "it", "book", "that", "this", "one", "same", "good", "done", "sir", "madam", "thanks", "thank", "you", "हाँ", "हां", "जी", "ठीक", "है"]);
+const NOT_WORDS = /\b(no|not|dont|don|nahi|nahin|na|another|other|different|change|cancel|later|wait|stop|illa|illai|venaam|vendam|venda)\b|नहीं|दूसरा|இல்லை|வேண்டாம்/;
 
 /**
  * "yes psg okay", "ok book it", "yes that one": a YES to the centre offered, with only filler words or words of
@@ -307,7 +312,7 @@ const NOT_WORDS = /\b(no|not|dont|don|nahi|nahin|na|another|other|different|chan
 export function saysYesToOffer(text: string, centreName?: string | null): boolean {
   const w = words(text);
   if (!w.length || w.length > 8 || NOT_WORDS.test(w.join(" "))) return false;
-  if (!["yes", "yeah", "yep", "yup", "ya", "ok", "okay", "okk", "sure", "haan", "han", "ha", "ji", "हाँ", "हां", "जी", "ठीक"].some((y) => w.includes(y)))
+  if (!["yes", "yeah", "yep", "yup", "ya", "ok", "okay", "okk", "sure", "haan", "han", "ha", "ji", "aama", "aamaa", "ama", "sari", "seri", "हाँ", "हां", "जी", "ठीक", "ஆமா", "சரி"].some((y) => w.includes(y)))
     return false;
   const own = new Set(words(centreName ?? "").filter((x) => x.length > 1));
   return w.every((x) => YES_WORDS.has(x) || own.has(x));

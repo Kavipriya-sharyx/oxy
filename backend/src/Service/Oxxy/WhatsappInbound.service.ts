@@ -55,7 +55,15 @@ export class WhatsappInboundService implements OnModuleInit {
     // text messages: the text. Interactive replies: the tapped id (title if there is no id).
     // image, audio, location etc.: empty body
     const reply = msg.interactive?.button_reply ?? msg.interactive?.list_reply;
-    const text = msg.text?.body ?? msg.button?.text ?? reply?.id ?? reply?.title ?? "";
+    const text =
+      msg.text?.body ??
+      msg.button?.text ??
+      reply?.id ??
+      reply?.title ??
+      msg.image?.caption ??
+      msg.document?.caption ??
+      msg.video?.caption ??
+      "";
     const profileName =
       value.contacts?.find((c) => c.wa_id === msg.from)?.profile?.name ??
       value.contacts?.[0]?.profile?.name;
