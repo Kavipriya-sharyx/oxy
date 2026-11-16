@@ -3,6 +3,7 @@ import { Button, Form, Input, Select, Spin, Switch, message } from "antd";
 import { Panel, Pill, usePageTitle } from "../components/ui";
 import { getSettings, updateSettings, type SettingItem } from "../api/settings.api";
 import { testMapsKey } from "../api/centres.api";
+import ChatOpeningPanel from "../components/ChatOpeningPanel";
 
 const GROUP_TITLES: Record<SettingItem["group"], string> = {
   whatsapp: "WhatsApp Cloud API",
@@ -131,6 +132,7 @@ export default function Settings() {
           </dl>
         </Panel>
       </div>
+      <ChatOpeningPanel />
       <div className="panel">
         <div className="panel-b small">
           Values saved here are stored in the database and used at once, without a restart. Saved

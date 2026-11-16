@@ -161,7 +161,7 @@ export default function Escalations() {
         <input
           className="input"
           style={{ width: 220 }}
-          placeholder="Search name, number or note"
+          placeholder="Search name, number, note or CB- reference"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -244,6 +244,15 @@ export default function Escalations() {
                       )}
                       {t.callback_from && (
                         <div className="small">
+                          {t.case_ref && (
+                            <span
+                              className="mono"
+                              title="The reference the customer was given on WhatsApp"
+                              style={{ marginRight: 8 }}
+                            >
+                              Ref {t.case_ref}
+                            </span>
+                          )}
                           Call back: <b>{fmtTime(t.callback_from)}</b>
                           {t.callback_to && (
                             <>

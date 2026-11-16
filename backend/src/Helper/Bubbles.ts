@@ -4,6 +4,7 @@
 //   reply-button message (2 buttons, titles of 20 characters or fewer). The tapped button sends its id,
 //   "yes" / "no", which every YES / NO parser already reads.
 import { OutboundMessage } from "./WhatsappMessage";
+import { interactiveFor } from "./Choices";
 
 export const BUBBLE_CHARS = 350;
 const MAX_BUBBLES = 3;
@@ -30,7 +31,15 @@ export function toBubbles(text: string): OutboundMessage[] {
       },
     ];
   }
-  return splitText(t).map((body) => ({ kind: "text" as const, body }));
+  // a question with known answers (Helper/Choices): the whole message with buttons or a list under it
+  const whole = interactiveFor(t);
+  if (whole) return [whole];
+  const parts: OutboundMessage[] = splitText(t).map((body) => ({ kind: "text" as const, body }));
+  // a long answer: the earlier bubbles as text, the question in the last one gets the options
+  const last = parts[parts.length - 1];
+  const asked = last && last.kind === "text" ? interactiveFor(last.body) : null;
+  if (asked) parts[parts.length - 1] = asked;
+  return parts;
 }
 
 /** Paragraphs packed into bubbles of up to 350 characters; never more than three (the rest joins the last) */

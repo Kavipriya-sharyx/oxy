@@ -168,3 +168,22 @@ export interface GoLiveReport {
 export async function getGoLive(): Promise<GoLiveReport> {
   return (await client.get<GoLiveReport>("/Console/GoLive")).data;
 }
+
+// ---- Chat opening on WhatsApp: the welcome event and the quick questions (ice breakers) ----
+export interface ChatOpening {
+  enable_welcome_message: boolean;
+  prompts: string[];
+  defaults?: string[];
+  error?: string;
+}
+export async function getChatOpening(): Promise<ChatOpening> {
+  return (await client.get<ChatOpening>("/Console/ChatOpening")).data;
+}
+export async function setChatOpening(prompts: string[]): Promise<ChatOpening> {
+  return (
+    await client.post<ChatOpening>("/Console/ChatOpening", {
+      prompts,
+      enable_welcome_message: true,
+    })
+  ).data;
+}

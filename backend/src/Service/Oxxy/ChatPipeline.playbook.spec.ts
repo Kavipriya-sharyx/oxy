@@ -1,7 +1,7 @@
 // The high-priority Playbook fixes through the pipeline: approved FAQ answers (13), existing-customer help
 // (3), the one-product block (3.1), one acknowledgement while a person has the case (3), the 7-day decision
 // journey (1.3) and the CRM sync (Full Plan 3.2).
-import { ChatPipelineService, ESCALATED_ACK_T, journeyExpired } from "./ChatPipeline.service";
+import { ChatPipelineService, PAUSE_ACK_T, TEAM_HAS_IT_T, journeyExpired } from "./ChatPipeline.service";
 import { GuardrailService } from "./Guardrail.service";
 import { assertTransition } from "./ConversationStateMachine";
 import { ConversationState as S } from "@Helper/Enum/ConversationState";
@@ -198,21 +198,31 @@ describe("Playbook 3.1: an active product blocks another activation", () => {
   });
 });
 
-describe("Playbook 3: one acknowledgement while a person has the case", () => {
-  it("ESCALATED: one acknowledgement, then quiet", async () => {
-    const t = setup({ state: S.Escalated });
+describe("Playbook 3: while the team has the case", () => {
+  // client, 16 Nov 2026: "after 'our team will connect with you soon' the bot does not respond further"
+  it("ESCALATED with no person in the chat yet: the bot keeps answering every message", async () => {
+    const t = setup({ state: S.Escalated, draft: { reply_text: "Oxxy plans start at the Everyday plan." } });
+    await t.run("how does oxxy help me save money");
+    await t.run("ok and how does it work?");
+    expect(t.out).toHaveLength(2);
+    expect(t.out[1]).toContain("Oxxy plans start at the Everyday plan.");
+  });
+  it("ESCALATED: the LLM unsure again = 'our team already has it', no second callback offer", async () => {
+    const t = setup({ state: S.Escalated, draft: { reply_text: "Let me check.", needs_human: true } });
+    await t.run("can my father also use it?");
+    expect(t.out.join(" ")).toContain(TEAM_HAS_IT_T.en);
+    expect(t.out.join(" ")).not.toMatch(/Please choose a convenient time/);
+  });
+  it("PAUSE (safety): one acknowledgement, then quiet; \"are you there?\" is still answered", async () => {
+    const t = setup({ state: S.Pause });
     await t.run("I sent the reports");
     await t.run("ok thanks");
-    expect(t.out).toEqual([ESCALATED_ACK_T.en]);
-  });
-  it("ESCALATED: \"are you there?\" after the acknowledgement is still answered, never silence", async () => {
-    const t = setup({ state: S.Escalated });
-    await t.run("I sent the reports");
+    expect(t.out).toEqual([PAUSE_ACK_T.en]);
     await t.run("are we connected?");
-    expect(t.out).toEqual([ESCALATED_ACK_T.en, "Yes, I am here. Our team has your request and will call you."]);
+    expect(t.out).toEqual([PAUSE_ACK_T.en, PAUSE_ACK_T.en]);
   });
   it("a message left without a reply on purpose is marked no_reply (no requeue loop)", async () => {
-    const t = setup({ state: S.Escalated });
+    const t = setup({ state: S.Pause });
     await t.run("I sent the reports"); // acknowledged
     await t.run("ok thanks"); // quiet
     expect(t.statusUpdates).toContainEqual([{ id: "m2", message_status: "received" }, { message_status: "no_reply" }]);

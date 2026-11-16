@@ -101,9 +101,18 @@ export function unpackWindows(s: string): CallbackWindow[] {
     .map(([a, b]) => ({ from: new Date(a), to: new Date(b) }));
 }
 
-/** Short case reference from the task id, e.g. "CB-1A2B3C4D" */
+/**
+ * Short case reference the customer gets, e.g. "CB-1A2B3C4D": the first 8 characters of the callback task's
+ * id. It is not stored separately: the task IS the record, and the console finds the task by this reference.
+ */
 export function caseRef(taskId: string): string {
   return `CB-${String(taskId).replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+}
+
+/** "CB-498A3BD2", "cb498a3bd2", "498A3BD2" -> "498a3bd2" (the start of the task id); null = not a reference */
+export function refPrefix(text: string): string | null {
+  const m = String(text ?? "").trim().match(/^(?:cb[-\s]?)?([0-9a-f]{8})$/i);
+  return m ? m[1].toLowerCase() : null;
 }
 
 export function callbackQuestion(

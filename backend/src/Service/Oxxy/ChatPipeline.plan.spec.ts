@@ -9,7 +9,6 @@ import { ConversationState as S } from "@Helper/Enum/ConversationState";
 import { NOTICE_VERSION } from "@Helper/FixedReplies";
 import {
   ASK_AGE,
-  ASK_CITY,
   INSURANCE_ANSWER,
   INSURANCE_COORDINATION,
   INSURANCE_HAS_ANSWER,
@@ -81,6 +80,7 @@ function setup(
     classify?: unknown; // the LLM answer reader; absent = no LLM, the word rules decide
     maps?: unknown; // Google Maps adapter (geocode / travel / nearbyCandidates)
     found?: (q: Record<string, unknown>) => unknown[]; // what the directory search returns
+    pinAsked?: boolean; // the "Send location" question was already asked in this conversation
   } = {},
 ) {
   const cons = {
@@ -98,9 +98,11 @@ function setup(
   };
   const out: string[] = [];
   const saved: Record<string, unknown>[] = [];
+  let pinAsked = !!opts.pinAsked; // a "Send location" message already went out in this conversation
   const send = jest.fn(async (...a: unknown[]) => {
     if (opts.sendFails) throw new Error("WhatsApp down");
     out.push(String((a[1] as { body: string }).body));
+    if ((a[1] as { kind?: string }).kind === "location_request") pinAsked = true;
     replied = true;
     return "wamid.OUT";
   });
@@ -136,11 +138,11 @@ function setup(
 
   // a reply to the current message exists once one was sent (afterTurn checks it); reset per run
   let replied = false;
-  stub(message, "findOne", async (o: unknown) =>
-    replied && (o as { where?: { reply_to_wa_message_id?: string } })?.where?.reply_to_wa_message_id
-      ? { id: "out" }
-      : null,
-  );
+  stub(message, "findOne", async (o: unknown) => {
+    const w = (o as { where?: { reply_to_wa_message_id?: string; type?: string } })?.where;
+    if (w?.type === "location_request") return pinAsked ? { id: "pin-asked" } : null;
+    return replied && w?.reply_to_wa_message_id ? { id: "out" } : null;
+  });
   stub(conversation, "findOne", async () => conv);
   stub(message, "find", async () => []);
   stub(consent, "findOne", async () => cons);
@@ -471,7 +473,7 @@ describe("trigger recording", () => {
     const triggers = fakeTriggers();
     const t = setup([draft("Let me find centres.", { intent: "find_centre" })], { triggers });
     await t.run("find a hospital");
-    expect(t.out.join("\n\n")).toContain(ASK_CITY);
+    expect(t.out.join("\n\n")).toBe(LOCATION_ASK_T.en);
     expect(triggers.record).not.toHaveBeenCalled();
   });
   it("no E when only the age was asked", async () => {
@@ -527,10 +529,12 @@ describe("trigger recording", () => {
 });
 
 describe("centre search (12.4)", () => {
-  it("asks for the city instead of listing centres from anywhere", async () => {
+  it("asks where (Send location button, or the area typed) instead of listing centres from anywhere", async () => {
     const t = setup([draft("Let me find centres.", { intent: "find_centre" })]);
     await t.run("find a hospital");
-    expect(t.out.join("\n\n")).toContain(ASK_CITY);
+    expect((t.send.mock.calls[0] as unknown[])[1]).toMatchObject({ kind: "location_request" });
+    expect(t.out).toEqual([LOCATION_ASK_T.en]); // the draft does not ride along
+    expect(t.conv.pending_action).toBe("centre_location");
   });
 });
 
@@ -926,8 +930,15 @@ describe("booking request, one question per turn", () => {
       centres: CENTRES,
     });
     await t.run("you suggest a good one");
-    expect(t.conv.pending_action).toBe("centre_radius");
+    // the location is asked once for the nearest centres; NO keeps the city already given
+    expect((t.send.mock.calls[0] as unknown[])[1]).toMatchObject({ kind: "location_request" });
+    expect(t.out[0]).toContain("Or reply NO and I will search in Madurai.");
+    expect(t.conv.pending_action).toBe("centre_location");
     expect(t.out[0]).not.toContain("not in our directory");
+    t.out.length = 0;
+    await t.run("no");
+    expect(t.out[0]).toMatch(/^How far can the patient travel/);
+    expect(t.conv.pending_action).toBe("centre_radius");
   });
 
   it("a sentence that is not a centre name is not saved as one: answered, then the centre question again", async () => {
@@ -1269,6 +1280,68 @@ describe("nearby centres (location + Google Maps)", () => {
     expect(t.out[0]).toBe(LOCATION_ASK_T.en);
     expect(t.conv.pending_action).toBe("centre_location");
     expect(t.generate).not.toHaveBeenCalled();
+  });
+
+  // Real chat, 16 Nov: the area was typed earlier ("coimbatore peelamedu"), then "you can suggest hospital".
+  // The LLM listed hospitals by itself; the reply that went out was "1. 2. 3." + the travel-distance question.
+  const AREA = { city: "Coimbatore", locality: "Peelamedu", save: async () => undefined };
+  const INVENTED = "Here are some hospitals in Peelamedu:\n1. PSG Hospitals\n2. KMCH\n3. Aravind Eye Hospital\n\nWould you like to book one?";
+
+  it("area known, 'you can suggest hospital': the Send location question, never the LLM's own hospital list", async () => {
+    const t = setup([draft(INVENTED, { intent: "find_centre" })], { needRow: { ...AREA } });
+    await t.run("you can sugees hosiptal");
+    expect((t.send.mock.calls[0] as unknown[])[1]).toMatchObject({ kind: "location_request" });
+    expect(t.out).toEqual([
+      "To show the centres nearest to the patient, please share the patient's location with the button below. Or reply NO and I will search in Peelamedu, Coimbatore.",
+    ]);
+    expect(t.conv.pending_action).toBe("centre_location");
+  });
+
+  it("the pin comes after that question: the nearest centres, no travel-distance question in between", async () => {
+    const found = jest.fn(() => [{ ...ABC }]);
+    const t = setup([], { pending: "centre_location", needRow: { ...AREA }, found, maps: fakeMaps(), pinAsked: true });
+    await t.run("", spot);
+    expect((found.mock.calls[0] as unknown[])[0]).toMatchObject({ latitude: spot.latitude, longitude: spot.longitude });
+    expect(t.out[0]).toContain("1. ABC Hospital - Peelamedu");
+    expect(t.conv.pending_action).toBe("centre_pick");
+  });
+
+  it.each(["no", "No, search in the same area", "I can't share location", "skip"])(
+    "'%s' to the location question: the typed area is used, the travel distance is asked",
+    async (answer) => {
+      const maps = fakeMaps();
+      const t = setup([], { pending: "centre_location", needRow: { ...AREA }, maps, pinAsked: true });
+      await t.run(answer);
+      expect(t.out[0]).toMatch(/^How far can the patient travel/);
+      expect(t.conv.pending_action).toBe("centre_radius");
+      expect(maps.geocode).not.toHaveBeenCalled(); // "no" is never looked up as a place
+      expect(t.generate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("'10 km' to the location question: no pin, the distance is taken and the list comes", async () => {
+    const needRow: Record<string, unknown> = { ...AREA };
+    const found = jest.fn(() => [{ ...ABC }]);
+    const t = setup([], { pending: "centre_location", needRow, found, maps: fakeMaps(), pinAsked: true });
+    await t.run("10 km");
+    expect(needRow.travel_radius_km).toBe(10);
+    expect(t.out[0]).toContain("ABC Hospital");
+    expect(t.conv.pending_action).toBe("centre_pick");
+  });
+
+  it("'ok' to the location question: the button once more, the wait stays", async () => {
+    const t = setup([], { pending: "centre_location", needRow: { ...AREA }, pinAsked: true });
+    await t.run("ok");
+    expect((t.send.mock.calls[0] as unknown[])[1]).toMatchObject({ kind: "location_request" });
+    expect(t.conv.pending_action).toBe("centre_location");
+  });
+
+  it("the location question is asked once: the next centre search goes to the travel distance", async () => {
+    const t = setup([draft(INVENTED, { intent: "find_centre" })], { needRow: { ...AREA }, pinAsked: true });
+    await t.run("suggest a hospital please");
+    expect(t.out).toEqual(["How far can the patient travel for this? For example 5 km, 10 km or 20 km."]);
+    expect(t.out.join(" ")).not.toMatch(/PSG|KMCH|1\. 2\./);
+    expect(t.conv.pending_action).toBe("centre_radius");
   });
 
   it("a shared pin: the directory is searched around it, with road distance in the list", async () => {

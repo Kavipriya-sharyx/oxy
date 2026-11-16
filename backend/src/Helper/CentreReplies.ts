@@ -52,6 +52,38 @@ export const LOCATION_ASK_T: L = {
   hinglish: "Kripya neeche diye button se patient ki location bhejein, ya locality aur city likhein. Main paanch tak suitable private healthcare centres suggest kar sakta hoon.",
 };
 
+// The area is already known ("Peelamedu, Coimbatore"): the pin is asked once for the NEAREST centres, and
+// NO keeps the typed area. Wording accepted by the client (16 Nov), no separate approval.
+export const LOCATION_NEAREST_T: L = {
+  en: "To show the centres nearest to the patient, please share the patient's location with the button below. Or reply NO and I will search in {place}.",
+  hi: "मरीज़ के सबसे नज़दीकी केंद्र दिखाने के लिए, कृपया नीचे दिए बटन से मरीज़ की लोकेशन भेजें। या NO लिखें, तो मैं {place} में खोजूँगा।",
+  hinglish: "Patient ke sabse nazdeeki centres dikhane ke liye, kripya neeche diye button se patient ki location bhejein. Ya NO likhein, to main {place} mein search karunga.",
+};
+
+/** The location question: with the known area ("... or reply NO and I will search in Peelamedu, Coimbatore") or without */
+export function locationAskText(place: string | null | undefined, l?: string | null): string {
+  const p = String(place ?? "").trim();
+  return p ? say(LOCATION_NEAREST_T, l).replace("{place}", p) : say(LOCATION_ASK_T, l);
+}
+
+/** "no", "skip", "I can't share it", "search in the same area": no pin, go on with the area already given */
+export function declinesLocation(text: string): boolean {
+  const t = (text || "").toLowerCase().replace(/[’`]/g, "'").trim();
+  return (
+    /^(no|nope|nah|na|nahi|nahin|skip|not now|later|n|vendam|venda)\b/.test(t) ||
+    /\b(can'?t|cannot|can not|don'?t|do not|not able|unable|won'?t|nahi)\b[^.?!]*\b(share|send|location|bhej)\w*/.test(t) ||
+    /\b(search|look|use|show|find)\b[^.?!]*\b(same|that|this|there|above)\b|\bsame (area|place|location|city)\b/.test(t) ||
+    /^नहीं|मत /.test(t)
+  );
+}
+
+/** "yes", "ok", "sure" and nothing else: they mean to share it, the button is shown again */
+export const agreesToShare = (text: string) =>
+  /^(yes|ya|yeah|yep|ok|okay|sure|fine|haan|han|ha|ji|k|theek hai|sari|seri|हाँ|ठीक है)[\s.!]*$/i.test((text || "").trim());
+
+/** "10 km", "5", "20kms" and nothing else */
+export const onlyRadius = (text: string) => /^\s*(up ?to\s+)?\d{1,3}\s*(km|kms|k\.?m\.?|kilomet\w*)?\s*\.?\s*$/i.test(text || "");
+
 const NEAR_RE =
   /\b(near ?by|near (me|my|us|our)|nearest|closest|close to (me|my|us)|around (me|here)|my (current |live )?location|current location|live location|paas (mein|me|ke|wala|wale)|nazdeek\w*|aas ?paas|pakkath\w*|pakkam)\b|पास|नज़दीक|आसपास/i;
 const PLACE_RE =

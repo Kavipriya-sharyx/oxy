@@ -73,8 +73,8 @@ function setup(opts: { state?: S; language?: string; consented?: boolean } = {})
   );
   const saved = { customer: { id: "c1", language: opts.language, save: async () => undefined }, conversation: conv } as never;
   let n = 0;
-  const run = (text: string, wamid = `wamid.IN${++n}`) =>
-    pipeline.process({ waNumber: "919800000001", waMessageId: wamid, text }, saved);
+  const run = (text: string, wamid = `wamid.IN${++n}`, type?: string) =>
+    pipeline.process({ waNumber: "919800000001", waMessageId: wamid, text, type }, saved);
   return { run, send, generate, conv, out, cons };
 }
 
@@ -118,6 +118,15 @@ describe("the opening list", () => {
 });
 
 describe("welcome + opening list through the pipeline", () => {
+  it("the customer opens the chat for the first time (WhatsApp welcome event): the welcome + options at once", async () => {
+    const t = setup({ state: S.New });
+    await t.run("", "wamid.W1", "request_welcome");
+    expect(t.out).toHaveLength(1);
+    expect((last(t).msg as { kind: string }).kind).toBe("list");
+    expect(t.conv.state).toBe(S.IntentMenu);
+    expect(t.generate).not.toHaveBeenCalled();
+  });
+
   it("a consenting customer's first message gets the welcome + the 4-row list, state INTENT_MENU, no Claude", async () => {
     const t = setup();
     await t.run("hi");
@@ -149,7 +158,9 @@ describe("welcome + opening list through the pipeline", () => {
     await t.run(id);
     expect(t.conv.state).toBe(state);
     expect(t.out).toHaveLength(1);
-    expect((last(t).msg as { kind: string }).kind).toBe("text");
+    // a question with known answers comes with options to tap (client, 16 Nov 2026)
+    expect(["text", "list", "buttons"]).toContain((last(t).msg as { kind: string }).kind);
+    if (id === "menu_need") expect((last(t).msg as { kind: string }).kind).toBe("list");
     expect(t.generate).not.toHaveBeenCalled();
   });
 

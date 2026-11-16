@@ -79,7 +79,15 @@ export function rankCentres(list: FoundCentre[], q: CentreQuery): FoundCentre[] 
         : undefined;
     return Object.assign(c, { distance_km: d, locality_match: same(c.locality, q.locality) });
   });
-  if (origin) ranked = ranked.filter((c) => c.locality_match || c.distance_km == null || c.distance_km <= radius);
+  // A centre without a map point cannot be measured. With a pin the search is not limited to one city, so
+  // such a centre stays only when it is in the customer's city (never a centre from another city as "nearby").
+  const pinned = q.latitude != null && q.longitude != null;
+  if (origin)
+    ranked = ranked.filter(
+      (c) =>
+        c.locality_match ||
+        (c.distance_km == null ? !pinned || same(c.city, q.city) : c.distance_km <= radius),
+    );
   ranked.sort(
     (a, b) =>
       Number(b.locality_match) - Number(a.locality_match) ||

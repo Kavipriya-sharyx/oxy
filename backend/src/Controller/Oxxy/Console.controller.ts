@@ -1,4 +1,5 @@
 import { Permission } from "@Helper/Permissions";
+import { caseRef, refPrefix } from "@Service/Oxxy/CallbackFlow";
 import { TaskType } from "@Helper/Enum/TaskType";
 import { GoogleMapsService } from "@Service/Maps/GoogleMaps.service";
 import {
@@ -543,7 +544,9 @@ export class ConsoleController extends JWTAuthController {
     if (priority) qb.andWhere("t.priority = :priority", { priority: priority.slice(0, 20) });
     if (mine === "1") qb.andWhere("t.assigned_to_id = :me", { me: UserId });
     const term = (q ?? "").trim().slice(0, 60);
-    if (term)
+    const ref = refPrefix(term); // the callback reference the customer has, e.g. CB-498A3BD2
+    if (ref) qb.andWhere("REPLACE(t.id::text, '-', '') LIKE :ref", { ref: `${ref}%` });
+    else if (term)
       qb.andWhere(
         "(customer.wa_number ILIKE :term OR customer.first_name ILIKE :term OR t.summary ILIKE :term OR t.type ILIKE :term)",
         { term: `%${term}%` },
@@ -566,7 +569,11 @@ export class ConsoleController extends JWTAuthController {
          FROM task WHERE task_status <> 'done'`,
       [UserId],
     );
-    return this.SendResponseData({ crmEnabled: this._Outbox.enabled, rows, summary: t });
+    return this.SendResponseData({
+      crmEnabled: this._Outbox.enabled,
+      rows: rows.map((r) => ({ ...r, case_ref: caseRef(r.id) })),
+      summary: t,
+    });
   }
 
   @Permission("tasks.work")

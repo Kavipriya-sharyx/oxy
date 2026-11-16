@@ -71,3 +71,27 @@ export function withoutHealthFields<T extends Record<string, unknown>>(fields: T
   for (const k of HEALTH_FIELDS) delete copy[k];
   return copy as T;
 }
+
+// The customer's own message holds health detail (a condition, a symptom, a treatment, medical spend). Before
+// the consent such a message is never sent to the LLM: the notice comes first. Over-flags on purpose.
+const PERSONAL_HEALTH =
+  /\b(diabet\w*|sugar|bp|blood pressure|hypertension|heart|cardiac|cancer|tumou?r|kidney|liver|dialysis|chemo\w*|asthma|thyroid|stroke|paraly\w*|fracture|injur\w*|knee|spine|back pain|fever|infection|pregnan\w*|ivf|delivery|operation|admitted|hospitali[sz]\w*|icu|therapy|disorder|depress\w*|anxiety|allerg\w*|cholesterol|arthritis|migraine|covid|tb|hiv|ortho\w*|eye problem|teeth|tooth|dental problem|skin problem|my (health|condition|illness|disease|treatment|medicines?|report|scan|test results?))\b|बीमारी|दर्द|इलाज|सर्जरी|ऑपरेशन|दवा|शुगर/iu;
+
+export function sharesHealthDetail(text: string): boolean {
+  const t = (text || "").toLowerCase();
+  if (!t.trim()) return false;
+  return PERSONAL_HEALTH.test(t) || TERMS.some((x) => t.includes(x));
+}
+
+/** "hi", "hello again", "good morning", "vanakkam": a greeting, nothing else */
+export function isGreeting(text: string): boolean {
+  return /^(hi+|hello+|hey+|hlo|helo|hai|hy|good (morning|afternoon|evening)|namaste|namaskar|vanakkam|hola)( (there|again|oxxy|team|sir|madam|ji))*\s*[!.]*$/i.test(
+    (text || "").trim(),
+  );
+}
+
+/** A question ("what is this?", "how much is it", "where is your office") rather than a statement */
+export function looksLikeQuestion(text: string): boolean {
+  const t = (text || "").trim().toLowerCase();
+  return /\?\s*$/.test(t) || /^(what|how|why|where|when|who|which|can|could|is|are|do|does|will|would|should|kya|kaise|kab|kahan|kaun|kitna|kitne)\b/.test(t);
+}

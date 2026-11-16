@@ -27,6 +27,8 @@ import { RetentionService, retentionDays } from "@Service/Ops/Retention.service"
 import { PlanChangeService } from "@Service/Ops/PlanChange.service";
 import { TemplatesService } from "@Service/Ops/Templates.service";
 import { GoLiveService } from "@Service/Ops/GoLive.service";
+import { WhatsappClient } from "@Service/Oxxy/WhatsappClient.service";
+import { MENU_ROWS } from "@Helper/OpeningMenu";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const id = (v: string) => {
@@ -45,8 +47,33 @@ export class OpsController extends JWTAuthController {
     private readonly _Plans: PlanChangeService,
     private readonly _Templates: TemplatesService,
     private readonly _GoLive: GoLiveService,
+    private readonly _Wa: WhatsappClient,
   ) {
     super();
+  }
+
+  // ---- Chat opening on WhatsApp: the welcome event and the quick questions (ice breakers) ----
+  @Permission("settings.manage")
+  @Get("ChatOpening")
+  async ChatOpening() {
+    const defaults = MENU_ROWS.map((r) => r.title.en);
+    try {
+      return this.SendResponseData({ ...(await this._Wa.getChatOpening()), defaults });
+    } catch (e) {
+      return this.SendResponseData({ error: (e as Error).message, defaults, enable_welcome_message: false, prompts: [] });
+    }
+  }
+
+  @Permission("settings.manage")
+  @Post("ChatOpening")
+  async SetChatOpening(@Body() body: { prompts?: string[]; enable_welcome_message?: boolean }) {
+    const prompts = Array.isArray(body?.prompts) && body.prompts.length ? body.prompts : MENU_ROWS.map((r) => r.title.en);
+    try {
+      await this._Wa.setChatOpening(prompts, body?.enable_welcome_message !== false);
+    } catch (e) {
+      throw new BadRequestException((e as Error).message);
+    }
+    return this.SendResponseData(await this._Wa.getChatOpening());
   }
 
   // ---- Go-live check: real state of settings, plans, centres, content, templates, logins ----

@@ -517,6 +517,38 @@ Reported from real WhatsApp chats; every case below is a regression test (the me
   convenient time: ..." (Trigger layer 9 O), "I have requested a callback for {window}. Reference: {id}."
   (Playbook 18), the second half of the no-centre reply (Playbook 10.2).
 
+## Centre search asks for the location first; no hospital list from the LLM (16 Nov)
+
+Real chat: the customer typed "coimbatore peelamedu", then "you can suggest hospital". The reply was
+"1. 2. 3." + the travel-distance question, and the location was never asked.
+
+- **Cause of "1. 2. 3."** The LLM listed hospitals by itself. `tidyDraft` split the draft into sentences with a
+  pattern that lost every line without a full stop, so "1. PSG Hospitals" became "1." and the names went.
+  (Had the names survived, invented hospitals would have reached the customer: worse.)
+- **Fix 1, `Helper/ReplyTidy.ts`:** `tidyDraft` works line by line (a list item keeps its number and text, line
+  breaks stay); `withoutCentreList` removes a list of centre names written by the LLM with its lead-in line
+  (a list of steps or plans stays).
+- **Fix 2, pipeline:** on any centre step (location, radius, list, no centre) the system's text is the whole
+  reply (`shown` "LOC" / "CENTRE_STEP" -> `replaceReply`); the draft never rides along. Prompt rule added:
+  never name or list hospitals.
+- **The location question comes before the first centre list** (`locationAskText`, sent as `location_request` =
+  the "Send location" button), in the LLM path (`applyResult`), at "suggest one for me"
+  (`suggestInsteadOfBooking`) and at "near me" (`handleNearbyAsk`):
+  - no area known: `LOCATION_ASK_T` ("... or type the locality and city"), whenever a search needs it;
+  - area known: `LOCATION_NEAREST_T` ("To show the centres nearest to the patient, please share the patient's
+    location with the button below. Or reply NO and I will search in {place}."), **once per conversation**
+    (`locationAsked`: an outbound `location_request` row exists).
+- **The answer** (`handleCentreLocationText`, pending `centre_location`): a pin = the list at once, nearest
+  first, no radius question (default 10 km); NO / "skip" / "can't share" (`declinesLocation`) = the typed area,
+  then the radius question (with the 5 / 10 / 20 km buttons of `Helper/Choices`), then the list; "10 km"
+  (`onlyRadius`) = radius saved, list at once; "ok" (`agreesToShare`) = the button once more; a new area typed
+  = looked up on the map and saved. "no" is never sent to the geocoder.
+- **A pin never lists a centre from another city:** `rankCentres` keeps a centre without a map point only when
+  it is in the customer's city (before, with a pin, every centre without coordinates passed).
+- Wording `LOCATION_NEAREST_T` (en / hi / hinglish): accepted by the client on 16 Nov, no business-team approval needed.
+- Not checked on real WhatsApp. Tests: `LocationAsk.spec.ts`, `ReplyTidy.spec.ts`, the "Real chat, 16 Nov" block
+  in `ChatPipeline.plan.spec.ts`.
+
 ## Nearby centres with Google Maps Platform (15 Nov)
 
 - Rule kept (Playbook 10): Google Maps says WHERE things are, never WHICH centre to suggest. Customers only
@@ -688,3 +720,23 @@ template approvals above. The token was shared in chat, so rotate it. Update 14 
 - Cut Medi Bills break-even: the plan says ₹19,664 a month, but the floor-to-500 rule makes it ₹20,000.
 - All `[CONFIRM]` values: renewal terms, activation time for Oxxy plans, GST, Trigger Q delay (4 h),
   the fixed reply texts (en / hi / hinglish drafts).
+
+## Client changes, 16 Nov 2026 (chat flow)
+- **Any question is answered.** Before the health-data consent, a general question (or a menu row with no
+  health question) is answered at once with no health question (LLM in no-health mode, FAQ, fixed texts);
+  the consent notice follows as its own message (`askConsentLater`; later a short reminder). Greetings,
+  YES / NO, the "Reduce a medical bill" row and any message with health detail (`sharesHealthDetail`) still
+  get the notice first: health detail never reaches the LLM before consent (DPDP).
+- **The bot keeps talking after "our team will connect with you".** ESCALATED with no person in the chat
+  goes through the normal pipeline; a second "needs a person" says the team already has it
+  (`TEAM_HAS_IT_T`, with the chosen callback time and CB- reference), no second task or callback offer.
+  Quiet only while a person has taken the chat over, or during a safety PAUSE.
+- **More multiple choice.** `Helper/Choices.ts` adds reply buttons (<= 3) or a list (4+) to known bot
+  questions: who it is for, need type, one expense / ongoing, yearly spend ranges, travel distance,
+  insurance, specialisation, booking dates (next 7) and time of day, callback windows, the centre list,
+  plan next step, benefit / price, monthly / annual. Option ids are what the answer readers already parse.
+  Applied in `toBubbles` for every reply; validated, so a bad option set falls back to plain text. The LLM
+  prompt asks the discovery questions in the matching standard words.
+- **Welcome + options when the chat is opened.** Configuration > "Chat opening on WhatsApp" sets Meta's
+  conversational automation: the welcome-message event (`request_welcome` -> the bot sends the welcome and
+  the 4 options before the customer types) and up to 4 ice breakers (default: the 4 menu row titles).

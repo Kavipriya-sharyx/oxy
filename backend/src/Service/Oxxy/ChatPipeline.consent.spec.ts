@@ -133,14 +133,42 @@ describe("DPDP health-data consent gate", () => {
     expect(t.generate).not.toHaveBeenCalled();
   });
 
-  it("0b. the row picked before consent is answered right after YES", async () => {
+  it("0b. a row with no health question is answered at once, the notice follows (client, 16 Nov)", async () => {
     const t = setup({ state: S.IntentMenu });
     await t.run("menu_centre");
-    expect(texts(t)).toEqual([fixedReply("health_notice", "en")]);
-    expect(t.conv.pending_action).toBe("after_consent:menu_centre");
-    await t.run("yes");
-    expect(texts(t)[1]).toContain("Which city and locality does the patient live in?");
+    expect(texts(t)[0]).toContain("Which city and locality does the patient live in?");
+    expect(texts(t)[1]).toBe(fixedReply("health_notice", "en"));
     expect(t.conv.state).toBe(S.CentreSearch);
+    expect(t.cons.notice_sent_version).toBe(NOTICE_VERSION);
+    await t.run("yes");
+    expect(t.cons.health_data_consent).toBe(true);
+  });
+
+  it("0c. the health-need row still gets the notice first, then its answer after YES", async () => {
+    const t = setup({ state: S.IntentMenu });
+    await t.run("menu_need");
+    expect(texts(t)).toEqual([fixedReply("health_notice", "en")]);
+    expect(t.conv.pending_action).toBe("after_consent:menu_need");
+  });
+
+  it("0d. a general question before consent is answered (no health question), then the notice", async () => {
+    const t = setup({ claude: async () => draft("Oxxy is a healthcare savings and support partner.") });
+    await t.run("where is your office located?");
+    expect(t.generate).toHaveBeenCalledTimes(1);
+    expect(texts(t)[0]).toBe("Oxxy is a healthcare savings and support partner.");
+    expect(texts(t)[1]).toBe(fixedReply("health_notice", "en"));
+    expect(t.cons.health_data_consent).toBe(false);
+  });
+
+  it("0e. while the notice waits, a question is answered and a short reminder follows", async () => {
+    const t = setup({
+      cons: { notice_sent_at: new Date(), notice_sent_version: NOTICE_VERSION },
+      claude: async () => draft("We are based in Delhi."),
+    });
+    await t.run("where is your office?");
+    expect(texts(t)[0]).toBe("We are based in Delhi.");
+    expect(texts(t)[1]).toMatch(/^To help with a health need too, may I use your health details/);
+    expect(t.cons.health_data_consent).toBe(false);
   });
 
   it("1. the next message gets the notice, and nothing else in that turn", async () => {
@@ -237,8 +265,9 @@ describe("DPDP health-data consent gate", () => {
   it("8. unclear answers repeat the YES/NO question and never ask for health information", async () => {
     const t = setup();
     await t.run("hi");
-    for (const msg of ["maybe", "ok", "what is this?", "I have a heart problem"]) await t.run(msg);
-    expect(texts(t).slice(1)).toEqual(Array(4).fill(fixedReply("health_consent_unclear", "en")));
+    // not a question, or health detail: asked again (a real question is answered: test 0e)
+    for (const msg of ["maybe", "ok", "I have a heart problem"]) await t.run(msg);
+    expect(texts(t).slice(1)).toEqual(Array(3).fill(fixedReply("health_consent_unclear", "en")));
     expect(t.cons.health_data_consent).toBe(false);
     expect(t.cons.health_refused_at).toBeNull();
     expect(t.generate).not.toHaveBeenCalled();
@@ -321,8 +350,10 @@ describe("DPDP health-data consent gate", () => {
   it("silence or an unrelated message is never read as YES", async () => {
     const t = setup({ cons: { notice_sent_at: new Date(), notice_sent_version: NOTICE_VERSION } });
     await t.run("what is the price of the Vital plan?");
+    expect(t.cons.health_data_consent).toBe(false); // answered, never read as YES
+    await t.run("hmm");
     expect(t.cons.health_data_consent).toBe(false);
-    expect(texts(t)).toEqual([fixedReply("health_consent_unclear", "en")]);
+    expect(t.cons.health_refused_at).toBeNull();
   });
 
   it("a refusing customer can still ask for a human", async () => {

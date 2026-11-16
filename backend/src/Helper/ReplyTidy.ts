@@ -49,24 +49,76 @@ export function withoutEmptyNumbering(text: string): string {
     .trim();
 }
 
-export function tidyDraft(draft: string, opts: TidyOptions = {}): string {
-  const original = withoutEmptyNumbering(draft);
-  let parts = splitSentences(original);
-  if (!parts.length) return original;
+const LIST_LINE_RE = /^\s*((?:\d{1,2}[.)]|[-•*])\s+)(.*)$/;
+const NAME_WORD_RE = /^(?:[A-Z0-9][\w'.&-]*|of|and|the|for|&|-)$/;
+const CENTRE_NAME_RE =
+  /\b(hospitals?|clinics?|centres?|centers?|labs?|laborator(?:y|ies)|diagnostics?|nursing home|medical|scans?|health ?care|pharmacy)\b/i;
+/** The name part of a list item: "**PSG Hospitals** - Peelamedu (multispeciality)" -> "PSG Hospitals" */
+const itemHead = (item: string) => item.replace(/[*_`]/g, "").split(/\s[-–|]\s|[:(,]/)[0].trim().replace(/[.]+$/, "");
+function looksLikeName(item: string): boolean {
+  const words = itemHead(item).split(/\s+/).filter(Boolean);
+  return words.length >= 1 && words.length <= 7 && words.every((w) => NAME_WORD_RE.test(w));
+}
 
-  parts = parts.filter((x) => !isStalling(x));
+/**
+ * A list of hospitals / clinics written by the LLM is never sent: only the system lists centres, from the
+ * verified directory (Playbook 10). The list lines go, with the "Here are some options:" line above them.
+ * A list of steps or plans ("1. Contact Oxxy before visiting the hospital.") stays.
+ */
+export function withoutCentreList(text: string): string {
+  const lines = (text || "").split(/\r?\n/);
+  const items = lines.map((l) => l.match(LIST_LINE_RE)?.[2] ?? null);
+  const names = items.map((x) => x != null && looksLikeName(x));
+  if (!items.some((x, i) => names[i] && CENTRE_NAME_RE.test(itemHead(x!)))) return text || "";
+  const drop = new Set<number>();
+  names.forEach((isName, i) => {
+    if (!isName) return;
+    drop.add(i);
+    let j = i - 1;
+    while (j >= 0 && !lines[j].trim()) j--;
+    if (j >= 0 && /:\s*$/.test(lines[j]) && items[j] == null) drop.add(j); // the lead-in line
+  });
+  return lines
+    .filter((_, i) => !drop.has(i))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export function tidyDraft(draft: string, opts: TidyOptions = {}): string {
+  const original = withoutCentreList(withoutEmptyNumbering(draft));
+  // line by line: a list item keeps its number and its text together (before, "1. PSG Hospital" lost its
+  // text and "1. 2. 3." went out), and the line breaks of the draft stay
+  const lines = original.split(/\r?\n/).map((raw) => {
+    const item = raw.match(LIST_LINE_RE);
+    return { blank: !raw.trim(), mark: item ? item[1] : "", parts: splitSentences(item ? item[2] : raw) };
+  });
+  const all = () => lines.flatMap((l) => l.parts);
+  if (!all().length) return original;
+  const keepOnly = (keep: (x: string) => boolean) => lines.forEach((l) => (l.parts = l.parts.filter(keep)));
+
+  keepOnly((x) => !isStalling(x));
 
   // the same polite opener twice in a row reads like a machine: the second one goes
-  if (parts.length > 1 && startsWithOpener(parts[0]) && !isQuestion(parts[0]) && startsWithOpener(opts.previousBotText)) parts.shift();
+  const first = lines.find((l) => l.parts.length);
+  if (first && all().length > 1 && startsWithOpener(first.parts[0]) && !isQuestion(first.parts[0]) && startsWithOpener(opts.previousBotText))
+    first.parts.shift();
 
-  const questions = parts.filter(isQuestion);
-  if (opts.systemAsks) parts = parts.filter((x) => !isQuestion(x));
+  const questions = all().filter(isQuestion);
+  if (opts.systemAsks) keepOnly((x) => !isQuestion(x));
   else if (questions.length > 1) {
     const keep = questions[questions.length - 1];
-    parts = parts.filter((x) => !isQuestion(x) || x === keep);
+    keepOnly((x) => !isQuestion(x) || x === keep);
   }
 
-  const out = parts.join(" ").trim();
+  const out = withoutEmptyNumbering(
+    lines
+      .filter((l) => l.blank || l.parts.length)
+      .map((l) => (l.blank ? "" : l.mark + l.parts.join(" ")))
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim(),
+  );
   if (out) return out;
   // everything went. With a system question following, nothing from the draft is needed.
   return opts.systemAsks ? "" : original;

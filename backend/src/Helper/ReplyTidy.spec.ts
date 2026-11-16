@@ -110,3 +110,29 @@ describe("a list whose items were left out", () => {
     expect(withoutEmptyNumbering("Dr. K. G. Ravi can help.")).toBe("Dr. K. G. Ravi can help.");
   });
 });
+
+describe("a list in the draft (real chat 16 Nov: '1. 2. 3.' went out)", () => {
+  const { tidyDraft, withoutCentreList } = jest.requireActual("./ReplyTidy");
+  const HOSPITALS = "Here are some hospitals in Peelamedu:\n1. PSG Hospitals\n2. KMCH\n3. Aravind Eye Hospital\n\nWould you like to book one?";
+
+  it("hospitals listed by the LLM never go out, and no bare numbers are left behind", () => {
+    expect(tidyDraft(HOSPITALS, { systemAsks: true })).toBe("");
+    expect(tidyDraft(HOSPITALS)).toBe("Would you like to book one?");
+    expect(withoutCentreList("Sure.\n- **Apollo Clinic** - RS Puram (multispeciality)\n- Ganga Hospital, Mettupalayam Road")).toBe("Sure.");
+  });
+
+  it("a list that is not centre names keeps its items with their numbers and line breaks", () => {
+    const steps = "Here is how it works:\n1. Contact Oxxy before visiting the hospital.\n2. Share the bill details.\n3. Pay the reduced amount.";
+    expect(tidyDraft(steps)).toBe(steps);
+    const plans = "You can choose:\n1. Monthly\n2. Annual";
+    expect(tidyDraft(plans)).toBe(plans);
+    // the question goes when the system asks its own; the list stays whole
+    expect(tidyDraft(`${plans}\n\nWhich one do you prefer?`, { systemAsks: true })).toBe(plans);
+  });
+
+  it("a line without a full stop is kept (before, only the text after the last line break survived)", () => {
+    expect(tidyDraft("Oxxy helps with private healthcare bills\nYou contact Oxxy before the service")).toBe(
+      "Oxxy helps with private healthcare bills\nYou contact Oxxy before the service",
+    );
+  });
+});

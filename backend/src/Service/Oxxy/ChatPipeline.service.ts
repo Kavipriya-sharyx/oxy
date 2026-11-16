@@ -5,6 +5,10 @@ import {
   asksNearby,
   centreListText,
   LOCATION_ASK_T,
+  agreesToShare,
+  declinesLocation,
+  locationAskText,
+  onlyRadius,
   parseRadius,
   RADIUS_Q,
 } from "@Helper/CentreReplies";
@@ -187,6 +191,7 @@ import {
   callbackQuestion,
   callbackSavedText,
   caseRef,
+  showWindow,
   packWindows,
   parseCallbackChoice,
   teamHours,
@@ -196,6 +201,9 @@ import { canTransition, InvalidTransitionError } from "./ConversationStateMachin
 import { NEEDS_SHOWN, TriggerDecision, TriggerEngineService } from "./TriggerEngine.service";
 import {
   asksHealthQuestion,
+  isGreeting,
+  looksLikeQuestion,
+  sharesHealthDetail,
   healthConsentStatus,
   parseConsentAnswer,
   withoutHealthFields,
@@ -230,6 +238,19 @@ export const NOT_SURE_HERE_T: L = {
   en: "Sorry, I could not answer that here. Our team can explain it on the call after your request.",
   hi: "क्षमा करें, मैं इसका जवाब यहाँ नहीं दे सका। आपकी रिक्वेस्ट के बाद कॉल पर हमारी टीम इसे समझा देगी।",
   hinglish: "Sorry, main iska jawab yahan nahi de saka. Aapki request ke baad call par hamari team ise samjha degi.",
+};
+// Before the health-data consent: after answering a question, the short reminder (the full notice was sent)
+export const CONSENT_REMINDER_T: L = {
+  en: "To help with a health need too, may I use your health details as explained above? Please reply YES or NO.",
+  hi: "स्वास्थ्य से जुड़ी मदद के लिए, क्या मैं ऊपर बताए अनुसार आपकी स्वास्थ्य जानकारी का उपयोग कर सकता हूँ? कृपया YES या NO लिखें।",
+  hinglish:
+    "Health need mein madad ke liye, kya main upar bataye anusaar aapki health details use kar sakta hoon? YES ya NO likhein.",
+};
+// The bot keeps answering while the team has the case (no second callback offer)
+export const TEAM_HAS_IT_T: L = {
+  en: "Our team already has your request and will call you as arranged.",
+  hi: "हमारी टीम के पास आपकी रिक्वेस्ट पहले से है और वे तय समय पर आपको कॉल करेंगे।",
+  hinglish: "Hamari team ke paas aapki request pehle se hai aur woh tay samay par aapko call karenge.",
 };
 // need columns handed to the LLM as "already known" (the free-text condition is never sent)
 const KNOWN_NEED_FIELDS = [
@@ -839,10 +860,29 @@ export class ChatPipelineService {
     taskId: string | undefined,
     text: string,
   ): Promise<string> {
+    // the customer already chose a callback time for this case: say so, never the options again
+    const chosen = taskId ? await task.findOne({ where: { id: taskId } }) : null;
+    if (chosen?.callback_from)
+      return [text, say(TEAM_HAS_IT_T, s.customer.language)].filter(Boolean).join("\n\n");
     const options = callbackOptions();
     if (!taskId || !options.length) return text;
     await this.setPending(s, `callback_time:${taskId}:${packWindows(options)}`);
     return [text, callbackQuestion(options, s.customer.language)].filter(Boolean).join("\n\n");
+  }
+
+  /** "Our team already has your request" (+ the callback time when one was chosen) */
+  private async teamHasItText(s: Saved): Promise<string> {
+    const open = await task.findOne({
+      where: {
+        conversation_id: s.conversation.id,
+        task_status: In([TaskStatus.Open, TaskStatus.InProgress]),
+      } as any,
+      order: { created_on: "DESC" } as any,
+    });
+    const l = s.customer.language;
+    if (open?.callback_from)
+      return `${say(TEAM_HAS_IT_T, l)} (${showWindow({ from: open.callback_from, to: open.callback_to ?? open.callback_from }, l)}, ${caseRef(open.id)})`;
+    return say(TEAM_HAS_IT_T, l);
   }
 
   // The customer's answer to the callback options. Anything else stays with the team (bot quiet while ESCALATED).
@@ -874,6 +914,7 @@ export class ChatPipelineService {
         );
       return await this._Outbox.enqueue(mg, CrmAction.SetCallbackWindow, s.customer.id, {
         task_id: taskId,
+        case_ref: caseRef(taskId), // the reference the customer was given
         crm_task_id: (t as any)?.crm_task_id ?? null,
         callback_window: { from: w.from.toISOString(), to: w.to.toISOString() },
       });
@@ -886,6 +927,54 @@ export class ChatPipelineService {
       m.waMessageId,
     );
     return true;
+  }
+
+  /** The consent step runs now (else the message is answered first and the notice follows it) */
+  private consentStepNow(status: "none" | "awaiting", m: Inbound, s: Saved): boolean {
+    const text = (m.text || "").trim();
+    if (s.conversation.state === ConversationState.New) return true; // the welcome and the options first
+    if (!text || m.location) return true;
+    if (parseConsentAnswer(text) !== "unclear") return true; // YES / NO: the notice, or the answer to it
+    if (isGreeting(text)) return true; // "hi" again: the notice (the welcome and options came first)
+    // health detail is never sent to the LLM before the consent (DPDP): the notice first, the answer after YES
+    if (sharesHealthDetail(text)) return true;
+    const row = matchMenuRow(text);
+    if (row?.id === "menu_need") return true; // this row asks about health: the notice first
+    // while the notice waits for YES / NO, only a real question is answered ("maybe", "ok": asked again)
+    if (status === "awaiting" && !row && !looksLikeQuestion(text)) return true;
+    return false;
+  }
+
+  /**
+   * After an answer given before the consent: the notice (first time, full text) or a short reminder, as its
+   * own message. Not when the answer itself ended with a question (one question per turn, Playbook 1.1).
+   */
+  private async askConsentLater(m: Inbound, s: Saved) {
+    const status = (s as any).consentLater as "none" | "awaiting" | undefined;
+    if (!status) return;
+    try {
+      const reply = await message.findOne({
+        where: { direction: "out", reply_to_wa_message_id: m.waMessageId },
+      });
+      if (!reply) return; // nothing was answered: nothing to follow
+      const conv = s.conversation; // kept current by setState in this turn
+      if (conv.state === ConversationState.Pause || conv.state === ConversationState.OptedOut) return;
+      if (conv.taken_over_by_id) return;
+      const l = s.customer.language;
+      if (status === "none") {
+        for (const b of toBubbles(fixedReply("health_notice", l)))
+          await this._Wa.send(s.customer.id, b, "reply");
+        const cons = await consent.findOne({ where: { customer_id: s.customer.id } });
+        await this.saveConsentRow(s.customer.id, cons, (c) => {
+          c.notice_sent_at = new Date();
+          c.notice_sent_version = NOTICE_VERSION;
+        });
+      } else if (!/\?\s*$|reply (yes|1)/i.test(String(reply.body ?? "").trim())) {
+        for (const b of toBubbles(say(CONSENT_REMINDER_T, l))) await this._Wa.send(s.customer.id, b, "reply");
+      }
+    } catch (e) {
+      this.logger.warn(`consent notice after the answer not sent: ${(e as Error).message}`);
+    }
   }
 
   // DPDP consent step. Ends the turn. No LLM call, no health question, no other text than the fixed replies.
@@ -1185,6 +1274,7 @@ export class ChatPipelineService {
     await this.lookupInCrm(s);
     await this.customerReplied(s);
     await this.processTurn(m, s);
+    await this.askConsentLater(m, s);
     await this.afterTurn(m, s);
     await this.markHandledWithoutReply(m, s);
   }
@@ -1236,6 +1326,15 @@ export class ChatPipelineService {
       return;
     }
 
+    // The customer opened the chat for the first time (WhatsApp "welcome message" event, before they type):
+    // the welcome and the options at once (client, 16 Nov 2026). No consent or health question in it.
+    if (m.type === "request_welcome") {
+      await this.sendAndSave(s.customer.id, openingList(s.customer.language), m.waMessageId);
+      if (s.conversation.state === ConversationState.New)
+        await this.setState(s, [ConversationState.IntentMenu]);
+      return;
+    }
+
     // 1a. Strict order (plan 12.10). A retried or recovered job can reach us after a NEWER message from
     // the same customer was already answered. Running it now would read an old "yes" or "hi" as the
     // answer to today's question, so it is skipped (safety and STOP were already handled above).
@@ -1253,12 +1352,13 @@ export class ChatPipelineService {
       (await this.handleCallbackTime(m, s))
     )
       return;
+    // Safety pause, or a person has taken the chat over: the bot stays out of it (one acknowledgement).
+    // ESCALATED with no person in the chat yet: the team has the case AND the bot keeps answering every
+    // question meanwhile (client, 16 Nov 2026: "after 'our team will connect with you' the bot stops").
     if (
       s.conversation.state === ConversationState.Pause ||
-      s.conversation.state === ConversationState.Escalated
+      (s.conversation.state === ConversationState.Escalated && !!s.conversation.taken_over_by_id)
     ) {
-      // Playbook 3: ESCALATED gives a callback expectation. One short acknowledgement per escalation (or
-      // safety pause), never while a person has taken the chat over, never a second time: the bot stays quiet.
       await this.acknowledgeWhileParked(m, s);
       return;
     }
@@ -1272,11 +1372,21 @@ export class ChatPipelineService {
     if (await this.handleLead(m, s, consentStatus, cons)) return;
     if (s.conversation.pending_action === "follow_up_time" && (await this.handleFollowUpTime(m, s)))
       return;
+    // Client, 16 Nov 2026: "the customer can ask any question, the bot should respond". A question (or a
+    // row that needs no health detail) before the consent is answered first, with NO health question and
+    // nothing health-related stored; the notice follows right after the answer (askConsentLater). The consent
+    // step itself runs for the first message (welcome), a YES / NO to the notice, and the health-need row.
+    let consentLater: "none" | "awaiting" | null = null;
     if (consentStatus === "none" || consentStatus === "awaiting") {
-      await this.handleConsentStep(consentStatus, m, s, cons);
-      return;
+      if (this.consentStepNow(consentStatus, m, s)) {
+        await this.handleConsentStep(consentStatus, m, s, cons);
+        return;
+      }
+      consentLater = consentStatus;
+      (s as any).consentLater = consentStatus;
     }
-    const healthBlocked = consentStatus === "refused"; // refused: the LLM may talk, but never about health
+    // refused, or not given yet: the LLM may talk, but never about health
+    const healthBlocked = consentStatus === "refused" || !!consentLater;
 
     // 1c. Opening list (plan 12.2). A new conversation gets the welcome + 4-row list (state INTENT_MENU).
     // A tap on a row goes to that row's state with a fixed reply. Anything else is a normal conversation.
@@ -1388,6 +1498,18 @@ export class ChatPipelineService {
       await this.sendAndSave(
         s.customer.id,
         [say(NOT_SURE_HERE_T, s.customer.language), ...this.pendingBack(s)].join("\n\n"),
+        m.waMessageId,
+      );
+      return;
+    }
+    if (!result && s.conversation.state === ConversationState.Escalated) {
+      // the team already has this chat: no second task, no second set of callback options
+      this.logger.warn(
+        `conversation ${s.conversation.id}: no usable draft while escalated: ${feedback ?? "n/a"}`,
+      );
+      await this.sendAndSave(
+        s.customer.id,
+        `${say(NOT_SURE_HERE_T, s.customer.language)}\n\n${await this.teamHasItText(s)}`,
         m.waMessageId,
       );
       return;
@@ -1508,12 +1630,18 @@ export class ChatPipelineService {
     // (the same for a plan recommendation, the price disclosure and the age question: the LLM's own
     // recommendation next to it is what made the customer read the same plan twice)
     if (shown.has("G") || shown.has("D") || shown.has("E") || shown.has("AGE")) replaceReply = true;
+    // a centre step (location, radius, list, no centre): the system's text is the whole reply. A list of
+    // hospitals the LLM wrote by itself must never ride along with it.
+    if (shown.has("LOC") || shown.has("CENTRE_STEP")) replaceReply = true;
     // a question interrupted the gate or the booking: answer it, then ask the same question again (12.2)
     const back = extras.length ? [] : this.pendingBack(s);
     // the draft loses its own question when the system asks one, any "please hold on" promise, and a
     // "Thank you for sharing" opener right after another one (Helper/ReplyTidy.ts)
     let callbackText = "";
-    if (result.needs_human) {
+    if (result.needs_human && s.conversation.state === ConversationState.Escalated) {
+      // the team already has this chat: no second task, no second set of callback options
+      callbackText = await this.teamHasItText(s);
+    } else if (result.needs_human) {
       const taskId = await this.createTask(
         TaskType.HumanHandoff,
         TaskPriority.Normal,
@@ -1541,7 +1669,13 @@ export class ChatPipelineService {
             [...history].reverse().find((t) => t.role === "assistant")?.content ?? null,
         });
     const finalText = [draftText, ...systemParts].filter((x): x is string => !!x).join("\n\n");
-    await this.sendAndSave(s.customer.id, finalText, m.waMessageId);
+    // the location question goes out with the "Send location" button
+    const withPinButton = shown.has("LOC") && [...finalText].length <= 1024;
+    await this.sendAndSave(
+      s.customer.id,
+      withPinButton ? { kind: "location_request", body: finalText } : finalText,
+      m.waMessageId,
+    );
     if (decision)
       await this._Triggers!.record(s.customer.id, s.conversation, decision, result.intent, {
         assets: assetsToSend.map((a) => a.id),
@@ -1644,7 +1778,10 @@ export class ChatPipelineService {
     const priceAsked =
       asksPrice(text) || (isShortYes(text) && askedAboutPrice(await this.lastBotText(s)));
     if (priceAsked && !asksComparePlans(text)) {
-      const body = await this.priceReply(s);
+      const body = await this.priceReply(s).catch((e: Error) => {
+        this.logger.warn(`price reply not built: ${e.message}`);
+        return null; // the normal reply answers it
+      });
       if (body) {
         await reply(body);
         return true;
@@ -2127,8 +2264,21 @@ export class ChatPipelineService {
       }
     }
 
-    if (r.intent === "find_centre" && !m.location && !n?.city) {
+    // Centre search steps: where (the "Send location" button, asked once; NO keeps the typed area), how far,
+    // then the list. The draft never goes out with any of them: only the system names centres (Playbook 10).
+    const centreStepFree = !isBookingPending(conv.pending_action) && !gateOpen;
+    if (
+      r.intent === "find_centre" &&
+      !m.location &&
+      centreStepFree &&
+      (!n?.city || !(await this.locationAsked(s)))
+    ) {
+      conv.pending_action = "centre_location";
+      extras.push(locationAskText(this.placeOf(n), s.customer.language));
+      shown.add("LOC");
+    } else if (r.intent === "find_centre" && !m.location && !n?.city) {
       extras.push(say(ASK_CITY_T, s.customer.language)); // never list centres from another city
+      shown.add("CENTRE_STEP");
     } else if (
       r.intent === "find_centre" &&
       !n?.travel_radius_km &&
@@ -2139,8 +2289,10 @@ export class ChatPipelineService {
       // Playbook 10.1: collect the travel radius before suggesting centres
       conv.pending_action = "centre_radius";
       extras.push(say(RADIUS_Q, s.customer.language));
+      shown.add("CENTRE_STEP");
     } else if (r.intent === "find_centre") {
       const text = await this.centreSuggestions(s, n, m.location);
+      shown.add("CENTRE_STEP");
       if (text.shown) shown.add("D");
       // "2" = the second centre. Any older marker (location or radius question) is replaced; a booking or
       // the Cut Medi Bills gate in progress keeps its own step.
@@ -3233,14 +3385,52 @@ export class ChatPipelineService {
 
   // "Send location" button + the same question in words. The answer is a pin (handleLocationShare) or a
   // typed area (handleCentreLocationText).
-  private async askLocation(m: Inbound, s: Saved) {
+  private async askLocation(m: Inbound, s: Saved, n?: need | null) {
     await this.setState(s, [ConversationState.CentreSearch]);
     await this.setPending(s, "centre_location");
     await this.sendAndSave(
       s.customer.id,
-      { kind: "location_request", body: say(LOCATION_ASK_T, s.customer.language) },
+      { kind: "location_request", body: locationAskText(this.placeOf(n), s.customer.language) },
       m.waMessageId,
     );
+  }
+
+  /** "Peelamedu, Coimbatore": the area the customer already gave, or null */
+  private placeOf(n?: need | null): string | null {
+    if (!n?.city) return null;
+    return [n.locality, n.city]
+      .map((x) => String(x ?? "").trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  // The "Send location" question is asked once per conversation when the area is already known (a customer
+  // who said NO is not asked again). Without any area it is asked whenever a centre search needs it.
+  private async locationAsked(s: Saved): Promise<boolean> {
+    try {
+      return !!(await message.findOne({
+        where: { conversation_id: s.conversation.id, direction: "out", type: "location_request" } as any,
+      }));
+    } catch {
+      return false;
+    }
+  }
+
+  // The area is known and no pin came: how far the patient can travel (Playbook 10.1), then the list
+  private async continueWithArea(
+    m: Inbound,
+    s: Saved,
+    n: need,
+    origin: GeoPoint | undefined,
+    reason: string,
+  ) {
+    if (!n.travel_radius_km) {
+      await this.setState(s, [ConversationState.CentreSearch]);
+      await this.setPending(s, "centre_radius");
+      await this.sendAndSave(s.customer.id, say(RADIUS_Q, s.customer.language), m.waMessageId);
+      return;
+    }
+    await this.replyCentreList(m, s, n, origin, reason);
   }
 
   // The customer shared a location pin: centres around that spot, nearest first. The pin is used for this
@@ -3260,28 +3450,43 @@ export class ChatPipelineService {
   // locality / city, then the list. Not found on the map = answered normally (the LLM reads the city).
   private async handleCentreLocationText(m: Inbound, s: Saved): Promise<boolean> {
     if (s.conversation.pending_action !== "centre_location" || m.location) return false;
+    const n = await this.needRow(s);
     if (m.type === "location") {
       // a pin whose coordinates did not arrive (a message recovered after a restart): ask once more
-      await this.askLocation(m, s);
+      await this.askLocation(m, s, n);
       return true;
     }
     const text = (m.text || "").trim();
+    if (text && agreesToShare(text)) {
+      // "ok": the button once more, so one tap sends the pin (the wait stays)
+      await this.sendAndSave(
+        s.customer.id,
+        { kind: "location_request", body: say(LOCATION_ASK_T, s.customer.language) },
+        m.waMessageId,
+      );
+      return true;
+    }
     await this.setPending(s, null);
-    if (!text || /\?\s*$/.test(text) || text.split(/\s+/).length > 8) return false;
+    if (n.city && text && (declinesLocation(text) || onlyRadius(text))) {
+      // no pin: the area already given is used. "10 km" answers the next question at the same time.
+      if (onlyRadius(text)) {
+        const km = parseRadius(text);
+        if (km != null) {
+          n.travel_radius_km = km;
+          await n.save();
+        }
+      }
+      await this.continueWithArea(m, s, n, undefined, "location not shared: the area given earlier");
+      return true;
+    }
+    if (!text || declinesLocation(text) || /\?\s*$/.test(text) || text.split(/\s+/).length > 8)
+      return false;
     const geo = (await this._Maps?.geocode(text)) ?? null;
     if (!geo) return false;
-    const n = await this.needRow(s);
     n.locality = (geo.locality ?? text).slice(0, 80);
     if (geo.city) n.city = geo.city;
     await n.save();
-    if (!n.travel_radius_km) {
-      // Playbook 10.1: how far the patient can travel first, then the list (from this locality)
-      await this.setState(s, [ConversationState.CentreSearch]);
-      await this.setPending(s, "centre_radius");
-      await this.sendAndSave(s.customer.id, say(RADIUS_Q, s.customer.language), m.waMessageId);
-      return true;
-    }
-    await this.replyCentreList(
+    await this.continueWithArea(
       m,
       s,
       n,
@@ -3295,7 +3500,11 @@ export class ChatPipelineService {
   private async handleNearbyAsk(m: Inbound, s: Saved): Promise<boolean> {
     if (m.location || s.conversation.pending_action) return false;
     if (!asksNearby(m.text, s.conversation.state === ConversationState.CentreSearch)) return false;
-    await this.askLocation(m, s);
+    await this.askLocation(
+      m,
+      s,
+      await need.findOne({ where: { conversation_id: s.conversation.id } }),
+    );
     return true;
   }
 
@@ -3480,8 +3689,9 @@ export class ChatPipelineService {
     const l = s.customer.language;
     await this.setPending(s, null);
     await this.setState(s, [ConversationState.CentreSearch]);
-    if (!n?.city && !m.location) {
-      await this.askLocation(m, s); // one tap on "Send location", or the area typed
+    if (!m.location && (!n?.city || !(await this.locationAsked(s)))) {
+      // one tap on "Send location" for the nearest centres, or the area typed / NO for the area already given
+      await this.askLocation(m, s, n);
       return;
     }
     if (!n?.travel_radius_km && !m.location) {

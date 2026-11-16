@@ -10,6 +10,7 @@ export interface TaskRow {
   customer_id: string | null;
   conversation_id: string | null;
   crm_task_id: string | null;
+  case_ref?: string; // the reference the customer was given, e.g. CB-498A3BD2
   callback_from?: string | null; // the window the customer chose (Trigger O)
   callback_to?: string | null;
   created_on?: string;

@@ -179,6 +179,53 @@ export class WhatsappClient implements OnModuleInit {
     return wamid;
   }
 
+  // ---- Chat opening (Meta "conversational components"): the welcome-message event and the ice breakers ----
+  // Ice breakers = up to 4 questions WhatsApp shows when the customer opens the chat, before they type; a tap
+  // sends that text. The welcome-message event makes WhatsApp tell us the first time a customer opens the chat
+  // (a "request_welcome" message), and the bot answers it with the welcome and the options.
+
+  private graph() {
+    const base = (this._Config.get<string>("Whatsapp.ApiBase") || "https://graph.facebook.com").replace(/\/+$/, "");
+    const version = this._Config.get<string>("Whatsapp.ApiVersion");
+    const phoneId = this._Config.get<string>("Whatsapp.PhoneNumberId");
+    const token = this._Config.get<string>("Whatsapp.AccessToken");
+    if (!phoneId || !token) throw new InvalidMessageError("WhatsApp phone number id or access token is not set");
+    return { url: `${base}/${version}/${phoneId}`, headers: { Authorization: `Bearer ${token}` } };
+  }
+
+  /** What WhatsApp has now: { enable_welcome_message, prompts } */
+  async getChatOpening(): Promise<{ enable_welcome_message: boolean; prompts: string[] }> {
+    const g = this.graph();
+    try {
+      const res = await axios.get<{ conversational_automation?: { enable_welcome_message?: boolean; prompts?: string[] } }>(
+        `${g.url}?fields=conversational_automation`,
+        { headers: g.headers, timeout: TIMEOUT_MS },
+      );
+      const c = res.data?.conversational_automation ?? {};
+      return { enable_welcome_message: !!c.enable_welcome_message, prompts: c.prompts ?? [] };
+    } catch (e) {
+      throw mapMetaError(e);
+    }
+  }
+
+  /** Turns the welcome event on and sets the ice breakers (1-4 questions, 80 characters each) */
+  async setChatOpening(prompts: string[], enableWelcome = true): Promise<void> {
+    const clean = prompts.map((p) => String(p ?? "").trim()).filter(Boolean);
+    if (clean.length > 4) throw new InvalidMessageError("WhatsApp allows up to 4 quick questions");
+    const long = clean.find((p) => [...p].length > 80);
+    if (long) throw new InvalidMessageError(`"${long.slice(0, 30)}…" is over 80 characters`);
+    const g = this.graph();
+    try {
+      await axios.post(
+        `${g.url}/conversational_automation`,
+        { enable_welcome_message: enableWelcome, prompts: clean },
+        { headers: g.headers, timeout: TIMEOUT_MS },
+      );
+    } catch (e) {
+      throw mapMetaError(e);
+    }
+  }
+
   private async callApi(to: string, msg: OutboundMessage): Promise<string> {
     const base = (this._Config.get<string>("Whatsapp.ApiBase") || "https://graph.facebook.com").replace(/\/+$/, "");
     const version = this._Config.get<string>("Whatsapp.ApiVersion");

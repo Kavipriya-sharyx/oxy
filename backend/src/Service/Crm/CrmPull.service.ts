@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { caseRef } from "@Service/Oxxy/CallbackFlow";
 import { activation } from "@Database/Table/Oxxy/activation";
 import { customer } from "@Database/Table/Oxxy/customer";
 import { consent } from "@Database/Table/Oxxy/consent";
@@ -211,6 +212,7 @@ export class CrmPullService {
       count: rows.length,
       tasks: rows.map((t: any) => ({
         task_id: t.id,
+        case_ref: caseRef(t.id), // the reference the customer was given (e.g. CB-498A3BD2)
         type: t.type,
         priority: t.priority,
         status: t.task_status,

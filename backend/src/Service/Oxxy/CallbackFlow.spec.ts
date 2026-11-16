@@ -106,3 +106,15 @@ describe("parseCallbackChoice", () => {
     expect(parseCallbackChoice(t, o, now, H)).toBeNull(),
   );
 });
+
+describe("callback reference (CB-xxxxxxxx)", () => {
+  it("is the start of the task id, and the console search finds the task by it", () => {
+    const { caseRef, refPrefix } = jest.requireActual("./CallbackFlow");
+    expect(caseRef("498a3bd2-1111-2222-3333-444455556666")).toBe("CB-498A3BD2");
+    expect(refPrefix("CB-498A3BD2")).toBe("498a3bd2");
+    expect(refPrefix(" cb498a3bd2 ")).toBe("498a3bd2");
+    expect(refPrefix("498A3BD2")).toBe("498a3bd2");
+    expect(refPrefix("Ravi")).toBeNull();
+    expect(refPrefix("9840012345")).toBeNull();
+  });
+});
