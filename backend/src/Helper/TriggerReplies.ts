@@ -30,6 +30,9 @@ const normUrl = (u: string) => u.trim().toLowerCase().replace(/\/+$/, "");
 /** Trigger layer 14.1 A. "scam" / "fraud" are complaint keywords (guardrail) and never reach this. */
 export function asksTrust(text: string): boolean {
   const t = (text || "").toLowerCase();
+  // "How do I know this is not a scam?", "is this a scam?", "real or fake?" ask for proof (client Q&A Q038)
+  if (/\bnot (a )?(scam|fraud|fake)\b|\b(is|are) (this|it|oxxy|you)( a)? (scam|fraud)\b|\b(scam|fraud|fake) or (real|genuine)\b|\b(real|genuine) or (a )?(scam|fraud|fake)\b/.test(t))
+    return true;
   return /\b(genuine|legit|legitimate|fake|prove it|company details|can i trust|should i trust|(?:don't|dont|do not) trust|not sure (?:i can|if i can|we can) trust|trust (you|oxxy|this|it)\s*\?|is (this|oxxy|it|the company) (real|safe|registered)|verify (you|oxxy|this|the company)|asli|nakli|bharosa)\b|असली|नकली|भरोसा/u.test(
     t,
   );
@@ -57,9 +60,9 @@ const TRUST_CLOSE: L = {
   hinglish: "Kripya inhe dekhein aur sirf official secure link se hi activate karein. Aap sabse pehle kya verify karna chahenge?",
 };
 const TRUST_REPEAT: L = {
-  en: "Here is Oxxy's official information:",
-  hi: "यह Oxxy की आधिकारिक जानकारी है:",
-  hinglish: "Yeh Oxxy ki official information hai:",
+  en: "I have shared Oxxy's official website, policy page, customer testimonials and news articles above in this chat. Is there a specific doubt I can clear for you?",
+  hi: "मैंने इसी चैट में ऊपर Oxxy की आधिकारिक वेबसाइट, पॉलिसी पेज, ग्राहकों के अनुभव और न्यूज़ आर्टिकल भेजे हैं। क्या कोई खास शंका है जो मैं दूर कर सकूँ?",
+  hinglish: "Maine isi chat mein upar Oxxy ki official website, policy page, customer testimonials aur news articles bheje hain. Kya koi specific doubt hai jo main clear kar sakun?",
 };
 
 /**
@@ -78,7 +81,7 @@ export function trustPackText(extras: LinkItem[], withIntro = true, l: string | 
   ];
   return withIntro
     ? `${say(TRUST_INTRO, l)}\n\n${lines.join("\n")}\n\n${say(TRUST_CLOSE, l)}`
-    : `${say(TRUST_REPEAT, l)}\n${lines.join("\n")}`;
+    : say(TRUST_REPEAT, l); // client, 17 Nov: "avoid duplicate proof messages"
 }
 
 /** How many of the extras trustPackText really shows (for the asset_send log) */

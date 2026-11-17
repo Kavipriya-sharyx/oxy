@@ -35,6 +35,27 @@ http
       if (url.pathname === "/_google") return json(res, 200, google);
 
       // ---- Google Geocoding
+      if (url.pathname === "/maps/api/geocode/json" && url.searchParams.get("latlng")) {
+        // reverse geocoding (a shared pin -> its area and city): the nearest known place within 5 km
+        const [lat, lng] = url.searchParams.get("latlng").split(",").map(Number);
+        google.push({ api: "reverse-geocoding", latlng: url.searchParams.get("latlng"), key: url.searchParams.get("key") });
+        if (url.searchParams.get("key") !== "test-key") return json(res, 200, { status: "REQUEST_DENIED", error_message: "The provided API key is invalid." });
+        const near = PLACES.map((p) => ({ p, d: km({ latitude: lat, longitude: lng }, { latitude: p[1], longitude: p[2] }) })).sort((a, b) => a.d - b.d)[0];
+        if (!near || near.d > 5) return json(res, 200, { status: "ZERO_RESULTS", results: [] });
+        const hit = near.p;
+        return json(res, 200, {
+          status: "OK",
+          results: [{
+            formatted_address: `${hit[3]}, ${hit[4]}, India`,
+            types: ["sublocality_level_1", "sublocality", "political"],
+            geometry: { location: { lat, lng } },
+            address_components: [
+              { long_name: hit[3], short_name: hit[3], types: ["sublocality_level_1", "sublocality", "political"] },
+              { long_name: hit[4], short_name: hit[4], types: ["locality", "political"] },
+            ],
+          }],
+        });
+      }
       if (url.pathname === "/maps/api/geocode/json") {
         const address = url.searchParams.get("address") || "";
         google.push({ api: "geocoding", address, key: url.searchParams.get("key"), region: url.searchParams.get("region"), components: url.searchParams.get("components") });

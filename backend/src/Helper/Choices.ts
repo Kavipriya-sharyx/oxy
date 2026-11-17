@@ -104,6 +104,29 @@ const SETS: ChoiceSet[] = [
     ],
   },
   {
+    // Trigger M answers: a clear next step as buttons (client, 17 Nov)
+    name: "details_or_later",
+    when: /plan details, or should I follow up later\?\s*$|plan details chahenge, ya main baad mein follow-up karun\?\s*$|प्लान की जानकारी चाहेंगे, या मैं बाद में फ़ॉलो-अप करूँ\?\s*$/i,
+    options: [
+      { id: "please share the plan details", en: "Plan details", hi: "प्लान की जानकारी" },
+      { id: "follow up later", en: "Follow up later", hi: "बाद में" },
+    ],
+  },
+  {
+    name: "monthly_or_later",
+    when: /monthly option, or should I follow up later\?\s*$|monthly option chahenge, ya main baad mein follow-up karun\?\s*$|मासिक विकल्प चाहेंगे, या मैं बाद में फ़ॉलो-अप करूँ\?\s*$/i,
+    options: [
+      { id: "activate monthly", en: "Monthly plan", hi: "मासिक प्लान" },
+      { id: "follow up later", en: "Follow up later", hi: "बाद में" },
+    ],
+  },
+  {
+    // the booking's centre question: a typed name, or one tap for centres near the patient
+    name: "booking_centre",
+    when: /Please share the centre and branch first\.?\s*$|centre aur branch bataiye\.?\s*$|केंद्र और शाखा बताइए।?\s*$/i,
+    options: [{ id: "suggest a centre near me", en: "Suggest nearby", hi: "पास के सुझाएँ" }],
+  },
+  {
     name: "plan_next",
     when: /\b(official )?plan details or help activating it\b|\bplan details ya activate\b|आधिकारिक जानकारी चाहेंगे या इसे एक्टिवेट|\bofficial details or the secure activation link\b|official details chahenge ya secure activation link|आधिकारिक जानकारी चाहेंगे या सुरक्षित एक्टिवेशन लिंक/i,
     options: [
@@ -259,6 +282,24 @@ function build(text: string): OutboundMessage | null {
       return { kind: "list", body, buttonLabel: "Choose a date", rows };
     }
   }
+
+  // Trigger N: "Would 18 Nov at 11 am or 18 Nov at 5 pm be better for a quick follow-up?" -> two buttons ("1" / "2")
+  const fu =
+    body.match(/Would (.+?) or (.+?) be better for a quick follow-up\?/) ??
+    body.match(/Ek quick follow-up ke liye (.+?) ya (.+?) mein se kaunsa time better rahega\?/) ??
+    body.match(/एक छोटे फ़ॉलो-अप के लिए (.+?) या (.+?) में से कौन-सा समय बेहतर रहेगा\?/u);
+  if (fu)
+    return {
+      kind: "buttons",
+      body,
+      buttons: [
+        { id: "1", title: cut(fu[1].trim(), 20) },
+        { id: "2", title: cut(fu[2].trim(), 20) },
+      ],
+    };
+
+  // a question that wants typed words (medicine names): no options under it
+  if (/\btype the names\b|नाम लिखें|naam likhein/i.test(body)) return null;
 
   const q = lastQuestion(body);
   for (const set of SETS) {

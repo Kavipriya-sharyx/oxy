@@ -34,7 +34,9 @@ export type FlowStep =
   // "Yearly or monthly?" for the family breakdown (pricing document 13: plan -> billing -> first / subsequent)
   | "fambill"
   // "Shall I book the appointment?" (client, 17 Nov: hospital, date and time were never asked)
-  | "book";
+  | "book"
+  // medicines: "Shall I check home delivery?" (Trigger K)
+  | "med";
 export const FLOW_PREFIX = "flow:";
 /** pending_action while the health-data notice waits, before the service question */
 export const FLOW_AFTER_CONSENT = "after_consent:flow";
@@ -280,6 +282,8 @@ export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMe
       );
     case "book":
       return bookOffer(l);
+    case "med":
+      return medOffer(l);
     default:
       return welcomeCard();
   }
@@ -484,6 +488,8 @@ export interface PlanPrice {
 
 /** The savings card: "You mentioned … Oxxy can help you save up to ₹X" + the website calculator */
 export function savingsCard(spend: number, l?: Lg): OutboundMessage {
+  // Voice manual 20 (the client's approved message): 30%, rounded down to ₹500; the plan price is not subtracted
+  // unless the customer asks (KB Q093 explains why the illustration uses 30% when a plan's maximum is lower)
   const save = roundedSaving(spend);
   const body =
     save >= 500
@@ -652,6 +658,28 @@ export const bookOffer = (l?: Lg): OutboundMessage => ({
     { id: "book_no", title: tr(l, "Not now", "अभी नहीं", "Abhi nahi") },
   ],
 });
+
+/** Medicines (Trigger K): home delivery with savings, checked by the team before anything is confirmed */
+export const medOffer = (l?: Lg): OutboundMessage => ({
+  kind: "buttons",
+  body: tr(
+    l,
+    "Oxxy may provide savings on almost all medicines, with home delivery at no additional charge, subject to service availability. Shall I check home delivery for your medicines?",
+    "Oxxy लगभग सभी दवाइयों पर बचत दे सकता है, बिना अतिरिक्त शुल्क के होम डिलीवरी के साथ, सेवा उपलब्धता के अनुसार। क्या मैं आपकी दवाइयों की होम डिलीवरी जाँच दूँ?",
+    "Oxxy lagbhag sabhi medicines par bachat de sakta hai, bina extra charge ke home delivery ke saath, service availability ke hisaab se. Kya main aapki dawaiyon ki home delivery check karun?",
+  ),
+  buttons: [
+    { id: "med_yes", title: tr(l, "Check delivery", "डिलीवरी जाँचें", "Delivery check") },
+    { id: "med_no", title: tr(l, "Not now", "अभी नहीं", "Abhi nahi") },
+  ],
+});
+
+export function readMedAnswer(text: string): "yes" | "no" | null {
+  const s = t(text);
+  if (/^med_yes$|^(yes|yeah|ok|okay|sure|haan|ha|check|check delivery|aama|seri)[.!]*$/.test(s)) return "yes";
+  if (/^med_no$|^(no|not now|later|skip|nahi|abhi nahi|vendam|illa)[.!]*$/.test(s)) return "no";
+  return null;
+}
 
 export function readBookAnswer(text: string): "yes" | "no" | null {
   const s = t(text);

@@ -18,7 +18,7 @@ import {
 } from "@Helper/CentreReplies";
 import { toBubbles } from "@Helper/Bubbles";
 import { closeKbQuestion, knowledgeFor } from "@Helper/KnowledgeBase";
-import { firstPlan, subsequentPlan, familyTotal, priceFigures, inlineMonthlyYearly } from "@Helper/PlanPricing";
+import { firstPlan, subsequentPlan, familyTotal, inlineMonthlyYearly } from "@Helper/PlanPricing";
 import {
   asksMainMenu,
   CONDITION_LABEL,
@@ -60,6 +60,8 @@ import {
   ackLine,
   withAck,
   ageLabel,
+  medOffer,
+  readMedAnswer,
 } from "./GuidedFlow";
 import { detectRescueSignal, readRescue, rescueLine } from "@Helper/RescueReplies";
 import { REBOOK_DECLINED_T } from "@Helper/CentreReplies";
@@ -170,6 +172,10 @@ import {
   summaryLines,
   SUMMARY_CLOSE_T,
   UNDERSTAND_T,
+  BENEFIT_T,
+  priceKeepPlanText,
+  medicineAskText,
+  medicineNotedText,
 } from "./RecoveryFlow";
 import {
   asksComparePlans,
@@ -612,7 +618,10 @@ export function paymentReplyKind(text: string): "done" | "failed" | "not_now" | 
   if (
     /^(done|paid|payment done|paid done|completed|payment completed|i have paid|i paid|ho gaya|ho gya|kar diya|payment ho gaya|payment kar diya|हो गया|पेमेंट हो गया|कर दिया)( (it|now|already|ji|sir|madam))?$/.test(
       t,
-    )
+    ) ||
+    // "I have done the payment", "payment is successful", "made the payment" (never "not paid yet")
+    (!/\b(not|haven't|have not|didn't|did not|nahi|nahin|yet to)\b/.test(t) &&
+      /\b(i have (done|made|completed) (the )?payment|(i )?(did|made|completed) (the )?payment|payment (is |has been |was )?(done|completed|successful|success|made|paid)|paid (the )?(amount|money|fees?)|amount paid)\b/.test(t))
   )
     return "done";
   if (
@@ -1664,12 +1673,45 @@ export class ChatPipelineService {
           // the pin -> its area and city (kept as the typed area would be; the pin itself is not stored), so the
           // centre search later never asks for the location again (client, 17 Nov)
           const at = await quiet(() => this._Maps?.reverseGeocode(m.location!) ?? Promise.resolve(null));
-          if (at?.city) {
-            const n = await this.needRow(s);
-            n.city = at.city.slice(0, 80);
-            n.locality = (at.locality ?? null) as any;
-            await n.save();
+          if (!at?.city) {
+            // the pin could not be read as an area (map lookup failed): said once, the area typed instead
+            // (end-to-end test, 18 Nov: the same question came back with no word on why)
+            await ask(
+              "city",
+              stepMessage(
+                "city",
+                say(
+                  {
+                    en: "Thank you for the location. I could not read the area from it, so please type the area and city.",
+                    hi: "लोकेशन के लिए धन्यवाद। उससे इलाका नहीं पढ़ा जा सका, कृपया इलाका और शहर लिखें।",
+                    hinglish: "Location ke liye shukriya. Usse area read nahi ho paya, kripya area aur city likhein.",
+                  },
+                  s.customer.language,
+                ),
+                s.customer.language,
+              ),
+            );
+            return true;
           }
+          const n = await this.needRow(s);
+          n.city = at.city.slice(0, 80);
+          n.locality = (at.locality ?? null) as any;
+          await n.save();
+        } else if (tapped) {
+          // a button of another message ("book_yes") is never an area (end-to-end test, 18 Nov: "noted the area:
+          // book_yes"): the same question again
+          await ask(
+            "city",
+            stepMessage(
+              "city",
+              say(
+                { en: "Please type the area and city first.", hi: "कृपया पहले इलाका और शहर लिखें।", hinglish: "Kripya pehle area aur city likhein." },
+                s.customer.language,
+              ),
+              s.customer.language,
+            ),
+          );
+          return true;
         } else if (NON_TEXT_RE.test(text)) {
           // a LIVE location (WhatsApp Cloud API delivers it as "unsupported"), a photo, a voice note: never
           // saved as the city; the same question again with how to answer it
@@ -1793,6 +1835,24 @@ export class ChatPipelineService {
         await reply([ackLine("book_yes", null, s.customer.language), ...parts].join("\n\n"));
         return true;
       }
+      case "med": {
+        const a = readMedAnswer(text);
+        if (!a) return false;
+        if (a === "no") {
+          await this.setPending(s, null);
+          await goOn(true, "med", ackLine("book_no", null, s.customer.language).replace(/book the appointment/, "check medicine delivery").replace(/अपॉइंटमेंट बाद में कभी भी बुक हो सकता है/, "दवाइयों की डिलीवरी बाद में कभी भी जाँच सकते हैं").replace(/appointment baad mein kabhi bhi book ho sakta hai/, "medicine delivery baad mein kabhi bhi check ho sakti hai"));
+          return true;
+        }
+        if (consentStatus !== "granted") {
+          // the medicine names are health details: without consent only the delivery area
+          await this.setPending(s, "med_city:1:");
+          await this.resumeFlowAfterMedicineArea(s, m);
+          return true;
+        }
+        await this.setPending(s, "med_name:flow");
+        await reply(say({ en: "Sure.", hi: "ज़रूर।", hinglish: "Zaroor." }, s.customer.language) + "\n\n" + medicineAskText("Oxxy", s.customer.language).replace(/^.*?subject to service availability\.\s*|^.*?सेवा उपलब्धता के अनुसार।\s*|^.*?service availability ke hisaab se\.\s*/u, ""));
+        return true;
+      }
       case "fambill": {
         const cycle = readFamilyBilling(text);
         if (!cycle) return false;
@@ -1836,8 +1896,106 @@ export class ChatPipelineService {
       ));
       if (!booked && !offered) return "book";
     }
+    // medicines: home delivery is offered once (Trigger K, client 17 Nov)
+    if (nd === "medicines" && skip !== "med") {
+      const offer = (medOffer(s.customer.language) as { body: string }).body;
+      const offered = !!(await quiet(() =>
+        message.findOne({ where: { conversation_id: s.conversation.id, direction: "out", body: Like(`%${offer}%`) } as any }),
+      ));
+      if (!offered) return "med";
+    }
     if (!(Number(n?.annual_medical_spend) > 0)) return "spend";
     return "plan";
+  }
+
+  /** Medicines without health consent: the known area goes to the team, else the area question */
+  private async resumeFlowAfterMedicineArea(s: Saved, m: Inbound) {
+    const n = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
+    if (n?.city) return void (await this.handleMedicineStep({ ...m, text: String(n.city) } as Inbound, s));
+    await this.sendAndSave(s.customer.id, {
+      kind: "location_request",
+      body: say({ en: "Which city and area should the medicines be delivered to?", hi: "दवाइयाँ किस शहर और इलाके में पहुँचानी हैं?", hinglish: "Dawaiyan kis city aur area mein deliver karni hain?" }, s.customer.language),
+    }, m.waMessageId);
+  }
+
+  /** After a side step that began in the button flow (booking, medicines): the flow's next step or the plan */
+  private async resumeFlow(s: Saved, skip?: FlowStep) {
+    const next = await this.flowNextStep(s, skip);
+    if (next === "plan") await this.flowPlanCard(s, null);
+    else {
+      await this.setPending(s, `flow:${next}`);
+      await this.sendMore(s, stepMessage(next, undefined, s.customer.language));
+    }
+  }
+
+  /**
+   * Trigger K (client, 17 Nov): the medicine names, the city only when this chat does not have it, then a task for
+   * the team to check delivery and the saving; nothing is confirmed in the chat. pending: med_name[:flow] ->
+   * med_city:<0|1>:<names>.
+   */
+  private async handleMedicineStep(m: Inbound, s: Saved): Promise<boolean> {
+    const p = s.conversation.pending_action ?? "";
+    const named = p.match(/^med_name(:flow)?$/);
+    const city = p.match(/^med_city:([01]):([\s\S]*)$/);
+    if (!named && !city) return false;
+    const text = (m.text || "").trim();
+    const l = s.customer.language;
+    const fromFlow = named ? !!named[1] : city![1] === "1";
+    const n = await this.needRow(s);
+    let names = city ? city[2] || null : null;
+    if (named) {
+      if (!text || /\?\s*$/.test(text) || NON_TEXT_RE.test(text) || text.length > 200 || /^[a-z]+_[a-z0-9_]+$/.test(text)) return false;
+      names = text.replace(/\s+/g, " ").slice(0, 160);
+      if (!n.city) {
+        await this.setPending(s, `med_city:${fromFlow ? 1 : 0}:${names}`);
+        await this.sendAndSave(
+          s.customer.id,
+          {
+            kind: "location_request",
+            body: say(
+              {
+                en: `Noted: ${names}. Which city and area should the medicines be delivered to? Type it, or share the location with the button below.`,
+                hi: `नोट किया: ${names}। दवाइयाँ किस शहर और इलाके में पहुँचानी हैं? लिखिए, या नीचे के बटन से लोकेशन भेजिए।`,
+                hinglish: `Noted: ${names}. Dawaiyan kis city aur area mein deliver karni hain? Likhiye, ya neeche ke button se location bhejiye.`,
+              },
+              l,
+            ),
+          },
+          m.waMessageId,
+        );
+        return true;
+      }
+    } else {
+      if (m.location) {
+        const at = await quiet(() => this._Maps?.reverseGeocode(m.location!) ?? Promise.resolve(null));
+        if (at?.city) {
+          n.city = at.city.slice(0, 80);
+          n.locality = (at.locality ?? null) as any;
+        }
+      } else {
+        if (!text || /\?\s*$/.test(text) || NON_TEXT_RE.test(text) || text.split(/\s+/).length > 6) return false;
+        const area = typedArea(text, await this.centreCities()) ?? namedPlace(text);
+        n.city = (area?.city ?? text).slice(0, 80);
+        n.locality = (area?.locality ?? null) as any;
+      }
+      await n.save();
+      if (!n.city) return false;
+    }
+    const place = this.placeOf(n) ?? String(n.city);
+    await this.setPending(s, null);
+    await this.createTaskOnce(
+      TaskType.Servicing,
+      TaskPriority.Normal,
+      s,
+      `Medicine home delivery request: ${names ?? "medicines (names not asked: no health consent)"}; deliver to ${place}. ` +
+        "Check delivery availability and the saving, then confirm with the customer before ordering.",
+    );
+    await this.recordTrigger(s, "K", "medicine requirement collected");
+    await this.sendAndSave(s.customer.id, medicineNotedText(names, place, l), m.waMessageId);
+    if (fromFlow) await this.resumeFlow(s, "med");
+    // asked after the plan card: its Activate / family buttons keep working
+    else if (s.conversation.recommended_plan && !s.customer.active_product) await this.setPending(s, "flow:close:0");
+    return true;
   }
 
   /** The one plan with price + GST and the activate / family buttons (Trigger E) */
@@ -2063,8 +2221,10 @@ export class ChatPipelineService {
 
     // The customer opened the chat for the first time (WhatsApp "welcome message" event, before they type):
     // the welcome and the options at once (client, 16 Nov 2026). No consent or health question in it.
+    // Only for a new chat: WhatsApp also sends it when the customer opens the chat again (on the phone after
+    // WhatsApp Web, client, 17 Nov), and the welcome card then reset the flow in the middle of the booking.
     if (m.type === "request_welcome") {
-      await this.startGuidedFlow(m, s);
+      if (s.conversation.state === ConversationState.New && !s.conversation.pending_action) await this.startGuidedFlow(m, s);
       return;
     }
 
@@ -2164,6 +2324,7 @@ export class ChatPipelineService {
     if (await this.handleBooking(m, s)) return;
     if (await this.handleNearbyAsk(m, s)) return;
     if (await this.handleFollowUpTime(m, s)) return;
+    if (await this.handleMedicineStep(m, s)) return;
     if (await this.handlePlanSpend(m, s)) return;
     if (await this.handlePlanAge(m, s)) return;
     if (await this.handlePriceSpend(m, s)) return;
@@ -2175,8 +2336,11 @@ export class ChatPipelineService {
     // The customer asked (almost exactly) one of the client's approved questions: the LLM answers from it
     // (knowledgeFor puts it first) instead of a fixed reply picked by one keyword. Not for a waiting step
     // (pending_action), and not for the insurance answers (the validator keeps insurance talk to Trigger B).
+    // a button-flow step waiting (flow:*: e.g. the plan card's flow:close:0) does not block it; a booking, a gate or a
+    // callback time does (AI end-to-end test, 18 Nov: after the plan card no approved answer was used)
+    const freeToAnswer = !s.conversation.pending_action || s.conversation.pending_action.startsWith("flow:");
     let kbQuestion =
-      !s.conversation.pending_action && !/insurance|\bbima\b|बीमा|इंश्योरेंस/i.test(m.text) ? closeKbQuestion(m.text) : null;
+      freeToAnswer && !/insurance|\bbima\b|बीमा|इंश्योरेंस/i.test(m.text) ? closeKbQuestion(m.text) : null;
     // only when its approved answer can go out (it passes the reply rules); else the fixed reply answers as before
     if (kbQuestion && !(await this._Validator.validate(kbQuestion.a).catch(() => ({ ok: false }))).ok) kbQuestion = null;
     if (!kbQuestion) {
@@ -2580,7 +2744,18 @@ export class ChatPipelineService {
       const d = await decide("C");
       if (this._Triggers && (!d || d.suppression)) return false; // explained already: the LLM answers
       const asset = await pickAsset("C", lang, s.conversation.id);
-      await reply(await this.whyActivateFor(s, asset));
+      // the approved Trigger C answer, then a clear next step (client, 17 Nov: "relevant responses with a clear
+      // CTA") instead of a question about the need the chat may already have
+      const cta = say(
+        {
+          en: "Would you like the plan details, or should I follow up later?",
+          hi: "क्या आप प्लान की जानकारी चाहेंगे, या मैं बाद में फ़ॉलो-अप करूँ?",
+          hinglish: "Kya aap plan details chahenge, ya main baad mein follow-up karun?",
+        },
+        lang,
+      );
+      const why = await this.whyActivateFor(s, asset);
+      await reply(`${withoutLastQuestion(why).trim() || why}\n\n${cta}`);
       if (d)
         await this._Triggers!.record(s.customer.id, s.conversation, d, "why activate", {
           assets: asset ? [asset.id] : [],
@@ -3083,8 +3258,10 @@ export class ChatPipelineService {
     // ("Does it support dialysis?") tagged "recommend" by the LLM never swaps it for another plan and never
     // replaces the answer (client chat, 17 Nov: Infinity -> "I recommend the Thrive plan"). Only an explicit
     // "which plan / recommend / suggest a plan" picks again.
+    // "which plan was it again?" is about the plan shown; only another / cheaper / different one picks again
+    // (AI end-to-end test, 18 Nov: the Infinity card, then "I recommend the Vital plan")
     const asksForPlan =
-      /\b(which|what|best|suitable|right|recommend\w*|suggest\w*)\b[^?.!]{0,30}\bplans?\b|\bplans?\b[^?.!]{0,20}\b(recommend\w*|suggest\w*|suit\w*|best)\b/i.test(
+      /\b(another|other|different|cheaper|lower|smaller|bigger|higher|instead|change|switch|alternative)\b[^?.!]{0,30}\bplans?\b|\bplans?\b[^?.!]{0,20}\b(instead|cheaper|lower)\b/i.test(
         m.text,
       );
     const pickByValue =
@@ -3913,7 +4090,15 @@ export class ChatPipelineService {
       },
       order: { created_on: "DESC" } as any,
     });
-    if (!open) return false;
+    if (!open) {
+      // the team sent the link (no official link in the catalogue): "paid" is acknowledged and checked, never
+      // confirmed here (client, 17 Nov: "confirm activation only after successful verification")
+      if (kind !== "done" || !(s.conversation.recommended_plan || s.conversation.selected_product)) return false;
+      await this.createTaskOnce(TaskType.VerifyActivation, TaskPriority.High, s, "Customer says payment is done (link sent by the team)");
+      await this.recordTrigger(s, "P", "customer said done (team link)");
+      await this.sendAndSave(s.customer.id, say(PAYMENT_DONE_T, s.customer.language), m.waMessageId);
+      return true;
+    }
 
     if (kind === "done") {
       await this.createTaskOnce(
@@ -5353,6 +5538,15 @@ ${res.text}` : res.text, m.waMessageId);
       else if (!spend) {
         body = say(PRICE_ASK_T, s.customer.language);
         pending = "price_spend";
+      } else if (s.conversation.recommended_plan) {
+        // the plan already shown stays (no second plan, no spend question again): its monthly option and value
+        const plan = s.conversation.recommended_plan;
+        const price = await this.flowPrice(plan);
+        body = priceKeepPlanText(
+          `Oxxy ${plan.charAt(0).toUpperCase()}${plan.slice(1)}`,
+          price.monthly ? inlineMonthlyYearly(null, price.monthly, s.customer.language) : null,
+          s.customer.language,
+        );
       } else {
         const v = await this.valueAnswer(s, n, spend);
         body = v
@@ -5366,6 +5560,8 @@ ${res.text}` : res.text, m.waMessageId);
       pending = "close_offer";
     } else if (kind === "no_provider") {
       body = say(NO_PROVIDER_ANSWER_T, s.customer.language);
+    } else if (kind === "benefit") {
+      body = say(BENEFIT_T, s.customer.language);
     } else {
       body = objectionReply(
         kind,
@@ -5626,14 +5822,31 @@ ${res.text}` : res.text, m.waMessageId);
     if (this._Triggers && (!d || d.suppression)) return false; // explained already: the LLM answers
     const cmb =
       (s.customer.active_product || s.conversation.selected_product) === ProductType.CutMediBills;
-    await this.sendAndSave(
-      s.customer.id,
-      [
-        medicineText(cmb ? "Cut Medi Bills" : "Oxxy", !noHealth, s.customer.language),
-        ...this.pendingBack(s),
-      ].join("\n\n"),
-      m.waMessageId,
-    );
+    const known = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
+    // a waiting button-flow step (the plan card) does not stop the medicine steps
+    if (s.conversation.pending_action?.startsWith("flow:")) await this.setPending(s, null);
+    if (!s.conversation.pending_action && !noHealth) {
+      // the names, then the area only if this chat does not have it, then the team checks delivery (client, 17 Nov)
+      await this.setPending(s, "med_name");
+      await this.sendAndSave(s.customer.id, medicineAskText(cmb ? "Cut Medi Bills" : "Oxxy", s.customer.language), m.waMessageId);
+    } else if (!s.conversation.pending_action && known?.city) {
+      // no health consent: no medicine names; the known area goes to the team at once
+      await this.setPending(s, "med_city:0:");
+      await this.sendAndSave(s.customer.id, medicineText(cmb ? "Cut Medi Bills" : "Oxxy", false, s.customer.language).replace(/\s*Please share your city\.$/, ""), m.waMessageId);
+      await this.createTaskOnce(TaskType.Servicing, TaskPriority.Normal, s, `Medicine home delivery request (no names: no health consent); deliver to ${this.placeOf(known)}. Check delivery availability, then confirm with the customer.`);
+      await this.setPending(s, null);
+      await this.sendMore(s, { kind: "text", body: medicineNotedText(null, this.placeOf(known)!, s.customer.language) });
+    } else {
+      if (!s.conversation.pending_action) await this.setPending(s, "med_city:0:");
+      await this.sendAndSave(
+        s.customer.id,
+        [
+          medicineText(cmb ? "Cut Medi Bills" : "Oxxy", !noHealth, s.customer.language),
+          ...this.pendingBack(s),
+        ].join("\n\n"),
+        m.waMessageId,
+      );
+    }
     if (d) await this._Triggers!.record(s.customer.id, s.conversation, d, "medicine requirement");
     return true;
   }

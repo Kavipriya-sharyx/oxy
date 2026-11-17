@@ -53,7 +53,9 @@ describe("Trigger A trust pack (3)", () => {
     expect(text).toMatch(/What would you like to verify first\?$/);
   });
   it("a repeat sends only the official links", () => {
-    expect(trustPackText([], false)).toMatch(/^Here is Oxxy's official information/);
+    // client, 17 Nov: "avoid duplicate proof messages": a repeat points to what was sent, no links again
+    expect(trustPackText([], false)).toMatch(/^I have shared Oxxy's official website, policy page, customer testimonials and news articles above/);
+    expect(trustPackText([], false)).not.toMatch(/https?:/);
   });
   it("trustPackAssets lists exactly what the text shows", () => {
     const extras = [

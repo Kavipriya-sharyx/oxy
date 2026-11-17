@@ -667,6 +667,42 @@ times -> customer tapped "Tomorrow, 12-2 pm" -> bot: "Which city and locality…
   ("Great choice: the monthly plan."); the booking steps too (centre, landmark, specialisation as corrected, date).
   Already acknowledged before: consent, spend (savings card), callback time, saved booking. The "offer already sent"
   checks match with Like (the offer may carry an acknowledgement on top).
+- "The flow starts again from the first" (client chat, 17 Nov night: "Book appointment" -> the welcome card):
+  WhatsApp's `request_welcome` event (sent again when the customer opens the chat, e.g. on the phone after
+  WhatsApp Web's "This message couldn't load") always ran `startGuidedFlow`, which reset the pending step to
+  flow:start in the middle of the booking. Now only a NEW chat with nothing pending gets the welcome card; any
+  other request_welcome is ignored. The booking's centre question has a "Suggest nearby" button (Playbook 5 Q5).
+  Savings card: kept as the Voice manual 20 approved message (30%, rounded down to ₹500, the plan price NOT
+  subtracted unless asked; KB Q093 covers "Everyday is 20%"): a per-plan / value-check version was tried and
+  reverted because it contradicts the client's newer manual.
+- Client corrections, 17 Nov night (Triggers K, A/L, M, N, P):
+  K: medicines -> the names (health consent) -> the city only when the chat has none -> a Servicing task "check
+  delivery availability and the saving, then confirm" -> "Nothing is confirmed yet" (`handleMedicineStep`, pending
+  med_name[:flow] / med_city:<0|1>:<names>). In the button flow a medicines need gets "Check delivery / Not now"
+  after the area (step "med", like the appointment offer), then the flow goes on. No list under "type the names".
+  A/L: a repeated proof request answers with a pointer ("I have shared … above"), not the same links again;
+  "how do I know this is not a scam / is this a scam / real or fake" = proof (asksTrust).
+  M: new objection "benefit" (BENEFIT_T + Plan details / Follow up later buttons); the price objection keeps a plan
+  already shown (its monthly option, Monthly plan / Follow up later buttons) instead of re-picking by value; the
+  Trigger C "why activate" answer ends with the same CTA instead of a question about the need.
+  N: "follow up later" = time request; the two follow-up times are buttons ("1" / "2"); scheduled only on a pick.
+  P: more ways to say paid ("I have done the payment", "payment successful"); with the team's link (no bot link)
+  "paid" is acknowledged + VerifyActivation task, never confirmed (only CRM activation.paid / console confirms).
+  `ChatPipeline.callbackflow.spec.ts` now runs at a fixed clock (17 Nov 2026, 10 pm IST).
+- End-to-end run, 18 Nov 2026 (`scripts/flow-e2e.js`, real backend from source + throwaway Postgres + Redis db 9,
+  Meta / Google stubbed by `scripts/maps-e2e-stub.js`, no LLM): nolink 18 / 18, link 28 / 28. Found and fixed: a pin
+  the map cannot read repeated the city question silently (now "I could not read the area from it, please type
+  the area and city"); a button id tapped at the city question ("book_yes") was saved as the area. The stub now
+  answers reverse geocoding. activation_confirmed after a console "paid" is queued for 09:00 IST in quiet hours
+  (proactive template rule), sent at once in the day.
+- AI end-to-end run, 18 Nov 2026 (`scripts/ai-e2e.js`, same setup with the REAL LLM from backend/.env): 15 / 15
+  after three fixes: (1) approved questions after the plan card went to keyword replies because KB-first ran only
+  with nothing pending (the plan card leaves flow:close:0): now a waiting flow:* step does not block it; (2) "Which
+  medicine should I take for my BP?" got the medicine-delivery text: advice questions are no medicine request;
+  (3) "so which plan was it again?" re-picked Vital over the Infinity card: a shown plan changes only for "another /
+  cheaper / different / change … plan". The button-flow e2e also passes with the real LLM (18 + 28). Seen, not
+  changed: a NEW chat's first message, even a question, gets the welcome card only; a typed health question gets the
+  DPDP notice first and its answer after YES.
 - Tests: `ChatPipeline.callbackflow.spec.ts` (seed plan rows, no link).
 - Server config: every Oxxy plan row still lacks the official activation link, renewal terms and activation time
   (seed values), so every "Activate" goes to the team + callback. Fill them on the Plans page for the

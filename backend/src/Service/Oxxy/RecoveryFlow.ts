@@ -4,7 +4,7 @@ import { parseCustomerDate, showDate } from "./BookingFlow";
 import { isQuietHours, proactiveHours, hour12, hhmm } from "./WhatsappRules";
 import { L, lang, say } from "@Helper/Lang";
 
-export type Objection = "price" | "think" | "family" | "busy" | "not_interested" | "no_provider";
+export type Objection = "price" | "think" | "family" | "busy" | "not_interested" | "no_provider" | "benefit";
 
 /** One objection per message, the most specific first (Playbook 14, Trigger layer 9 M) */
 export function detectObjection(text: string): Objection | null {
@@ -42,11 +42,18 @@ export function detectObjection(text: string): Objection | null {
   )
     return "no_provider";
   if (
-    /\b(i am|i'm|im) busy\b|\bbusy (right )?now\b|\b(call|message|text|talk) (me )?later\b|\bnot a good time\b|\babhi busy\b|\bbaad mein baat\b|^not now\.?$/.test(
+    /\b(i am|i'm|im) busy\b|\bbusy (right )?now\b|\b(call|message|text|talk|follow up|follow-up) (me |with me )?later\b|\bnot a good time\b|\babhi busy\b|\bbaad mein baat\b|^not now\.?$/.test(
       t,
     )
   )
     return "busy";
+  // the benefit is doubted (client, 17 Nov: "identify objections such as price, trust or benefits")
+  if (
+    /\b(what is the (use|benefit|point)|what's the (use|benefit|point)|no use|not useful|of no use|useless|why (do|should|would) (i|we) need (it|this|oxxy)|why should i (buy|take|pay)|i don'?t (see|get) the (benefit|point|value)|we are (all )?healthy|no one is sick|won'?t use it|will not use it|rarely (go|visit|fall sick)|kya fayda|kya faida|enna payan|enna use)\b/.test(
+      t,
+    )
+  )
+    return "benefit";
   return null;
 }
 
@@ -445,6 +452,9 @@ export function objectionReply(
 
 export function asksMedicine(text: string): boolean {
   const t = (text || "").toLowerCase();
+  // "Which medicine should I take for my BP?" asks for medical advice, not delivery (client Q&A Q173)
+  if (/\b(which|what) (medicine|medicines|tablet|tablets|drug|drugs)\b[^?.!]{0,30}\b(should|take|for my|for his|for her|best)\b|\bshould i take\b|\bprescribe\b/.test(t))
+    return false;
   const med = /\b(medicines?|tablets?|pharmacy|dawai|dawa|chemist)\b|दवा|दवाई/u.test(t);
   const ask =
     /\?\s*$/.test(t) ||
@@ -453,6 +463,49 @@ export function asksMedicine(text: string): boolean {
 }
 
 /** Trigger layer 8 K: name only the selected product (default Oxxy) */
+/** "Why do I need it?", "We are healthy": the value in two lines, then a clear next step (Trigger M) */
+export const BENEFIT_T: L = {
+  en: "Fair question. Oxxy helps lower eligible bills for consultations, tests, medicines and larger treatments, and it can be used again and again while the plan is active, so even a few visits a year add up and it is there when a bigger bill comes. Would you like the plan details, or should I follow up later?",
+  hi: "सही सवाल है। Oxxy परामर्श, जाँच, दवाइयों और बड़े इलाज के योग्य बिल कम करने में मदद करता है, और प्लान चालू रहने तक बार-बार इस्तेमाल हो सकता है, इसलिए साल की कुछ विज़िट भी जुड़ जाती हैं और बड़े बिल पर साथ रहता है। क्या आप प्लान की जानकारी चाहेंगे, या मैं बाद में फ़ॉलो-अप करूँ?",
+  hinglish: "Sahi sawaal hai. Oxxy consultation, tests, dawaiyan aur bade ilaaj ke eligible bills kam karne mein madad karta hai, aur plan active rehne tak baar-baar use ho sakta hai, isliye saal ki kuch visits bhi jud jaati hain aur bade bill par saath rehta hai. Kya aap plan details chahenge, ya main baad mein follow-up karun?",
+};
+
+/** Price objection after a plan was shown: the same plan, its monthly option and value, a clear next step */
+export function priceKeepPlanText(planTitle: string, monthlyInline: string | null, l: string | null = "en"): string {
+  return say(
+    {
+      en: `I understand. ${monthlyInline ? `The ${planTitle} plan is also available monthly at ${monthlyInline}, so there is no big one-time payment. ` : ""}It can be used again and again for consultations, tests, medicines and larger treatments. Would you like the monthly option, or should I follow up later?`,
+      hi: `मैं समझता हूँ। ${monthlyInline ? `${planTitle} प्लान मासिक भी है: ${monthlyInline}, इसलिए एक साथ बड़ा भुगतान नहीं। ` : ""}यह परामर्श, जाँच, दवाइयों और बड़े इलाज में बार-बार काम आता है। क्या आप मासिक विकल्प चाहेंगे, या मैं बाद में फ़ॉलो-अप करूँ?`,
+      hinglish: `Main samajhta hoon. ${monthlyInline ? `${planTitle} plan monthly bhi hai: ${monthlyInline}, isliye ek saath bada payment nahi. ` : ""}Yeh consultation, tests, dawaiyon aur bade ilaaj mein baar-baar kaam aata hai. Kya aap monthly option chahenge, ya main baad mein follow-up karun?`,
+    },
+    l,
+  );
+}
+
+/** Trigger K: the saving and home delivery, then the medicine names (with health consent) */
+export function medicineAskText(product: "Oxxy" | "Cut Medi Bills", l: string | null = "en"): string {
+  return say(
+    {
+      en: `${product} may provide savings on almost all medicines, with home delivery at no additional charge, subject to service availability. Which medicines do you need? Please type the names (and the strength, if you know it).`,
+      hi: `${product} लगभग सभी दवाइयों पर बचत दे सकता है, बिना अतिरिक्त शुल्क के होम डिलीवरी के साथ, सेवा उपलब्धता के अनुसार। आपको कौन सी दवाइयाँ चाहिए? कृपया उनके नाम लिखें (और पता हो तो स्ट्रेंथ भी)।`,
+      hinglish: `${product} lagbhag sabhi medicines par bachat de sakta hai, bina extra charge ke home delivery ke saath, service availability ke hisaab se. Aapko kaunsi dawaiyan chahiye? Kripya unke naam likhein (aur pata ho to strength bhi).`,
+    },
+    l,
+  );
+}
+
+/** Trigger K, the end: delivery is checked by the team before anything is confirmed */
+export function medicineNotedText(names: string | null, place: string, l: string | null = "en"): string {
+  return say(
+    {
+      en: `Noted: ${names ? `${names}, ` : ""}delivery to ${place}. Our team will check home-delivery availability and the saving in your area and confirm with you here before anything is ordered. Nothing is confirmed yet.`,
+      hi: `नोट किया: ${names ? `${names}, ` : ""}${place} में डिलीवरी। हमारी टीम आपके इलाके में होम डिलीवरी की उपलब्धता और बचत जाँचकर, कुछ भी ऑर्डर करने से पहले यहीं आपसे पुष्टि करेगी। अभी कुछ भी कन्फ़र्म नहीं है।`,
+      hinglish: `Noted: ${names ? `${names}, ` : ""}${place} mein delivery. Hamari team aapke area mein home delivery ki availability aur bachat check karke, kuch bhi order karne se pehle yahin aapse confirm karegi. Abhi kuch bhi confirm nahi hai.`,
+    },
+    l,
+  );
+}
+
 export function medicineText(
   product: "Oxxy" | "Cut Medi Bills",
   askRequirement: boolean,

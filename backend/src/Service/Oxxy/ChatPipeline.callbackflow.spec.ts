@@ -185,9 +185,17 @@ function setup(opts: { llm?: unknown[]; maps?: unknown } = {}) {
 }
 
 afterEach(() => jest.restoreAllMocks());
+// the callback and follow-up times depend on the clock: every test runs at 17 Nov 2026, 10 pm IST
+beforeEach(() =>
+  jest.useFakeTimers({
+    now: new Date("2026-11-17T16:30:00Z"),
+    doNotFake: ["nextTick", "setImmediate", "clearImmediate", "setInterval", "clearInterval", "setTimeout", "clearTimeout", "queueMicrotask", "hrtime", "performance"],
+  }),
+);
+afterEach(() => jest.useRealTimers());
 
 // the client's part (service -> Calculate Now -> spend), then ours (age -> city); medicines: no appointment offer
-const FLOW = ["hi", "flow_start", "who_parent", "need_medicines", "calc_start", "spend_50000", "age_65", "Peelamedu, Coimbatore"];
+const FLOW = ["hi", "flow_start", "who_parent", "need_medicines", "calc_start", "spend_50000", "age_65", "Peelamedu, Coimbatore", "med_no"];
 const last = (t: { sent: Record<string, unknown>[] }) => t.sent.at(-1) as Record<string, unknown>;
 const text = (m: Record<string, unknown>) => String(m.log ?? m.body ?? "");
 
@@ -250,7 +258,7 @@ describe("17 Nov client chat: callback times after the button flow", () => {
     await t.run("[location message]", { type: "location", location: { latitude: 11.03, longitude: 77.03 } });
     expect(maps.reverseGeocode).toHaveBeenCalledWith({ latitude: 11.03, longitude: 77.03 });
     expect(t.needRow).toMatchObject({ city: "Coimbatore", locality: "Peelamedu" });
-    expect(text(last(t))).toContain("Would you like to activate your Oxxy care plan?"); // medicines: no appointment offer, the plan next
+    expect(text(last(t))).toContain("Shall I check home delivery for your medicines?"); // medicines: the delivery offer next (Trigger K)
   });
 
   it("a LIVE location (Cloud API: unsupported) is never saved as the city; the question comes back with how to answer", async () => {
@@ -268,8 +276,8 @@ describe("17 Nov client chat: callback times after the button flow", () => {
     for (const x of ["hi", "flow_start", "who_parent", "need_medicines", "calc_start", "spend_50000"]) await t.run(x);
     Object.assign(t.needRow, { city: "Tiruppur", locality: null }); // typed earlier ("I am in Tiruppur")
     await t.run("age_65");
-    expect(text(last(t))).toContain("Would you like to activate your Oxxy care plan?");
-    expect(t.conv.pending_action).toBe("flow:close:0");
+    expect(text(last(t))).toContain("Shall I check home delivery for your medicines?");
+    expect(t.conv.pending_action).toBe("flow:med");
   });
 
   it("'any hospital near me?' after the flow uses the area from the chat", async () => {
@@ -466,5 +474,129 @@ describe("17 Nov client chat: callback times after the button flow", () => {
       await t.run(x);
       if (said[x]) expect(text(t.sent[before])).toMatch(said[x]);
     }
+  });
+
+  // Client chat, 17 Nov night: "Book appointment" -> the welcome card again (the flow restarted)
+  it("WhatsApp's request_welcome in the middle of the flow changes nothing (no welcome card, the step stays)", async () => {
+    const t = setup();
+    for (const x of VISIT) await t.run(x);
+    expect(t.conv.pending_action).toBe("flow:book");
+    const before = t.sent.length;
+    await t.run("", { type: "request_welcome" });
+    expect(t.sent.length).toBe(before);
+    expect(t.conv.pending_action).toBe("flow:book");
+    await t.run("book_yes");
+    expect(text(last(t))).toContain("Please share the centre and branch first.");
+    expect(last(t)).toMatchObject({ kind: "buttons", buttons: [{ title: "Suggest nearby" }] });
+  });
+
+  it("a new chat still gets the welcome card on request_welcome", async () => {
+    const t = setup();
+    await t.run("", { type: "request_welcome" });
+    expect(text(last(t))).toContain("Welcome to Oxxy HealthCare!");
+  });
+
+  it("pin -> Book appointment -> Suggest nearby -> list -> Yes -> details -> booking saved -> the plan with GST", async () => {
+    const maps = { enabled: true, reverseGeocode: jest.fn(async () => ({ latitude: 11.01, longitude: 76.92, formatted: "", locality: "Aishwarya Nagar", city: "P N Pudur", approximate: false })), geocode: jest.fn(async () => null), travel: jest.fn(async () => []), nearbyCandidates: jest.fn(async () => []) };
+    const t = setup({ maps });
+    for (const x of ["Hi", "flow_start", "who_parent", "need_consult", "calc_start", "spend_30000", "age_73"]) await t.run(x);
+    await t.run("[location message]", { type: "location", location: { latitude: 11.0176, longitude: 76.9205 } });
+    expect(text(last(t))).toMatch(/^Thank you, noted the area: Aishwarya Nagar, P N Pudur\.\n\nWould you like me to book the appointment too\?/);
+    for (const x of ["book_yes", "suggest a centre near me", "10 km", "1", "yes", "general physician", "25 Nov", "morning"]) await t.run(x);
+    const all = t.sent.map(text).join("\n");
+    expect(all).toContain("Your booking request has been made for 25 Nov 2026 at morning at KMCH Hospital");
+    expect(t.sent.filter((m) => text(m).startsWith("Welcome to Oxxy HealthCare!"))).toHaveLength(1); // never restarted
+    expect(text(last(t))).toContain("Plan cost: ₹20,000\n+ GST (18%): ₹3,600\n= Final payable: ₹23,600 a year");
+    expect(t.conv.pending_action).toBe("flow:close:0");
+  });
+
+  // Client, 17 Nov: "Additional Oxxy chatbot corrections" (Triggers K, A/L, M, N, P)
+  const MEDS = ["hi", "flow_start", "who_self", "need_medicines", "calc_start", "spend_20000", "age_35", "Peelamedu, Coimbatore"];
+
+  it("K in the flow: Check delivery -> the names -> the team checks delivery (nothing confirmed) -> the plan", async () => {
+    const t = setup();
+    for (const x of MEDS) await t.run(x);
+    expect(last(t)).toMatchObject({ kind: "buttons", buttons: [{ title: "Check delivery" }, { title: "Not now" }] });
+    await t.run("med_yes");
+    expect(text(last(t))).toContain("Which medicines do you need?");
+    expect(last(t).kind).toBe("text"); // typed names: no list under it
+    await t.run("Metformin 500, Telma 40");
+    const all = t.sent.map(text).join("\n");
+    expect(all).toContain("Noted: Metformin 500, Telma 40, delivery to Peelamedu, Coimbatore. Our team will check home-delivery availability");
+    expect(all).toContain("Nothing is confirmed yet.");
+    expect(text(last(t))).toContain("Would you like to activate your Oxxy care plan?");
+  });
+
+  it("K in free text: names, then the city only because the chat does not have it", async () => {
+    const t = setup();
+    (t.conv as any).state = S.Discovery;
+    await t.run("can I get medicines delivered at home?");
+    expect(text(last(t))).toContain("Which medicines do you need?");
+    await t.run("Dolo 650");
+    expect(text(last(t))).toContain("Which city and area should the medicines be delivered to?");
+    await t.run("Chennai, Adyar");
+    expect(text(last(t))).toContain("Noted: Dolo 650, delivery to");
+    expect(t.conv.pending_action).toBeNull();
+  });
+
+  it("M: the price objection keeps the plan shown and offers the monthly option with buttons; the benefit gets a CTA", async () => {
+    const t = setup();
+    for (const x of [...PARENTS, "too costly"]) await t.run(x);
+    expect(t.conv.recommended_plan).toBe("infinity");
+    expect(text(last(t))).toContain("The Oxxy Infinity plan is also available monthly at ₹3,999 + GST ₹720 = ₹4,719 monthly");
+    expect(last(t)).toMatchObject({ kind: "buttons", buttons: [{ title: "Monthly plan" }, { title: "Follow up later" }] });
+    await t.run("we are healthy, what is the use?");
+    expect(text(last(t))).toMatch(/plan details, or should I follow up later\?$/);
+    expect(last(t)).toMatchObject({ kind: "buttons", buttons: [{ title: "Plan details" }, { title: "Follow up later" }] });
+  });
+
+  it("N: 'follow up later' -> summary + two times as buttons; scheduled only when one is picked", async () => {
+    const t = setup();
+    for (const x of [...PARENTS, "follow up later"]) await t.run(x);
+    expect(last(t)).toMatchObject({ kind: "buttons", buttons: [{ id: "1" }, { id: "2" }] });
+    expect(t.conv.pending_action).toBe("follow_up_time");
+    await t.run("2");
+    expect(text(last(t))).toMatch(/^Thank you\. I will follow up on /);
+  });
+
+  it("P: 'I have done the payment' with the team's link: acknowledged, sent for checking, never confirmed", async () => {
+    const t = setup();
+    for (const x of [...FLOW, "act_yearly", "I have done the payment"]) await t.run(x);
+    expect(text(last(t))).toBe("Thank you. Our team will check the payment and confirm your activation on WhatsApp. You do not need to share any card, UPI or bank details.");
+    expect(t.sent.map(text).join(" ")).not.toMatch(/activation is (now )?(active|confirmed)|plan is active/i);
+  });
+
+  it("A: 'how do I know this is not a scam?' is a proof question", async () => {
+    const t = setup();
+    (t.conv as any).state = S.Discovery;
+    await t.run("how do I know this is not a scam?");
+    expect(t.sent.map(text).join(" ")).toContain("Official website");
+  });
+
+  // AI end-to-end test, 18 Nov 2026 (real LLM): three fixes
+  it("after the plan card, an approved question goes to the approved answer (KB first while a flow step waits)", async () => {
+    const t = setup({ llm: ["The plans are subject to GST as per government policies.", "x"] });
+    for (const x of PARENTS) await t.run(x);
+    expect(t.conv.pending_action).toBe("flow:close:0");
+    await t.run("Is the price inclusive of all taxes?");
+    expect(text(last(t))).toContain("The plans are subject to GST as per government policies.");
+    expect(text(last(t))).not.toContain("Here are the four Oxxy plans");
+  });
+
+  it("'Which medicine should I take for my BP?' is not the medicine delivery answer", async () => {
+    const t = setup({ llm: ["I cannot prescribe or recommend medicine. Please follow a qualified doctor's advice."] });
+    for (const x of PARENTS) await t.run(x);
+    await t.run("Which medicine should I take for my BP?");
+    expect(text(last(t))).toContain("I cannot prescribe or recommend medicine.");
+    expect(t.sent.map(text).join(" ")).not.toContain("home delivery at no additional charge, subject to service availability. Please share");
+  });
+
+  it("'so which plan was it again?' keeps the plan shown; only 'another / cheaper plan' picks again", async () => {
+    const D = (reply_text: string, intent: string) => ({ reply_text, intent, extracted_fields: {}, needs_human: false });
+    const t = setup({ llm: [D("It was the Oxxy Infinity plan.", "recommend")] });
+    for (const x of PARENTS) await t.run(x);
+    await t.run("so which plan was it again?");
+    expect(t.conv.recommended_plan).toBe("infinity");
+    expect(text(last(t))).toBe("It was the Oxxy Infinity plan.");
   });
 });

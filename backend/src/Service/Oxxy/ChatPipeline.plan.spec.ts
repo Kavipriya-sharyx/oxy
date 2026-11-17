@@ -686,12 +686,12 @@ describe("Trigger A: trust pack without Claude", () => {
     await t.run("is this legit?");
     expect(t.out.join("\n\n")).toMatch(/^It is sensible to verify/);
   });
-  it("asked again in the same journey: the links again, nothing recorded", async () => {
+  it("asked again in the same journey: a pointer to the proof above (no duplicate links), nothing recorded", async () => {
     const triggers = fakeTriggers();
     triggers.decide.mockResolvedValue(null as never);
     const t = setup([], { triggers });
     await t.run("can I trust you?");
-    expect(t.out.join("\n\n")).toMatch(/^Here is Oxxy's official information/);
+    expect(t.out.join("\n\n")).toMatch(/^I have shared Oxxy's official website, policy page, customer testimonials and news articles above/);
     expect(triggers.record).not.toHaveBeenCalled();
   });
   it("Claude read a trust doubt: the approved pack replaces its draft", async () => {
@@ -1179,9 +1179,10 @@ describe("Trigger K: medicines", () => {
   it("names only the selected product (default Oxxy)", async () => {
     const t = setup([], { triggers: fakeTriggers() });
     await t.run("do you deliver medicines?");
+    // client, 17 Nov (Trigger K): the medicine names first, the city only if the chat does not have it
     expect(t.out[0]).toBe(
       "Oxxy may provide savings on almost all medicines, with home delivery at no additional charge, subject to " +
-        "service availability. Please share your city and medicine requirement.",
+        "service availability. Which medicines do you need? Please type the names (and the strength, if you know it).",
     );
   });
   it("Cut Medi Bills route: Cut Medi Bills, never both", async () => {
