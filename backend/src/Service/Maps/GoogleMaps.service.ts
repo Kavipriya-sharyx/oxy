@@ -261,6 +261,33 @@ export class GoogleMapsService {
   }
 
   /** Road distance and drive time from one point to up to 10 places. null entries = unknown. */
+  /**
+   * A shared pin -> its area and city (the button flow's "Send location" answer: client, 17 Nov, "I shared my
+   * location, why ask again?"). Not cached: the coordinates are not stored anywhere, only the area and city.
+   */
+  async reverseGeocode(at: GeoPoint): Promise<GeoResult | null> {
+    if (!this.enabled || !inIndia(at)) return null;
+    try {
+      const res = await axios.get(this.url("maps", "/maps/api/geocode/json"), {
+        params: {
+          latlng: `${at.latitude},${at.longitude}`,
+          language: "en",
+          result_type: "sublocality|locality|neighborhood|route|street_address|premise",
+          key: this.key(),
+        },
+        timeout: TIMEOUT,
+      });
+      const status = res.data?.status;
+      if (status !== "OK" && status !== "ZERO_RESULTS")
+        this.logger.warn(`reverse geocoding refused: ${status} ${String(res.data?.error_message ?? "").slice(0, 120)}`);
+      const found = readGeocode(res.data);
+      return found ? { ...found, latitude: at.latitude, longitude: at.longitude } : null;
+    } catch (e) {
+      this.logger.warn(`reverse geocoding failed: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
   async travel(origin: GeoPoint, destinations: GeoPoint[]): Promise<(TravelInfo | null)[]> {
     const none = destinations.map(() => null);
     if (!this.enabled || !destinations.length || destinations.length > 10) return none;

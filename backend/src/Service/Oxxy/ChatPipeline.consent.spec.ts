@@ -164,9 +164,10 @@ describe("DPDP health-data consent gate", () => {
     expect(row).toMatchObject({ city: "Coimbatore", locality: "Neelambur" });
     await t.run("yes");
     expect(texts(t)[2]).toContain("Thank you, your consent is saved.");
-    expect(texts(t)[2]).toContain("Or reply NO and I will search in Neelambur, Coimbatore");
+    // the area typed in this chat is used (client, 17 Nov): how far, no location question
+    expect(texts(t)[2]).toContain("Near Neelambur, Coimbatore. How far can the patient travel");
     expect(texts(t)[2]).not.toContain("Which city");
-    expect(t.conv.pending_action).toBe("centre_location");
+    expect(t.conv.pending_action).toBe("centre_radius");
   });
 
   it("0c. the health-need row still gets the notice first, then its answer after YES", async () => {

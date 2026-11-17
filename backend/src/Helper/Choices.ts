@@ -158,6 +158,10 @@ const SETS: ChoiceSet[] = [
 const hindi = (t: string) => /[ऀ-ॿ]/.test(t);
 const cut = (s: string, n: number) => ([...s].length <= n ? s : [...s].slice(0, n - 1).join("") + "…");
 
+/** A button title is 20 characters: "Tomorrow, 10 am-12 pm" (21) -> "Tomorrow 10am-12pm", not "Tomorrow, 10 am-12 …" */
+const shortTime = (s: string) =>
+  [...s].length <= 20 ? s : s.replace(/,\s*/, " ").replace(/\s+(am|pm)\b/gi, "$1");
+
 /** The last sentence or line: where the question is */
 function lastQuestion(text: string): string {
   const t = (text || "").trim();
@@ -200,7 +204,7 @@ function build(text: string): OutboundMessage | null {
     const rows = numberedRows(body, /^([1-9])\)\s+(.+)$/);
     if (rows.length >= 2)
       return rows.length <= 3
-        ? { kind: "buttons", body, buttons: rows.map((r) => ({ id: r.id, title: cut(r.title, 20) })) }
+        ? { kind: "buttons", body, buttons: rows.map((r) => ({ id: r.id, title: cut(shortTime(r.title), 20) })) }
         : { kind: "list", body, buttonLabel: hi ? "समय चुनें" : "Choose a time", rows };
   }
   // the centre list: "1. NAME, BRANCH - AREA | type | about 3 km" … "Reply with 1 or 2". The names are shown

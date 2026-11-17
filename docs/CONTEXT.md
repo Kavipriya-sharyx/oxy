@@ -549,6 +549,35 @@ Real chat: the customer typed "coimbatore peelamedu", then "you can suggest hosp
 - Not checked on real WhatsApp. Tests: `LocationAsk.spec.ts`, `ReplyTidy.spec.ts`, the "Real chat, 16 Nov" block
   in `ChatPipeline.plan.spec.ts`.
 
+## Client chat, 17 Nov evening: callback time after the button flow
+
+Real chat: plan card -> "Activate Monthly" -> (no official link in `plan_catalog`) team activation + three callback
+times -> customer tapped "Tomorrow, 12-2 pm" -> bot: "Which city and locality…?" -> "already i said" -> booking question.
+- The callback time was read only in ESCALATED; the button flow stays in INTENT_MENU, where the tapped id "2" was the
+  old opening-menu row 2 (find a centre). Now `handleCallbackTime` runs in every state but PAUSE, and a typed
+  digit / row word opens an old menu row only while nothing is pending (`menuOpen`).
+- "the Oxxy Thrive plan plan": `ACTIVATION_BY_TEAM_T` no longer adds "plan" after the label.
+- Callback buttons over 20 characters are shortened ("Tomorrow 10am-12pm", not "Tomorrow, 10 am-12 …").
+- Location asked again ("location was asked first, why again?"): the old menu row "Find a centre" always sent
+  "Which city and locality…?". With the area known (`need.city`) it now says "Near Peelamedu, Coimbatore." + how far
+  (or the list when the radius is known) (`centreWithKnownArea`). `asksKnownAgain` also rejects an LLM draft asking
+  the city when only the city is known (the area alone may still be asked).
+- Location shared in the flow, asked again: the city step ignored a pin (nothing saved) and saved a LIVE location
+  as the city "[unsupported message]" (the WhatsApp Cloud API does not deliver live locations: type `unsupported`,
+  no coordinates). Now a pin -> `GoogleMaps.reverseGeocode` -> need.locality / city (the pin itself is not stored;
+  needs the Maps key), also for a pin shared in the centre search; a live location / photo / voice note
+  (`NON_TEXT_RE`) at the city or centre-location question = the same question again with "tap Send location ->
+  Send your current location, or type the area".
+- One location per chat (client, 17 Nov: "once the location is given in the chat, use it everywhere"): when
+  need.city is known (typed, the flow, a pin), no place asks for it again: the flow skips its city step, "find a
+  centre" / "any hospital near me?" / the LLM's find_centre / "suggest one" in a booking / YES after the notice all
+  go to "Near {area}." + how far (or the list when the distance is known) (`useKnownArea`). The one-time "Send
+  location for the nearest centres" question with a known area is gone (it was the "asked again" the client saw).
+- Tests: `ChatPipeline.callbackflow.spec.ts` (seed plan rows, no link).
+- Server config: every Oxxy plan row still lacks the official activation link, renewal terms and activation time
+  (seed values), so every "Activate" goes to the team + callback. Fill them on the Plans page for the
+  disclosure -> YES -> link path.
+
 ## Client feedback, 17 Nov (second list)
 
 Reproduced in tests from the code (the client's chats are on the deployed server). Tests: the "17 Nov client
@@ -638,9 +667,18 @@ editions (our REVISED 6 Nov ones are newer). The client's current bot (92173 815
   content as interactive messages; the templates are for starting a chat outside it.
 - **Website button**: `frontend/public/oxxy-whatsapp-button.js` (one `<script … data-number="91…">` line; opens
   wa.me with "Hi").
-- Flow texts are English only (the client's bot is English); Hindi / Hinglish customers still get the AI's
-  answers in their language. Tests: `GuidedFlow.spec.ts`, `ChatPipeline.flow.spec.ts`. Not checked on real
-  WhatsApp yet.
+- Flow texts (questions, options, savings, plan, family, terms) are en / hi / hinglish (`tr()` in GuidedFlow,
+  drafts for a native-speaker review); the welcome card stays the client's English text. Tests: `GuidedFlow.spec.ts`,
+  `ChatPipeline.flow.spec.ts`, `Helper/KnowledgeBase.spec.ts`. Not checked on real WhatsApp yet.
+- **Q&A knowledge base + engagement bridges in the LLM** (`Helper/KnowledgeBase.ts`, data generated into
+  `Helper/KnowledgeBaseData.ts` from the two client docs: 330 Q&As, 23 bridge situations). Each LLM turn gets
+  the 3 closest approved answers (`approved_answers`: answer + next question; word match weighted by rarity)
+  and, when the customer stalls ("ok", "I don't know", "let me think", price, trust, family ...), one
+  `engagement_bridge`. Prompt: answer from them in chat form (they were written for calls), one revival line,
+  max two in a row; they never override the rules, prices, links or safety. Regenerate the data file when the
+  client changes the docs (do not edit it by hand).
+- Family pricing in one payment is not possible yet: the activation link is per plan; extra members become an
+  Activation task (needs a family link or payment setup from the client).
 
 ## Client chats, 17 Nov: the "no verified centre in Neelambur" loop and robotic replies
 

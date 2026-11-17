@@ -517,11 +517,12 @@ export function planDetailsText(
   }
 }
 
-// Activation asked but the official link is not in the catalogue yet: said plainly, a person sends it
+// Activation asked but the official link is not in the catalogue yet: said plainly, a person sends it.
+// {plan} is the full label ("Oxxy Thrive plan"), so the text does not add "plan" again.
 export const ACTIVATION_BY_TEAM_T: L = {
-  en: "To activate the {plan} plan, our team will send you the official secure activation link and help you complete it. You never need to share card or bank details in this chat.",
-  hi: "{plan} प्लान एक्टिवेट करने के लिए हमारी टीम आपको आधिकारिक सुरक्षित एक्टिवेशन लिंक भेजेगी और पूरा करने में मदद करेगी। इस चैट में कार्ड या बैंक की जानकारी कभी न दें।",
-  hinglish: "{plan} plan activate karne ke liye hamari team aapko official secure activation link bhejegi aur complete karne mein madad karegi. Is chat mein card ya bank details kabhi share na karein.",
+  en: "To activate the {plan}, our team will send you the official secure activation link and help you complete it. You never need to share card or bank details in this chat.",
+  hi: "{plan} एक्टिवेट करने के लिए हमारी टीम आपको आधिकारिक सुरक्षित एक्टिवेशन लिंक भेजेगी और पूरा करने में मदद करेगी। इस चैट में कार्ड या बैंक की जानकारी कभी न दें।",
+  hinglish: "{plan} activate karne ke liye hamari team aapko official secure activation link bhejegi aur complete karne mein madad karegi. Is chat mein card ya bank details kabhi share na karein.",
 };
 
 /** One plan's price, then the Playbook 7 question */

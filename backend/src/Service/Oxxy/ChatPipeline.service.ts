@@ -17,6 +17,7 @@ import {
   RADIUS_Q,
 } from "@Helper/CentreReplies";
 import { toBubbles } from "@Helper/Bubbles";
+import { knowledgeFor } from "@Helper/KnowledgeBase";
 import {
   asksMainMenu,
   CONDITION_LABEL,
@@ -333,6 +334,9 @@ export function asksKnownAgain(
     return "already known: the need. Do not ask it again; ask the next missing thing";
   if (n.city && n.locality && /\b(which|what) city\b|\bwhere do(es)? (you|the patient) live\b|\bcity and locality\b/.test(q))
     return `already known: ${n.locality}, ${n.city}. Do not ask it again`;
+  // the city alone is known (the button flow: "Coimbatore"): only the area may be asked, never the city again
+  if (n.city && !n.locality && /\b(which|what) city\b|\bcity and (locality|area)\b|\bwhere do(es)? (you|the patient) live\b/.test(q))
+    return `already known: the city is ${n.city}. Do not ask the city again; if needed ask only the area or locality in ${n.city}`;
   // any wording of the spend question ("What are your monthly medical expenses?" too: client, 17 Nov, the
   // expenses were asked again after the age)
   if (n.annual_medical_spend && (/\bhow much\b[^?]*\bspend/.test(q) || asksSpend(q) || /\b(medical|healthcare|health) (expenses?|expenditure|spend|bills?)\b[^?]*\?/.test(q)))
@@ -360,6 +364,12 @@ export function repitchProblem(draft: string, settled: string | null, customerTe
 }
 
 /** A read that must never break the reply (a thrown or rejected lookup = null) */
+/**
+ * The text the queue gives a message with no words: "[unsupported message]" (a LIVE location: the WhatsApp Cloud
+ * API does not deliver it), "[image message]", "[audio message]" … Never an answer such as a city.
+ */
+export const NON_TEXT_RE = /^\[[a-z_]+ message\]$/i;
+
 async function quiet<T>(f: () => Promise<T>): Promise<T | null> {
   try {
     return await f();
@@ -1293,7 +1303,7 @@ export class ChatPipelineService {
       if (s.conversation.pending_action === FLOW_AFTER_CONSENT) {
         // the voice-aligned flow goes on with the service question
         await this.setPending(s, "flow:need");
-        await this.sendAndSave(customerId, stepMessage("need", ack), m.waMessageId);
+        await this.sendAndSave(customerId, stepMessage("need", ack, lang), m.waMessageId);
         return;
       }
       const picked = this.rowAfterConsent(s);
@@ -1310,12 +1320,13 @@ export class ChatPipelineService {
           .then(() => message.count({ where: { conversation_id: s.conversation.id, direction: "out" } as any }))
           .catch(() => 0)) > 2;
       if (picked && typed?.city) {
+        // the area typed while the notice waited is used: how far, then the list (no location question)
         await this.setPending(s, null);
         await this.enterRow(picked, s);
-        await this.setPending(s, "centre_location");
+        await this.setPending(s, "centre_radius");
         await this.sendAndSave(
           customerId,
-          { kind: "location_request", body: `${ack} ${locationAskText(this.placeOf(typed), lang)}` },
+          `${ack} ${this.nearText(this.placeOf(typed)!, lang)} ${say(RADIUS_Q, lang)}`,
           m.waMessageId,
         );
       } else if (picked) {
@@ -1352,7 +1363,7 @@ export class ChatPipelineService {
       if (s.conversation.pending_action === FLOW_AFTER_CONSENT) {
         // no health questions: the flow goes on with the age, then the spend and the plan
         await this.setPending(s, "flow:age");
-        await this.sendAndSave(customerId, stepMessage("age", fixedReply("health_consent_no", lang)), m.waMessageId);
+        await this.sendAndSave(customerId, stepMessage("age", fixedReply("health_consent_no", lang), lang), m.waMessageId);
         return;
       }
       if (this.rowAfterConsent(s)) await this.setPending(s, null);
@@ -1513,11 +1524,11 @@ export class ChatPipelineService {
     if (id === "flow_start" || id === "flow_website" || id === "flow_contact") {
       if (id === "flow_website") {
         await this.sendAndSave(s.customer.id, websiteCard(), m.waMessageId);
-        await this.sendMore(s, stepMessage("who"));
+        await this.sendMore(s, stepMessage("who", undefined, s.customer.language));
       } else if (id === "flow_contact") {
-        await this.sendAndSave(s.customer.id, contactText(), m.waMessageId);
-        await this.sendMore(s, stepMessage("who"));
-      } else await this.sendAndSave(s.customer.id, stepMessage("who"), m.waMessageId);
+        await this.sendAndSave(s.customer.id, contactText(s.customer.language), m.waMessageId);
+        await this.sendMore(s, stepMessage("who", undefined, s.customer.language));
+      } else await this.sendAndSave(s.customer.id, stepMessage("who", undefined, s.customer.language), m.waMessageId);
       await this.setPending(s, "flow:who");
       return true;
     }
@@ -1528,14 +1539,14 @@ export class ChatPipelineService {
     const tapped = /^[a-z]+_[a-z0-9]+$/.test(id);
     if (!tapped && !m.location && (/\?\s*$/.test(text) || text.split(/\s+/).length > 8)) return false;
     if (!tapped && isGreeting(text) && step !== "close") {
-      await this.sendAndSave(s.customer.id, stepMessage(step === "start" ? "who" : step), m.waMessageId);
+      await this.sendAndSave(s.customer.id, stepMessage(step === "start" ? "who" : step, undefined, s.customer.language), m.waMessageId);
       if (step === "start") await this.setPending(s, "flow:who");
       return true;
     }
     const reply = (msg: string | OutboundMessage) => this.sendAndSave(s.customer.id, msg, m.waMessageId);
     const ask = async (next: FlowStep, msg?: OutboundMessage) => {
       await this.setPending(s, `flow:${next}`);
-      await reply(msg ?? stepMessage(next));
+      await reply(msg ?? stepMessage(next, undefined, s.customer.language));
     };
 
     switch (step) {
@@ -1571,7 +1582,7 @@ export class ChatPipelineService {
         // the client's order: the verify card after the service, then the next question (Trigger A)
         await this.setPending(s, "flow:condition");
         await reply(verifyCard());
-        await this.sendMore(s, stepMessage("condition"));
+        await this.sendMore(s, stepMessage("condition", undefined, s.customer.language));
         await this.recordTrigger(s, "A", "verify card in the button flow");
         return true;
       }
@@ -1590,11 +1601,42 @@ export class ChatPipelineService {
         if (!age) return false;
         s.customer.age = age as any;
         await s.customer.save();
-        await ask("city");
+        // the area given earlier in this chat (typed, a pin) is used: no city question again
+        const known = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
+        await ask(known?.city ? "insurance" : "city");
         return true;
       }
       case "city": {
-        if (!m.location) {
+        if (m.location) {
+          // the pin -> its area and city (kept as the typed area would be; the pin itself is not stored), so the
+          // centre search later never asks for the location again (client, 17 Nov)
+          const at = await quiet(() => this._Maps?.reverseGeocode(m.location!) ?? Promise.resolve(null));
+          if (at?.city) {
+            const n = await this.needRow(s);
+            n.city = at.city.slice(0, 80);
+            n.locality = (at.locality ?? null) as any;
+            await n.save();
+          }
+        } else if (NON_TEXT_RE.test(text)) {
+          // a LIVE location (WhatsApp Cloud API delivers it as "unsupported"), a photo, a voice note: never
+          // saved as the city; the same question again with how to answer it
+          await ask(
+            "city",
+            stepMessage(
+              "city",
+              say(
+                {
+                  en: "I could not read that here (a live location cannot be shared with this chat). Please tap “Send location” and choose “Send your current location”, or type the area and city.",
+                  hi: "यह यहाँ नहीं पढ़ा जा सका (लाइव लोकेशन इस चैट में नहीं आती)। कृपया “Send location” दबाकर “Send your current location” चुनें, या इलाका और शहर लिखें।",
+                  hinglish: "Yeh yahan read nahi ho paya (live location is chat mein nahi aati). Kripya “Send location” dabakar “Send your current location” chunein, ya area aur city likhein.",
+                },
+                s.customer.language,
+              ),
+              s.customer.language,
+            ),
+          );
+          return true;
+        } else {
           if (!text || /\?\s*$/.test(text) || text.split(/\s+/).length > 6) return false;
           const n = await this.needRow(s);
           const area = typedArea(text, await this.centreCities()) ?? namedPlace(text);
@@ -1624,8 +1666,8 @@ export class ChatPipelineService {
         const plan = pickPlan(facts);
         await this.saveRecommendation(s, plan);
         await this.setPending(s, "flow:close:0");
-        await reply(savingsCard(spend));
-        await this.sendMore(s, planCard(plan, await this.flowPrice(plan), facts));
+        await reply(savingsCard(spend, s.customer.language));
+        await this.sendMore(s, planCard(plan, await this.flowPrice(plan), facts, s.customer.language));
         await this.recordTrigger(s, "F", "savings card in the button flow");
         await this.recordTrigger(s, "E", `plan ${plan} with price and GST`);
         return true;
@@ -1633,7 +1675,7 @@ export class ChatPipelineService {
       case "close": {
         const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
         if (id === "flow_family" || /\b(add|family member|members)\b/i.test(text)) {
-          await ask("family", familyQuestion(plan));
+          await ask("family", familyQuestion(plan, s.customer.language));
           return true;
         }
         const billing =
@@ -1658,14 +1700,14 @@ export class ChatPipelineService {
           note = `Our team will add the ${extra} family member${extra > 1 ? "s" : ""} with the 30% discount when activating.\n\n`;
         }
         await reply(note + act);
-        await this.sendMore(s, termsCard());
+        await this.sendMore(s, termsCard(s.customer.language));
         return true;
       }
       case "family": {
         const k = readFamily(text);
         if (!k) return false;
         const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
-        await ask(`close:${k}` as FlowStep, familyCard(plan, await this.flowPrice(plan), k));
+        await ask(`close:${k}` as FlowStep, familyCard(plan, await this.flowPrice(plan), k, s.customer.language));
         return true;
       }
     }
@@ -1899,9 +1941,11 @@ export class ChatPipelineService {
       return;
     }
 
-    // ESCALATED: the one answer the bot still reads is the callback time it offered (Trigger O)
+    // The callback time the bot offered (Trigger O). Read in any state but the safety pause: the activation by
+    // the team (no official link yet) offers the times while the button flow is still in INTENT_MENU (client,
+    // 17 Nov: "Tomorrow, 12-2 pm" was read as the old menu row 2 and the bot asked for the city again).
     if (
-      s.conversation.state === ConversationState.Escalated &&
+      s.conversation.state !== ConversationState.Pause &&
       (await this.handleCallbackTime(m, s))
     )
       return;
@@ -1948,7 +1992,15 @@ export class ChatPipelineService {
     if (consentStatus === "granted" || healthBlocked) {
       const row = matchMenuRow(m.text);
       const tapped = !!row && m.text.trim().toLowerCase() === row.id; // a list tap sends the row id
-      if (row && (tapped || s.conversation.state === ConversationState.IntentMenu)) {
+      // A typed "1" / "2" / "find a centre" counts as a row only while nothing else is waiting for an answer:
+      // the button flow stays in INTENT_MENU, and its options (callback times, follow-up times, centre numbers)
+      // are answered with the same digits.
+      const menuOpen =
+        s.conversation.state === ConversationState.IntentMenu && !s.conversation.pending_action;
+      if (row && (tapped || menuOpen)) {
+        // "Find a centre" when the area is already known (the button flow asks the city): never the city
+        // question again (client, 17 Nov: "location was asked first, why ask again?"); the next step instead
+        if (row.id === "menu_centre" && (await this.centreWithKnownArea(m, s, row))) return;
         await this.sendAndSave(
           s.customer.id,
           await this.rowReply(row, s, healthBlocked),
@@ -2017,7 +2069,9 @@ export class ChatPipelineService {
       cons,
       !healthBlocked,
       s.conversation,
-      await this.knownFacts(s, !healthBlocked),
+      // + the client's approved answers closest to this message, and an engagement bridge when the customer
+      // stalls (client, 17 Nov: Q&A knowledge base, Bridges PDF)
+      { ...(await this.knownFacts(s, !healthBlocked)), ...knowledgeFor(m.text) },
     );
 
     // 3. The LLM + validator (retry once)
@@ -2937,7 +2991,7 @@ export class ChatPipelineService {
       r.intent === "find_centre" &&
       !m.location &&
       centreStepFree &&
-      (!n?.city || !(await this.locationAsked(s)))
+      !n?.city // the area known from this chat is used, never asked again
     ) {
       conv.pending_action = "centre_location";
       extras.push(locationAskText(this.placeOf(n), s.customer.language));
@@ -3051,7 +3105,9 @@ export class ChatPipelineService {
           `Customer wants to activate; plan not ready to sell, missing: ${planProblems(cat).join(", ")}`,
         );
         const l = s.customer.language;
-        const label = cat ? this.productLabel(cat, l) : (conv.recommended_plan ?? "Oxxy");
+        const label = cat
+          ? this.productLabel(cat, l)
+          : `Oxxy ${conv.recommended_plan ? conv.recommended_plan.charAt(0).toUpperCase() + conv.recommended_plan.slice(1) + " " : ""}plan`;
         extras.push(
           await this.withCallbackOptions(s, taskId, say(ACTIVATION_BY_TEAM_T, l).replace("{plan}", label)),
         );
@@ -4239,6 +4295,38 @@ export class ChatPipelineService {
       .join(", ");
   }
 
+  /** "Find a centre" with the area known: "Near Peelamedu, Coimbatore." + how far (or the list when known) */
+  private async centreWithKnownArea(m: Inbound, s: Saved, row: MenuRow): Promise<boolean> {
+    const n = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
+    if (!this.placeOf(n)) return false;
+    await this.enterRow(row, s);
+    return this.useKnownArea(m, s, n);
+  }
+
+  /**
+   * The area is known from anywhere in this chat (typed, the button flow, a shared pin): the centre search uses
+   * it and never asks for the location again (client, 17 Nov: "once the location is given in the chat, use it
+   * everywhere"). "Near Peelamedu, Coimbatore." + how far, or the list when the distance is known too.
+   */
+  private async useKnownArea(m: Inbound, s: Saved, n: need | null): Promise<boolean> {
+    const place = this.placeOf(n);
+    if (!n || !place) return false;
+    if (n.travel_radius_km) {
+      await this.replyCentreList(m, s, n, undefined, "area known in this chat");
+      return true;
+    }
+    if (s.conversation.state !== ConversationState.CentreSearch)
+      await this.setState(s, [ConversationState.CentreSearch]);
+    await this.setPending(s, "centre_radius");
+    const l = s.customer.language;
+    await this.sendAndSave(s.customer.id, `${this.nearText(place, l)} ${say(RADIUS_Q, l)}`, m.waMessageId);
+    return true;
+  }
+
+  private nearText(place: string, l?: string | null): string {
+    return say({ en: "Near {place}.", hi: "{place} के पास।", hinglish: "{place} ke paas." }, l).replace("{place}", place);
+  }
+
   // The "Send location" question is asked once per conversation when the area is already known (a customer
   // who said NO is not asked again). Without any area it is asked whenever a centre search needs it.
   private async locationAsked(s: Saved): Promise<boolean> {
@@ -4277,6 +4365,15 @@ export class ChatPipelineService {
     const draft = readDraft(pending);
     if (draft && draft.step !== "centre") return false;
     const n = await this.needRow(s);
+    if (!n.city) {
+      // the area of the pin is remembered (not the pin), so a later search never asks for the location again
+      const at = await quiet(() => this._Maps?.reverseGeocode(m.location!) ?? Promise.resolve(null));
+      if (at?.city) {
+        n.city = at.city.slice(0, 80);
+        n.locality = (at.locality ?? null) as any;
+        await quiet(() => n.save());
+      }
+    }
     await this.replyCentreList(m, s, n, m.location, "location shared");
     return true;
   }
@@ -4286,8 +4383,9 @@ export class ChatPipelineService {
   private async handleCentreLocationText(m: Inbound, s: Saved): Promise<boolean> {
     if (s.conversation.pending_action !== "centre_location" || m.location) return false;
     const n = await this.needRow(s);
-    if (m.type === "location") {
-      // a pin whose coordinates did not arrive (a message recovered after a restart): ask once more
+    if (m.type === "location" || m.type === "unsupported" || NON_TEXT_RE.test((m.text || "").trim())) {
+      // a pin whose coordinates did not arrive (a message recovered after a restart), or a LIVE location (the
+      // Cloud API delivers it as "unsupported", no coordinates): ask once more, never read it as the area
       await this.askLocation(m, s, n);
       return true;
     }
@@ -4335,11 +4433,9 @@ export class ChatPipelineService {
   private async handleNearbyAsk(m: Inbound, s: Saved): Promise<boolean> {
     if (m.location || s.conversation.pending_action) return false;
     if (!asksNearby(m.text, s.conversation.state === ConversationState.CentreSearch)) return false;
-    await this.askLocation(
-      m,
-      s,
-      await need.findOne({ where: { conversation_id: s.conversation.id } }),
-    );
+    const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
+    if (await this.useKnownArea(m, s, n)) return true;
+    await this.askLocation(m, s, n);
     return true;
   }
 
@@ -4538,8 +4634,8 @@ ${res.text}` : res.text, m.waMessageId);
     const l = s.customer.language;
     await this.setPending(s, null);
     await this.setState(s, [ConversationState.CentreSearch]);
-    if (!m.location && (!n?.city || !(await this.locationAsked(s)))) {
-      // one tap on "Send location" for the nearest centres, or the area typed / NO for the area already given
+    if (!m.location && !n?.city) {
+      // no area yet: one tap on "Send location" for the nearest centres, or the area typed
       await this.askLocation(m, s, n);
       return;
     }

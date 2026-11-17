@@ -931,14 +931,9 @@ describe("booking request, one question per turn", () => {
       centres: CENTRES,
     });
     await t.run("you suggest a good one");
-    // the location is asked once for the nearest centres; NO keeps the city already given
-    expect((t.send.mock.calls[0] as unknown[])[1]).toMatchObject({ kind: "location_request" });
-    expect(t.out[0]).toContain("Or reply NO and I will search in Madurai.");
-    expect(t.conv.pending_action).toBe("centre_location");
-    expect(t.out[0]).not.toContain("not in our directory");
-    t.out.length = 0;
-    await t.run("no");
+    // the city given in this chat is used (client, 17 Nov): no location question, the distance next
     expect(t.out[0]).toMatch(/^How far can the patient travel/);
+    expect(t.out[0]).not.toContain("not in our directory");
     expect(t.conv.pending_action).toBe("centre_radius");
   });
 
@@ -1288,14 +1283,13 @@ describe("nearby centres (location + Google Maps)", () => {
   const AREA = { city: "Coimbatore", locality: "Peelamedu", save: async () => undefined };
   const INVENTED = "Here are some hospitals in Peelamedu:\n1. PSG Hospitals\n2. KMCH\n3. Aravind Eye Hospital\n\nWould you like to book one?";
 
-  it("area known, 'you can suggest hospital': the Send location question, never the LLM's own hospital list", async () => {
+  it("area known, 'you can suggest hospital': the known area is used (how far), never the LLM's own hospital list", async () => {
     const t = setup([draft(INVENTED, { intent: "find_centre" })], { needRow: { ...AREA } });
     await t.run("you can sugees hosiptal");
-    expect((t.send.mock.calls[0] as unknown[])[1]).toMatchObject({ kind: "location_request" });
-    expect(t.out).toEqual([
-      "To show the centres nearest to the patient, please share the patient's location with the button below. Or reply NO and I will search in Peelamedu, Coimbatore.",
-    ]);
-    expect(t.conv.pending_action).toBe("centre_location");
+    expect(t.out.join(" ")).not.toMatch(/PSG|KMCH|Aravind/);
+    expect(t.out.join(" ")).toContain("How far can the patient travel");
+    expect(t.out.join(" ")).not.toMatch(/share the patient's location|Which city/i);
+    expect(t.conv.pending_action).toBe("centre_radius");
   });
 
   it("the pin comes after that question: the nearest centres, no travel-distance question in between", async () => {
@@ -1687,7 +1681,8 @@ describe("Tamil customers, media, known answers", () => {
     expect(asksKnownAgain("Thanks! Is this for you or a family member?", { beneficiary: "self" })).toMatch(/already known/);
     expect(asksKnownAgain("What specific consultation, test, medicine, treatment, or surgery do you need help with?", { healthcare_need: "blood test" })).toMatch(/already known/);
     expect(asksKnownAgain("Which city and locality do you live in?", { city: "Tiruppur", locality: "Avinashi" })).toMatch(/already known/);
-    expect(asksKnownAgain("Which city and locality do you live in?", { city: "Tiruppur" })).toBeNull(); // locality still missing
+    expect(asksKnownAgain("Which city and locality do you live in?", { city: "Tiruppur" })).toMatch(/only the area or locality in Tiruppur/); // the city is never asked again (client, 17 Nov)
+    expect(asksKnownAgain("Which area of Tiruppur do you live in?", { city: "Tiruppur" })).toBeNull(); // the area alone may be asked
     expect(asksKnownAgain("Is this for you or a family member?", {})).toBeNull();
   });
 });
