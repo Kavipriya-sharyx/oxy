@@ -106,7 +106,7 @@ const UP_TO_MAX =
 const HELPS_SAVE = /\b(help|helps|helping)\s+(you\s+|your family\s+|families\s+|customers\s+)?(to\s+)?save\b(?!\s+(up ?to|upto|\d|₹|rs))/gi;
 // the family pricing rule (pricing document 9): the first plan at full price, 30% off each additional plan
 const FAMILY_DISCOUNT =
-  /\b(a\s+)?(discount\s+of\s+)?30\s*%\s*(discount\s+|off\s+)?[^.!?\n]{0,60}\b(subsequent|additional|each extra|extra|family member|members?)\b|\b(subsequent|additional|each extra|family member|members?)\b[^.!?\n]{0,60}\b30\s*%/gi;
+  /\b(a\s+)?(discount\s+of\s+)?30\s*%\s*(discount\s+|off\s+)?[^.!?\n]{0,60}\b(subsequent|additional|each extra|extra|family member|members?)\b|\b(subsequent|additional|each extra|family member|members?)\b[^.!?\n]{0,110}\b30\s*%/gi;
 
 export function promisesSavings(text: string): boolean {
   const t = withoutRefusals(text || "")
@@ -189,11 +189,11 @@ export function validateReply(
   if (CMB_RE.test(t) && (OXXY_PLAN_RE.test(t) || BOTH_RE.test(t)))
     reasons.push("offers both products");
 
-  const priceRe = /(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)/gi;
+  const priceRe = /(?:₹|\brs\.?|\binr)\s*(\d[\d,]*(?:\.\d+)?)/gi;
   // an amount that is clearly a spend, a bill limit or an illustrated saving is not a plan price (the client's
   // approved Q&A: "eligible bills up to ₹10 lakh", "a ₹3,00,000 yearly spend could save about ₹90,000"); any
   // other amount is still checked against the catalogue
-  const NOT_A_PRICE = /\b(spend|spends|spending|spent|bills?|limit|limits|sav(e|es|ed|ing|ings)|illustrat\w*|expenses?|expenditure|estimate|treatment|surgery|rounds?|rounded|percent|per cent|step|steps|figure|range|ranges|calculation)\b|%/i;
+  const NOT_A_PRICE = /\b(spend|spends|spending|spent|bills?|limit|limits|sav(e|es|ed|ing|ings)|illustrat\w*|expenses?|expenditure|estimate|treatment|surgery|rounds?|rounded|percent|per cent|step|steps|figure|range|ranges|calculation|below|above|under|between)\b|%/i;
   const PRICE_WORD = /\b(price[sd]?|pricing|costs?|fees?|subscription|\+ ?gst|plus (applicable )?gst)\b/i;
   let m: RegExpExecArray | null;
   while ((m = priceRe.exec(t))) {
