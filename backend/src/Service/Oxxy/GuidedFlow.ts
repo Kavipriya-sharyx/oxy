@@ -2,11 +2,11 @@
 // call flow", "a chat bot flow where the customer can select buttons"). Pure texts, readers and calculations;
 // the pipeline (handleGuidedFlow) stores the answers and moves the step.
 //
-// Order = Voice AI manual 16 / 18 / 20 / 24 in chat form, with the client's current cards:
-//   welcome card -> who -> (health-data notice) -> service -> age -> city -> yearly spend -> savings card (up to
-//   30%, floor ₹500) + one plan with price + GST -> activate / add family. Known answers are skipped. No condition
-//   and no insurance question (client, 17 Nov); their rows stay for chats already waiting on them and for a
-//   condition the customer shares by themself (Playbook 5.1).
+// Order (client, 17 Nov: "this flow, as in our current bot, then the existing flow after it"):
+//   the client's bot, card for card: welcome card -> who -> (health-data notice) -> service -> verify card
+//   (Customer Testimonial / News Articles) + calculator card (Calculate Now) -> yearly spend list -> savings card;
+//   then ours: age -> city -> appointment offer for a visit -> one plan with price + GST -> activate / add family.
+//   Known answers are skipped. No condition and no insurance question (client, 17 Nov).
 // Prices come from plan_catalog; GST and the family discount follow the client's pricing document
 // (first plan full price, each additional member 30% off the plan cost, GST 18% on the discounted cost).
 import { InteractiveHeader, ListRow, OutboundMessage } from "@Helper/WhatsappMessage";
@@ -22,6 +22,8 @@ export type FlowStep =
   | "start"
   | "who"
   | "need"
+  // the calculator card's "Calculate Now", then the yearly spend list (the client's bot)
+  | "calc"
   | "condition"
   | "age"
   | "city"
@@ -89,12 +91,35 @@ export const contactText = (l?: Lg): string => {
 };
 
 export const verifyCard = (): OutboundMessage => ({
-  kind: "cta_url",
+  kind: "buttons",
   header: logoHeader(),
   body: VERIFY_CARD_TEXT,
   footer: "Oxxy Healthcare",
-  buttonText: "Customer Testimonial",
-  url: OXXY_LINKS.stories,
+  buttons: [
+    { id: "verify_stories", title: "Customer Testimonial" },
+    { id: "verify_news", title: "News Articles" },
+  ],
+});
+
+/** "Customer Testimonial" / "News Articles" tapped on the verify card: the page with one link button */
+export const proofLinkCard = (which: "stories" | "news"): OutboundMessage => ({
+  kind: "cta_url",
+  header: { type: "text", text: which === "stories" ? "Customer Testimonials" : "News Articles" },
+  body:
+    which === "stories"
+      ? "Read what Oxxy customers say about their savings and support."
+      : "Read what the news has written about Oxxy.",
+  buttonText: which === "stories" ? "Customer Testimonial" : "News Articles",
+  url: which === "stories" ? OXXY_LINKS.stories : OXXY_LINKS.media,
+});
+
+/** The client's calculator card after the verify card: "Calculator / See how much you can save" + Calculate Now */
+export const calculatorCard = (l?: Lg): OutboundMessage => ({
+  kind: "buttons",
+  // the logo when it is set (the body already says "Calculator": no text title over it)
+  ...(logoHeader() ? { header: logoHeader() } : {}),
+  body: tr(l, "Calculator\nSee how much you can save", "कैलकुलेटर\nदेखें आप कितना बचा सकते हैं", "Calculator\nDekhiye aap kitna bacha sakte hain"),
+  buttons: [{ id: "calc_start", title: tr(l, "Calculate Now", "अभी गणना करें", "Calculate Now") }],
 });
 
 export const termsCard = (l?: Lg): OutboundMessage => ({
@@ -134,12 +159,10 @@ export const WHO_ROWS = (l?: Lg): ListRow[] => [
 export const NEED_ROWS = (l?: Lg): ListRow[] => [
   { id: "need_consult", title: tr(l, "Doctor Consultations", "डॉक्टर परामर्श", "Doctor Consultation") },
   { id: "need_medicines", title: tr(l, "Medicines", "दवाइयाँ", "Dawaiyan") },
-  { id: "need_pathlab", title: tr(l, "Pathlab Tests", "लैब जाँच", "Lab Tests") },
-  { id: "need_diagnostic", title: tr(l, "Diagnostic Center", "डायग्नोस्टिक स्कैन", "Diagnostic Scan") },
+  { id: "need_pathlab", title: tr(l, "Pathlab", "लैब जाँच", "Pathlab") },
+  { id: "need_diagnostic", title: tr(l, "Diagnostic Center", "डायग्नोस्टिक सेंटर", "Diagnostic Center") },
   { id: "need_hospital", title: tr(l, "Hospital/Clinics", "अस्पताल / क्लिनिक", "Hospital / Clinic") },
-  { id: "need_surgery", title: tr(l, "Surgery/Treatment", "सर्जरी / इलाज", "Surgery / Ilaaj") },
-  { id: "need_pregnancy", title: tr(l, "Pregnancy/IVF", "प्रेग्नेंसी / IVF", "Pregnancy / IVF") },
-  { id: "need_future", title: tr(l, "Reduce Medical Expenses", "मेडिकल खर्च कम करें", "Kharch kam karein"), description: tr(l, "Savings on future medical bills", "भविष्य के मेडिकल बिलों पर बचत", "Future medical bills par bachat") },
+  { id: "need_future", title: tr(l, "Reduce Medical Expenses", "मेडिकल खर्च कम करें", "Kharch kam karein") },
   { id: "need_all", title: tr(l, "All Of The Above", "ऊपर के सभी", "Upar ke sabhi") },
 ];
 export const CONDITION_ROWS = (l?: Lg): ListRow[] => [
@@ -159,42 +182,36 @@ export const AGE_ROWS = (l?: Lg): ListRow[] => [
   { id: "age_78", title: tr(l, "76 – 80", "76 – 80", "76 – 80") },
   { id: "age_85", title: tr(l, "Above 80", "80 से ज़्यादा", "80 se zyada") },
 ];
-// The client's ranges (their bot skipped 5,000 – 10,000). The id is the LOWER end (Voice manual 20: "use the
-// lower end for a conservative illustration"); below 5,000 counts as 4,000.
-const SPEND: [number, string][] = [
-  [4000, "Below 5,000"],
-  [5000, "5,000 – 10,000"],
-  [10000, "10,000 – 20,000"],
-  [20000, "20,000 – 30,000"],
-  [30000, "30,000 – 50,000"],
-  [50000, "50,000 – 1,00,000"],
-  [100000, "1,00,000 – 5,00,000"],
-  [500000, "5,00,000 – 10,00,000"],
-  [1000000, "Above 10,00,000"],
+// The client's ranges, words and descriptions (their bot, 17 Nov). The id is the LOWER end (Voice manual 20: "use
+// the lower end for a conservative illustration"); below 5,000 counts as 4,000.
+const SPEND: [number, string, string][] = [
+  [4000, "Below 5000", "Is your yearly medical expenditure below 5000"],
+  [10000, "10,000-20,000", "Is your yearly medical expenditure around 10,000 to 20,000"],
+  [20000, "20,000-30,000", "Is your yearly medical expenditure around 20,000 to 30,000"],
+  [30000, "30,000-50,000", "Is your yearly medical expenditure around 30,000-50,000"],
+  [50000, "50,000-1,00,000", "Is your yearly medical expenditure around 50,000-1,00,000"],
+  [100000, "1,00,000-5,00,000", "Is your yearly medical expenditure around 1,00,000-5,00,000"],
+  [500000, "5,00,000-10,00,000", "Is your yearly medical expenditure around 5,00,000-10,00,000"],
+  [1000000, "Above 10,00,000", "Is your yearly medical expenditure above 10,00,000"],
 ];
 export const SPEND_ROWS = (l?: Lg): ListRow[] =>
-  SPEND.map(([v, t]) => {
-    const below = v === 4000;
-    const label = below
-      ? tr(l, t, "5,000 से कम", "5,000 se kam")
-      : v === 1000000
-        ? tr(l, t, "10,00,000 से ज़्यादा", "10,00,000 se zyada")
-        : t;
-    return {
-      id: `spend_${v}`,
-      title: label,
-      description: below
-        ? tr(l, "Yearly medical expenditure below 5,000", "सालाना मेडिकल खर्च 5,000 से कम", "Saalana medical kharch 5,000 se kam")
-        : tr(l, `Yearly medical expenditure around ${t}`, `सालाना मेडिकल खर्च लगभग ${t}`, `Saalana medical kharch lagbhag ${t}`),
-    };
-  });
+  SPEND.map(([v, title, desc]) => ({
+    id: `spend_${v}`,
+    title,
+    description: tr(
+      l,
+      desc,
+      `क्या आपका सालाना मेडिकल खर्च ${v === 4000 ? "5000 से कम" : v === 1000000 ? "10,00,000 से ज़्यादा" : "लगभग " + title} है`,
+      `Kya aapka saalana medical kharch ${v === 4000 ? "5000 se kam" : v === 1000000 ? "10,00,000 se zyada" : "lagbhag " + title} hai`,
+    ),
+  }));
 
 export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMessage {
   const p = (t: string) => (prefix ? `${prefix}\n\n${t}` : t);
   switch (step) {
     case "who":
       return list(
-        p(tr(l, "Who are you looking for healthcare support for?", "आप किसके लिए हेल्थकेयर सहायता ढूँढ रहे हैं?", "Aap kiske liye healthcare support dhoondh rahe hain?")),
+        p(tr(l, "Who Are You Looking For Healthcare Support For?", "आप किसके लिए हेल्थकेयर सहायता ढूँढ रहे हैं?", "Aap kiske liye healthcare support dhoondh rahe hain?")),
         tr(l, "Family Member", "परिवार का सदस्य", "Family Member"),
         WHO_ROWS(l),
         undefined,
@@ -205,15 +222,18 @@ export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMe
         p(
           tr(
             l,
-            "Are you planning a consultation, test, medicine, treatment or surgery now, or looking to reduce future medical expenses?",
-            "क्या आप अभी कोई परामर्श, जाँच, दवा, इलाज या सर्जरी प्लान कर रहे हैं, या आगे के मेडिकल खर्च कम करना चाहते हैं?",
-            "Kya aap abhi koi consultation, test, dawai, ilaaj ya surgery plan kar rahe hain, ya aage ke medical kharch kam karna chahte hain?",
+            "Regarding what are you looking for medical service?",
+            "आप किस मेडिकल सेवा के बारे में देख रहे हैं?",
+            "Aap kis medical service ke baare mein dekh rahe hain?",
           ),
         ),
-        tr(l, "Choose the option", "विकल्प चुनें", "Option chunein"),
+        tr(l, "Choose the option:", "विकल्प चुनें:", "Option chunein:"),
         NEED_ROWS(l),
         undefined,
+        title(l),
       );
+    case "calc":
+      return calculatorCard(l);
     case "condition":
       return list(
         p(tr(l, "Is there an ongoing or pre-existing condition we should consider?", "क्या कोई चल रही या पहले से मौजूद बीमारी है जिसे हमें ध्यान में रखना चाहिए?", "Kya koi chal rahi ya pehle se maujood bimari hai jise humein dhyaan mein rakhna chahiye?")),
@@ -245,11 +265,18 @@ export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMe
       };
     case "spend":
       return list(
-        p(tr(l, "How much will your annual medical expense be next year? Include consultations, tests, medicines and treatments.", "अगले साल आपका सालाना मेडिकल खर्च कितना होगा? परामर्श, जाँच, दवाइयाँ और इलाज सब जोड़कर।", "Agle saal aapka saalana medical kharch kitna hoga? Consultation, tests, dawaiyan aur ilaaj sab milakar.")),
+        p(
+          tr(
+            l,
+            "May I know the yearly medical expenditure to calculate the approximate savings?",
+            "अनुमानित बचत निकालने के लिए क्या मैं आपका सालाना मेडिकल खर्च जान सकता हूँ?",
+            "Approximate bachat nikalne ke liye kya main aapka saalana medical kharch jaan sakta hoon?",
+          ),
+        ),
         tr(l, "Calculate Now", "अभी गणना करें", "Calculate Now"),
         SPEND_ROWS(l),
         undefined,
-        { type: "text", text: tr(l, "Calculator: See how much you can save", "कैलकुलेटर: देखें आप कितना बचा सकते हैं", "Calculator: Dekhiye aap kitna bacha sakte hain") },
+        { type: "text", text: tr(l, "Calculator See how much you can save", "कैलकुलेटर: देखें आप कितना बचा सकते हैं", "Calculator: Dekhiye aap kitna bacha sakte hain") },
       );
     case "book":
       return bookOffer(l);
@@ -474,8 +501,8 @@ export function savingsCard(spend: number, l?: Lg): OutboundMessage {
         );
   return {
     kind: "cta_url",
-    header: logoHeader() ?? { type: "text", text: tr(l, "Calculator: See how much you can save", "कैलकुलेटर: देखें आप कितना बचा सकते हैं", "Calculator: Dekhiye aap kitna bacha sakte hain") },
-    body,
+    ...(logoHeader() ? { header: logoHeader() } : {}),
+    body: `${tr(l, "Calculator\nSee how much you can save", "कैलकुलेटर\nदेखें आप कितना बचा सकते हैं", "Calculator\nDekhiye aap kitna bacha sakte hain")}\n\n${body}`,
     buttonText: tr(l, "Calculate Now", "अभी गणना करें", "Calculate Now"),
     url: OXXY_LINKS.calculator,
   };
@@ -631,6 +658,62 @@ export function readBookAnswer(text: string): "yes" | "no" | null {
   if (/^book_yes$|^(yes|yeah|yep|ok|okay|sure|haan|ha|book|book it|book appointment|aama|seri)[.!]*$/.test(s)) return "yes";
   if (/^book_no$|^(no|nope|not now|later|skip|nahi|nahin|abhi nahi|vendam|illa)[.!]*$/.test(s)) return "no";
   return null;
+}
+
+// ---------- acknowledgements (client, 17 Nov: "acknowledge every answer before the next question") ----------
+
+/** The answer said back in one short line, the first line of the next message (never a bubble of its own) */
+export function ackLine(
+  kind: "who" | "need" | "calc" | "age" | "city" | "book_yes" | "book_no" | "family" | "billing" | "activate",
+  value: string | number | null,
+  l?: Lg,
+): string {
+  const v = value == null ? "" : String(value);
+  switch (kind) {
+    case "who": {
+      const W: Record<string, [string, string, string]> = {
+        self: ["Got it, this is for you.", "ठीक है, यह आपके लिए है।", "Theek hai, yeh aapke liye hai."],
+        parent: ["Got it, this is for your father or mother.", "ठीक है, यह आपके पिता या माता के लिए है।", "Theek hai, yeh aapke papa ya mummy ke liye hai."],
+        parents: ["Got it, this is for your parents.", "ठीक है, यह आपके माता-पिता के लिए है।", "Theek hai, yeh aapke parents ke liye hai."],
+        family: ["Got it, this is for your entire family.", "ठीक है, यह आपके पूरे परिवार के लिए है।", "Theek hai, yeh aapki poori family ke liye hai."],
+        child: ["Got it, this is for your son or daughter.", "ठीक है, यह आपके बेटे या बेटी के लिए है।", "Theek hai, yeh aapke bete ya beti ke liye hai."],
+      };
+      const w = W[v] ?? W.self;
+      return tr(l, w[0], w[1], w[2]);
+    }
+    case "need":
+      return tr(l, `Noted: ${v}.`, `नोट किया: ${v}।`, `Noted: ${v}.`);
+    case "calc":
+      return tr(l, "Sure, let us work out your savings.", "ज़रूर, आपकी बचत का अंदाज़ा लगाते हैं।", "Zaroor, aapki bachat ka andaaza lagate hain.");
+    case "age":
+      return tr(l, `Thank you, noted the age (${v}).`, `धन्यवाद, उम्र नोट कर ली (${v})।`, `Shukriya, age note kar li (${v}).`);
+    case "city":
+      return tr(l, `Thank you, noted the area: ${v}.`, `धन्यवाद, इलाका नोट कर लिया: ${v}।`, `Shukriya, area note kar liya: ${v}.`);
+    case "book_yes":
+      return tr(l, "Sure, let us book it.", "ज़रूर, बुक करते हैं।", "Zaroor, book karte hain.");
+    case "book_no":
+      return tr(l, "No problem, I can book the appointment any time later.", "कोई बात नहीं, अपॉइंटमेंट बाद में कभी भी बुक हो सकता है।", "Koi baat nahi, appointment baad mein kabhi bhi book ho sakta hai.");
+    case "family":
+      return tr(l, `Noted, ${v} more member${v === "1" ? "" : "s"}.`, `नोट किया, ${v} और सदस्य।`, `Noted, ${v} aur member.`);
+    case "billing":
+      return tr(l, `Noted: the ${v} price.`, `नोट किया: ${v === "monthly" ? "मासिक" : "सालाना"} कीमत।`, `Noted: ${v} price.`);
+    case "activate":
+      return tr(l, `Great choice: the ${v} plan.`, `बढ़िया: ${v === "monthly" ? "मासिक" : "सालाना"} प्लान।`, `Badhiya: ${v} plan.`);
+  }
+}
+
+/** The acknowledgement on top of the next message (a card keeps its buttons; the body gets the line first) */
+export function withAck(msg: OutboundMessage, ack: string | null | undefined): OutboundMessage {
+  if (!ack) return msg;
+  if ("body" in msg && typeof (msg as { body?: unknown }).body === "string" && msg.kind !== "location")
+    return { ...msg, body: `${ack}\n\n${(msg as { body: string }).body}` } as OutboundMessage;
+  return msg;
+}
+
+/** The age said back: the tapped range's title, else "62 years" */
+export function ageLabel(text: string, age: number, l?: Lg): string {
+  const row = AGE_ROWS(l).find((r) => r.id === t(text));
+  return row ? row.title : tr(l, `${age} years`, `${age} वर्ष`, `${age} saal`);
 }
 
 export const asksMainMenu = (text: string) => /^(flow_menu|main menu|menu|start again|restart)\s*[.!]?$/i.test((text || "").trim());

@@ -13,12 +13,17 @@ const BUTTON_BODY_MAX = 1024;
 const YES_NO_END =
   /(Reply YES or NO|Please reply YES or NO|YES ya NO (likhein|likhiye|likhe)|कृपया YES या NO (लिखें|लिखिए)|YES या NO (लिखें|लिखिए))\s*[.।]?\s*$/iu;
 
+// "Reply YES or NO, or send the name of another centre you prefer." (the booking offer after a centre is picked):
+// still a YES / NO question, so it gets the two buttons (client, 17 Nov: it came as plain text)
+const YES_NO_OR_NAME =
+  /(Reply YES or NO, or send the name of another centre you prefer|YES ya NO likhein, ya apni pasand ke kisi dusre centre ka naam bhejein|हाँ या नहीं लिखें, या अपनी पसंद के किसी दूसरे केंद्र का नाम भेजें)\s*[.।]?\s*$/iu;
+
 const len = (s: string) => [...s].length;
 
 /** The bubbles for one reply: a YES / NO question = one button message; long text = up to three bubbles */
 export function toBubbles(text: string): OutboundMessage[] {
   const t = (text || "").trim();
-  if (YES_NO_END.test(t) && len(t) <= BUTTON_BODY_MAX) {
+  if ((YES_NO_END.test(t) || YES_NO_OR_NAME.test(t)) && len(t) <= BUTTON_BODY_MAX) {
     const hindi = /[ऀ-ॿ]/u.test(t);
     return [
       {

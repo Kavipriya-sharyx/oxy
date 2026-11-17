@@ -100,8 +100,15 @@ function setup(opts: { llm?: unknown[]; maps?: unknown } = {}) {
     if (w?.type === "location_request") return { id: "pin-asked" };
     if (w?.reply_to_wa_message_id) return replied ? { id: "out" } : null;
     // the last bot message / a message with this body (lastBotText, the terms card sent once)
-    const body = (w as { body?: string } | undefined)?.body;
+    const rawBody = (w as { body?: unknown } | undefined)?.body;
     const all = sent.map((x) => String((x as { log?: string }).log ?? (x as { body?: string }).body ?? ""));
+    if (rawBody && typeof rawBody === "object") {
+      // TypeORM Like("%text%"): contains
+      const want = String((rawBody as { value?: string; _value?: string }).value ?? (rawBody as { _value?: string })._value ?? "").replace(/^%|%$/g, "");
+      const hit = all.find((b) => b.includes(want));
+      return hit ? { id: "out", body: hit } : null;
+    }
+    const body = rawBody as string | undefined;
     if (body) return all.includes(body) ? { id: "out", body } : null;
     if ((w as { direction?: string } | undefined)?.direction === "out" && all.length) return { id: "out", body: all[all.length - 1] };
     return null;
@@ -179,7 +186,8 @@ function setup(opts: { llm?: unknown[]; maps?: unknown } = {}) {
 
 afterEach(() => jest.restoreAllMocks());
 
-const FLOW = ["hi", "flow_start", "who_parent", "need_medicines", "age_65", "Peelamedu, Coimbatore", "spend_50000"];
+// the client's part (service -> Calculate Now -> spend), then ours (age -> city); medicines: no appointment offer
+const FLOW = ["hi", "flow_start", "who_parent", "need_medicines", "calc_start", "spend_50000", "age_65", "Peelamedu, Coimbatore"];
 const last = (t: { sent: Record<string, unknown>[] }) => t.sent.at(-1) as Record<string, unknown>;
 const text = (m: Record<string, unknown>) => String(m.log ?? m.body ?? "");
 
@@ -237,17 +245,17 @@ describe("17 Nov client chat: callback times after the button flow", () => {
   it("a shared pin at the flow's city question saves its area and city (no location question later)", async () => {
     const maps = { enabled: true, reverseGeocode: jest.fn(async () => ({ latitude: 11.03, longitude: 77.03, formatted: "", locality: "Peelamedu", city: "Coimbatore", approximate: false })) };
     const t = setup({ maps });
-    for (const x of ["hi", "flow_start", "who_parent", "need_medicines", "age_65"]) await t.run(x);
+    for (const x of ["hi", "flow_start", "who_parent", "need_medicines", "calc_start", "spend_50000", "age_65"]) await t.run(x);
     expect(t.conv.pending_action).toBe("flow:city");
     await t.run("[location message]", { type: "location", location: { latitude: 11.03, longitude: 77.03 } });
     expect(maps.reverseGeocode).toHaveBeenCalledWith({ latitude: 11.03, longitude: 77.03 });
     expect(t.needRow).toMatchObject({ city: "Coimbatore", locality: "Peelamedu" });
-    expect(text(last(t))).toContain("How much will your annual medical expense be next year?");
+    expect(text(last(t))).toContain("Would you like to activate your Oxxy care plan?"); // medicines: no appointment offer, the plan next
   });
 
   it("a LIVE location (Cloud API: unsupported) is never saved as the city; the question comes back with how to answer", async () => {
     const t = setup();
-    for (const x of ["hi", "flow_start", "who_parent", "need_medicines", "age_65"]) await t.run(x);
+    for (const x of ["hi", "flow_start", "who_parent", "need_medicines", "calc_start", "spend_50000", "age_65"]) await t.run(x);
     await t.run("[unsupported message]", { type: "unsupported" });
     expect(t.needRow.city).toBeUndefined();
     expect(last(t)).toMatchObject({ kind: "location_request" });
@@ -257,11 +265,11 @@ describe("17 Nov client chat: callback times after the button flow", () => {
 
   it("the area given earlier in the chat skips the flow's city question", async () => {
     const t = setup();
-    for (const x of ["hi", "flow_start", "who_parent", "need_medicines"]) await t.run(x);
+    for (const x of ["hi", "flow_start", "who_parent", "need_medicines", "calc_start", "spend_50000"]) await t.run(x);
     Object.assign(t.needRow, { city: "Tiruppur", locality: null }); // typed earlier ("I am in Tiruppur")
     await t.run("age_65");
-    expect(text(last(t))).toContain("How much will your annual medical expense be next year?");
-    expect(t.conv.pending_action).toBe("flow:spend");
+    expect(text(last(t))).toContain("Would you like to activate your Oxxy care plan?");
+    expect(t.conv.pending_action).toBe("flow:close:0");
   });
 
   it("'any hospital near me?' after the flow uses the area from the chat", async () => {
@@ -287,7 +295,7 @@ describe("17 Nov client chat: callback times after the button flow", () => {
   // Client chat, 17 Nov evening: the plan card said Infinity; "Does it support dialysis?" came back as "I recommend
   // the Thrive plan … yearly healthcare spend of about ₹5,00,000" with the spend ranges again, and "Can I buy for
   // my parents" got only the activation text.
-  const PARENTS = ["hi", "flow_start", "who_parents", "need_hospital", "age_65", "Peelamedu, Coimbatore", "book_no", "spend_500000"];
+  const PARENTS = ["hi", "flow_start", "who_parents", "need_hospital", "calc_start", "spend_500000", "age_65", "Peelamedu, Coimbatore", "book_no"];
   const D = (reply_text: string, intent: string, extracted_fields: object = {}) => ({ reply_text, intent, extracted_fields, needs_human: false });
 
   it("a coverage question tagged 'recommend' keeps the flow's plan and its answer", async () => {
@@ -376,13 +384,15 @@ describe("17 Nov client chat: callback times after the button flow", () => {
   });
 
   // Client feedback list, 17 Nov evening (7 problems from a real chat)
-  const VISIT = ["hi", "flow_start", "who_family", "need_consult", "age_65", "Peelamedu, Coimbatore"];
+  const VISIT = ["hi", "flow_start", "who_family", "need_consult", "calc_start", "spend_50000", "age_65", "Peelamedu, Coimbatore"];
 
-  it("1. the 'Get in Touch with Oxxy …' title only once (on the first question)", async () => {
+  it("1. the 'Get in Touch with Oxxy …' title only where the client's bot has it (who, service), never again", async () => {
     const t = setup();
-    for (const x of [...VISIT, "book_no", "spend_50000"]) await t.run(x);
+    for (const x of [...VISIT, "book_no"]) await t.run(x);
     const titled = t.sent.filter((m) => /Get in Touch with Oxxy/.test(String((m.header as { text?: string } | undefined)?.text ?? "")));
-    expect(titled).toHaveLength(1);
+    expect(titled).toHaveLength(2);
+    expect(text(titled[0])).toContain("Who Are You Looking For Healthcare Support For?");
+    expect(text(titled[1])).toContain("Regarding what are you looking for medical service?");
   });
 
   it("2. no Terms & Conditions card when the team sends the link (no official link step)", async () => {
@@ -401,8 +411,8 @@ describe("17 Nov client chat: callback times after the button flow", () => {
     expect(all).toContain("What date would you prefer?");
     expect(all).toContain("What time or time window would suit you?");
     expect(all).toContain("Your booking request has been made for 25 Nov 2026 at morning at KMCH Hospital");
-    expect(text(last(t))).toContain("How much will your annual medical expense be next year?");
-    expect(t.conv.pending_action).toBe("flow:spend");
+    expect(text(last(t))).toContain("Would you like to activate your Oxxy care plan?");
+    expect(t.conv.pending_action).toBe("flow:close:0");
   });
 
   it("5. a second tap on the callback options changes the slot and confirms the new one", async () => {
@@ -423,5 +433,38 @@ describe("17 Nov client chat: callback times after the button flow", () => {
     await t.run("I need help");
     await t.run("Yes");
     expect(text(last(t))).toBe("Could you please specify which medicine or healthcare service your family member needs?");
+  });
+
+  it("the appointment via 'near by me' and the centre list: YES / NO buttons, then back to the flow", async () => {
+    const t = setup();
+    for (const x of [...VISIT, "book_yes", "Near by me", "10 km", "1"]) await t.run(x);
+    expect(last(t)).toMatchObject({ kind: "buttons" });
+    expect(text(last(t))).toContain("May I do your booking at KMCH Hospital, Avinashi Road? Reply YES or NO");
+    for (const x of ["yes", "cardiology", "25 Nov", "morning"]) await t.run(x);
+    expect(t.sent.map(text).join("\n")).toContain("Your booking request has been made for 25 Nov 2026");
+    expect(text(last(t))).toContain("Would you like to activate your Oxxy care plan?");
+    expect(t.conv.pending_action).toBe("flow:close:0");
+  });
+
+  // Client, 17 Nov: "acknowledge every answer (age, monthly package, family member …) before the next question"
+  it("every answer in the flow is said back first", async () => {
+    const t = setup();
+    const said: Record<string, RegExp> = {
+      who_parent: /^Got it, this is for your father or mother\.\n\n/,
+      need_pathlab: /^Noted: lab tests\.\n\n/,
+      calc_start: /^Sure, let us work out your savings\.\n\n/,
+      spend_30000: /You mentioned a yearly medical expense of about ₹30,000/,
+      age_65: /^Thank you, noted the age \(61 – 70\)\.\n\n/,
+      "Peelamedu, Coimbatore": /^Thank you, noted the area: Peelamedu, Coimbatore\.\n\n/,
+      book_no: /^No problem, I can book the appointment any time later\.\n\n/,
+      fam_2: /^Noted, 2 more members\.\n\n/,
+      famb_monthly: /^Noted: the monthly price\.\n\n/,
+      act_monthly: /^Great choice: the monthly plan\.\n\n/,
+    };
+    for (const x of ["hi", "flow_start", "who_parent", "need_pathlab", "calc_start", "spend_30000", "age_65", "Peelamedu, Coimbatore", "book_no", "flow_family", "fam_2", "famb_monthly", "act_monthly"]) {
+      const before = t.sent.length;
+      await t.run(x);
+      if (said[x]) expect(text(t.sent[before])).toMatch(said[x]);
+    }
   });
 });

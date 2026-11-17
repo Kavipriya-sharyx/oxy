@@ -644,6 +644,29 @@ times -> customer tapped "Tomorrow, 12-2 pm" -> bot: "Which city and locality…
      asked again (asksKnownAgain).
   7. "Yes" to an open "what / which …?" question: "Could you please specify which <medicine / test / …> <who>
      needs?" (`handleBareYes`), never the introduction again.
+- "No flow after this" (client chat, 17 Nov): Book appointment -> "near by me" -> centre list -> "1" -> "May I do
+  your booking at PSG …? Reply YES or NO, or send the name of another centre" came as plain text with the map pin
+  AFTER it, and the flow never came back. Now: that offer gets Yes / No buttons (Bubbles `YES_NO_OR_NAME`), the
+  pin goes first and the question last, and a booking that started at the flow's appointment offer goes back to
+  the spend question also through the centre list (`flowResumeAfterBooking`: the offer is in this chat and no
+  plan was shown yet).
+- Flow order now = the client's current bot (17 Nov screenshots), card for card, then ours:
+  welcome card -> (website / contact) -> who ("Who Are You Looking For Healthcare Support For?", title "Get in Touch
+  …") -> (health-data notice) -> service (title, "Regarding what are you looking for medical service?", "Choose the
+  option:", their 7 rows; no Surgery / Pregnancy rows, typed words still read) -> verify card (logo, footer "Oxxy
+  Healthcare", Customer Testimonial / News Articles reply buttons -> `proofLinkCard`, the step stays) + calculator
+  card ("Calculator / See how much you can save", Calculate Now) -> spend list (their 8 ranges and descriptions; no
+  5,000-10,000) -> savings card (calculator words + "save up to ₹X" + link) -> ours: age -> city -> appointment
+  offer for a visit -> plan card (price + GST) -> family / activate. `flowNextStep` skips what the chat has;
+  "I want plan" / a typed amount at the calculator card also go on. The title stays on who + service (as in their
+  bot), not on later questions.
+- Acknowledgements everywhere (client, 17 Nov: "acknowledge every answer, not only locality / specialisation"): the
+  answer is said back as the FIRST LINE of the next message (`ackLine` + `withAck` in GuidedFlow; never a bubble of
+  its own): who ("Got it, this is for your father or mother."), service ("Noted: lab tests."), Calculate Now, age
+  ("Thank you, noted the age (61 – 70)."), area, appointment yes / no, family count, yearly / monthly, Activate
+  ("Great choice: the monthly plan."); the booking steps too (centre, landmark, specialisation as corrected, date).
+  Already acknowledged before: consent, spend (savings card), callback time, saved booking. The "offer already sent"
+  checks match with Like (the offer may carry an acknowledgement on top).
 - Tests: `ChatPipeline.callbackflow.spec.ts` (seed plan rows, no link).
 - Server config: every Oxxy plan row still lacks the official activation link, renewal terms and activation time
   (seed values), so every "Activate" goes to the team + callback. Fill them on the Plans page for the

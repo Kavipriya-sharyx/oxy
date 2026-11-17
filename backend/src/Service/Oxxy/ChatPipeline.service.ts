@@ -55,6 +55,11 @@ import {
   BOOKABLE_NEEDS,
   bookOffer,
   readBookAnswer,
+  calculatorCard,
+  proofLinkCard,
+  ackLine,
+  withAck,
+  ageLabel,
 } from "./GuidedFlow";
 import { detectRescueSignal, readRescue, rescueLine } from "@Helper/RescueReplies";
 import { REBOOK_DECLINED_T } from "@Helper/CentreReplies";
@@ -1545,6 +1550,11 @@ export class ChatPipelineService {
       await this.startGuidedFlow(m, s);
       return true;
     }
+    // the verify card's buttons (Customer Testimonial / News Articles): the page, the flow step stays
+    if (id === "verify_stories" || id === "verify_news") {
+      await this.sendAndSave(s.customer.id, proofLinkCard(id === "verify_stories" ? "stories" : "news"), m.waMessageId);
+      return true;
+    }
     // the welcome card's buttons work at any time
     if (id === "flow_start" || id === "flow_website" || id === "flow_contact") {
       if (id === "flow_website") {
@@ -1573,18 +1583,15 @@ export class ChatPipelineService {
       await this.setPending(s, `flow:${next}`);
       await reply(msg ?? stepMessage(next, undefined, s.customer.language));
     };
-    // The question after the service: age -> city -> yearly spend, each skipped when this chat already has it.
-    // No condition and no insurance question (client, 17 Nov: "do not ask insurance or the medical condition";
-    // Playbook 5.1: a pre-existing condition is accepted only when the customer shares it).
-    const nextAfter = async (done: "need" | "age" | "city"): Promise<FlowStep> => {
-      if (done === "need" && !(Number(s.customer.age) > 0)) return "age";
-      const n = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
-      if (done !== "city" && !n?.city) return "city";
-      // a visit (consultation, test, scan, hospital, surgery): the appointment is offered once (client, 17 Nov)
-      const nd = readNeed(String(n?.healthcare_need ?? ""));
-      const booked = !!(await quiet(() => booking_request.findOne({ where: { conversation_id: s.conversation.id } as any })));
-      if (nd && BOOKABLE_NEEDS.has(nd) && !booked) return "book";
-      return "spend";
+    // After the client's part (service -> verify + calculator -> spend -> savings): our part, each step skipped
+    // when this chat already has it, then the plan. No condition and no insurance question (client, 17 Nov).
+    const goOn = async (first: boolean, skip?: FlowStep, ack?: string | null) => {
+      const next = await this.flowNextStep(s, skip);
+      if (next === "plan") return this.flowPlanCard(s, first ? m.waMessageId : null, ack);
+      await this.setPending(s, `flow:${next}`);
+      const msg = withAck(stepMessage(next, undefined, s.customer.language), ack);
+      if (first) await reply(msg);
+      else await this.sendMore(s, msg);
     };
 
     switch (step) {
@@ -1595,14 +1602,15 @@ export class ChatPipelineService {
         const n = await this.needRow(s);
         n.beneficiary = who;
         await n.save();
+        const ackWho = ackLine("who", who, s.customer.language);
         if (consentStatus === "granted") {
-          await ask("need");
+          await ask("need", withAck(stepMessage("need", undefined, s.customer.language), ackWho));
         } else if (consentStatus === "refused") {
-          await ask("age");
+          await ask("age", withAck(stepMessage("age", undefined, s.customer.language), ackWho));
         } else {
           // the health-data notice before the first health question (DPDP); YES -> the service question
           await this.setPending(s, FLOW_AFTER_CONSENT);
-          await reply(fixedReply("health_notice", s.customer.language));
+          await reply(`${ackWho}\n\n${fixedReply("health_notice", s.customer.language)}`);
           await this.saveConsentRow(s.customer.id, cons, (c) => {
             c.notice_sent_at = new Date();
             c.notice_sent_version = NOTICE_VERSION;
@@ -1617,12 +1625,19 @@ export class ChatPipelineService {
         n.healthcare_need = NEED_LABEL[nd];
         if (nd === "surgery") n.need_pattern = "single_expense";
         await n.save();
-        // the client's order: the verify card after the service, then the next question (Trigger A)
-        const next = await nextAfter("need");
-        await this.setPending(s, `flow:${next}`);
-        await reply(verifyCard());
-        await this.sendMore(s, stepMessage(next, undefined, s.customer.language));
+        // the client's bot: the verify card, then the calculator card ("Calculate Now" -> the spend list)
+        await this.setPending(s, "flow:calc");
+        await reply(withAck(verifyCard(), ackLine("need", NEED_LABEL[nd], s.customer.language)));
+        await this.sendMore(s, calculatorCard(s.customer.language));
         await this.recordTrigger(s, "A", "verify card in the button flow");
+        return true;
+      }
+      case "calc": {
+        // "Calculate Now" (or the amount typed at once, or "I want plan"): the spend list
+        const typed = readSpendChoice(text) ?? spendAnswer(text);
+        if (typed) return this.flowSpend(s, typed, reply, goOn);
+        if (id !== "calc_start" && !/\b(calculat\w*|start|yes|ok|okay|plan|plans|price|save|saving|savings|next)\b/i.test(text)) return false;
+        await ask("spend", withAck(stepMessage("spend", undefined, s.customer.language), ackLine("calc", null, s.customer.language)));
         return true;
       }
       case "condition": {
@@ -1641,7 +1656,7 @@ export class ChatPipelineService {
         s.customer.age = age as any;
         await s.customer.save();
         // the area given earlier in this chat (typed, a pin) is used: no city question again
-        await ask(await nextAfter("age"));
+        await goOn(true, undefined, ackLine("age", ageLabel(text, age, s.customer.language), s.customer.language));
         return true;
       }
       case "city": {
@@ -1682,7 +1697,9 @@ export class ChatPipelineService {
           n.locality = (area?.locality ?? null) as any;
           await n.save();
         }
-        await ask(await nextAfter("city")); // no insurance question (client, 17 Nov); the appointment offer for a visit
+        const placed = this.placeOf(await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } })));
+        // no insurance question (client, 17 Nov); the appointment offer for a visit
+        await goOn(true, undefined, placed ? ackLine("city", placed, s.customer.language) : null);
         return true;
       }
       case "insurance": {
@@ -1691,24 +1708,13 @@ export class ChatPipelineService {
         const n = await this.needRow(s);
         n.insurance_status = ins;
         await n.save();
-        await ask("spend");
+        await goOn(true);
         return true;
       }
       case "spend": {
         const spend = readSpendChoice(text) ?? spendAnswer(text);
         if (!spend) return false;
-        const n = await this.needRow(s);
-        n.annual_medical_spend = spend as any;
-        await n.save();
-        const facts = await this.flowFacts(s);
-        const plan = pickPlan(facts);
-        await this.saveRecommendation(s, plan);
-        await this.setPending(s, "flow:close:0");
-        await reply(savingsCard(spend, s.customer.language));
-        await this.sendMore(s, planCard(plan, await this.flowPrice(plan), facts, s.customer.language));
-        await this.recordTrigger(s, "F", "savings card in the button flow");
-        await this.recordTrigger(s, "E", `plan ${plan} with price and GST`);
-        return true;
+        return this.flowSpend(s, spend, reply, goOn);
       }
       case "close": {
         const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
@@ -1754,7 +1760,7 @@ export class ChatPipelineService {
               s.customer.language,
             ) + "\n\n";
         }
-        await reply(note + act);
+        await reply(`${ackLine("activate", billing === BillingCycle.Monthly ? "monthly" : "yearly", s.customer.language)}\n\n${note}${act}`);
         // the terms before the payment: only when the official link is the next step, once per chat
         // (client, 17 Nov: "Terms & Conditions sent without a reason, many times")
         if (s.conversation.pending_action?.startsWith("send_activation_link:")) {
@@ -1771,19 +1777,20 @@ export class ChatPipelineService {
         if (!k) return false;
         const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
         // pricing document 13: the billing first, then the breakdown for it
-        await ask(`fambill:${k}` as FlowStep, familyBillingQuestion(plan, k, s.customer.language));
+        await ask(`fambill:${k}` as FlowStep, withAck(familyBillingQuestion(plan, k, s.customer.language), ackLine("family", k, s.customer.language)));
         return true;
       }
       case "book": {
         const a = readBookAnswer(text);
         if (!a) return false;
         if (a === "no") {
-          await ask("spend");
+          await this.setPending(s, null);
+          await goOn(true, "book", ackLine("book_no", null, s.customer.language)); // answered: never offered twice
           return true;
         }
-        // the existing booking request: hospital -> date -> time; back to the spend question once it is saved
-        const parts = await this.startBooking(s, { asked: true, resume: "spend" });
-        await reply(parts.join("\n\n"));
+        // the existing booking request: hospital -> date -> time; back to the flow once it is saved
+        const parts = await this.startBooking(s, { asked: true, resume: "next" });
+        await reply([ackLine("book_yes", null, s.customer.language), ...parts].join("\n\n"));
         return true;
       }
       case "fambill": {
@@ -1791,11 +1798,58 @@ export class ChatPipelineService {
         if (!cycle) return false;
         const k = flowFamily(s.conversation.pending_action) || 1;
         const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
-        await ask(`close:${k}` as FlowStep, familyCard(plan, await this.flowPrice(plan), k, s.customer.language, cycle));
+        await ask(`close:${k}` as FlowStep, withAck(familyCard(plan, await this.flowPrice(plan), k, s.customer.language, cycle), ackLine("billing", cycle, s.customer.language)));
         return true;
       }
     }
     return false;
+  }
+
+  /** The spend answer: saved, the savings card (the client's calculator card with the amount), then on */
+  private async flowSpend(
+    s: Saved,
+    spend: number,
+    reply: (msg: string | OutboundMessage) => Promise<unknown>,
+    goOn: (first: boolean) => Promise<unknown>,
+  ): Promise<boolean> {
+    const n = await this.needRow(s);
+    n.annual_medical_spend = spend as any;
+    await n.save();
+    await reply(savingsCard(spend, s.customer.language));
+    await this.recordTrigger(s, "F", "savings card in the button flow");
+    await goOn(false);
+    return true;
+  }
+
+  /** Our part of the button flow, in order, skipping what this chat already has: age, city, appointment, spend */
+  private async flowNextStep(s: Saved, skip?: FlowStep): Promise<FlowStep | "plan"> {
+    const n = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
+    if (!(Number(s.customer.age) > 0)) return "age";
+    if (!n?.city) return "city";
+    // a visit (consultation, test, scan, hospital): the appointment is offered once (client, 17 Nov)
+    const nd = readNeed(String(n?.healthcare_need ?? ""));
+    if (nd && BOOKABLE_NEEDS.has(nd) && skip !== "book") {
+      const booked = !!(await quiet(() => booking_request.findOne({ where: { conversation_id: s.conversation.id } as any })));
+      const offer = (bookOffer(s.customer.language) as { body: string }).body;
+      const offered = !!(await quiet(() =>
+        message.findOne({ where: { conversation_id: s.conversation.id, direction: "out", body: Like(`%${offer}%`) } as any }),
+      ));
+      if (!booked && !offered) return "book";
+    }
+    if (!(Number(n?.annual_medical_spend) > 0)) return "spend";
+    return "plan";
+  }
+
+  /** The one plan with price + GST and the activate / family buttons (Trigger E) */
+  private async flowPlanCard(s: Saved, replyTo: string | null, ack?: string | null) {
+    const facts = await this.flowFacts(s);
+    const plan = pickPlan(facts);
+    await this.saveRecommendation(s, plan);
+    await this.setPending(s, "flow:close:0");
+    const card = withAck(planCard(plan, await this.flowPrice(plan), facts, s.customer.language), ack);
+    if (replyTo) await this.sendAndSave(s.customer.id, card, replyTo);
+    else await this.sendMore(s, card);
+    await this.recordTrigger(s, "E", `plan ${plan} with price and GST`);
   }
 
   // SERVICE_OR_ESCALATION (Playbook 3): look the customer up and say what is on record
@@ -4209,14 +4263,28 @@ export class ChatPipelineService {
       "H",
       d.c ? "booking request saved" : "booking request, centre to be verified",
     );
-    if (d.rf) {
-      // started from the button flow: back to its next question (sent after this reply), no activation offer
-      await this.setPending(s, `flow:${d.rf}`);
-      (s as any).flowAfterBooking = d.rf;
+    const rf = d.rf ?? (await this.flowResumeAfterBooking(s));
+    if (rf) {
+      // started from the button flow: back to its next step (sent after this reply), no activation offer
+      (s as any).flowAfterBooking = rf;
       return [text];
     }
     const soft = await this.softActivationOffer(s, date);
     return soft ? [text, soft] : [text];
+  }
+
+  /**
+   * The booking began at the button flow's appointment offer but went through the centre list ("near by me"),
+   * which starts a new draft: the flow still has to go on with the spend and the plan (client, 17 Nov: "no flow
+   * after this"). True when the offer was sent in this chat and no plan has been shown yet.
+   */
+  private async flowResumeAfterBooking(s: Saved): Promise<string | null> {
+    if (s.conversation.recommended_plan || s.customer.active_product) return null;
+    const offer = (bookOffer(s.customer.language) as { body: string }).body;
+    const asked = await quiet(() =>
+      message.findOne({ where: { conversation_id: s.conversation.id, direction: "out", body: Like(`%${offer}%`) } as any }),
+    );
+    return asked ? "next" : null;
   }
 
   // After the centre list: "2" picks the second centre shown, then the booking offer (Trigger G).
@@ -4765,12 +4833,14 @@ ${res.text}` : res.text, m.waMessageId);
         "G",
         s.customer.active_product,
       )) ?? null;
+    // the centre on the map first, then the offer with its YES / NO buttons as the last message (client, 17 Nov:
+    // the pin after the question pushed the question up and the customer did not see what to answer)
+    await this.sendCentrePin(s, ctr);
     await this.sendAndSave(
       s.customer.id,
       (await this.advanceBooking(s, d)).join("\n\n"),
       m.waMessageId,
     );
-    await this.sendCentrePin(s, ctr); // the centre on the map, one tap for directions
     if (decision)
       await this._Triggers!.record(
         s.customer.id,
@@ -4841,11 +4911,15 @@ ${res.text}` : res.text, m.waMessageId);
     const raw = (m.text || "").trim();
     const reply = async (parts: string[]) => {
       await this.sendAndSave(s.customer.id, parts.join("\n\n"), m.waMessageId);
-      // a booking started from the button flow goes back to the flow's next question
-      const next = (s as any).flowAfterBooking as FlowStep | undefined;
-      if (next) {
+      // a booking started from the button flow goes back to the flow's next step (or the plan)
+      if ((s as any).flowAfterBooking) {
         (s as any).flowAfterBooking = undefined;
-        await this.sendMore(s, stepMessage(next, undefined, s.customer.language));
+        const next = await this.flowNextStep(s, "book"); // the booking just saved answers the offer
+        if (next === "plan") await this.flowPlanCard(s, null);
+        else {
+          await this.setPending(s, `flow:${next}`);
+          await this.sendMore(s, stepMessage(next, undefined, s.customer.language));
+        }
       }
     };
     const l = s.customer.language;
@@ -4990,6 +5064,7 @@ ${res.text}` : res.text, m.waMessageId);
       }
       n.specialisation = spec.slice(0, 80);
       await n.save();
+      (d as any)._said = n.specialisation; // said back as corrected ("Orthi" -> "Orthopaedics")
     } else if (d.step === "date") {
       let iso = parseCustomerDate(text);
       if (!iso) {
@@ -5021,7 +5096,26 @@ ${res.text}` : res.text, m.waMessageId);
     } else if (d.step === "time") {
       d.t = text.slice(0, 40);
     }
-    await reply(await this.advanceBooking(s, d));
+    // the answer said back before the next question (client, 17 Nov: "acknowledge every answer"); the time needs
+    // none: the saved request repeats everything
+    const ackSay = (en: string, hi: string, hg: string) => say({ en, hi, hinglish: hg }, l);
+    const clip = (x: string) => String(x).trim().slice(0, 60).replace(/[.!?।\s]+$/, "");
+    const said = (d as any)._said as string | undefined;
+    delete (d as any)._said; // never written into the saved draft
+    const ack =
+      (d.step === "centre" || d.step === "offer") && d.c
+        ? ackSay(`Noted: ${d.cn}.`, `नोट किया: ${d.cn}।`, `Noted: ${d.cn}.`)
+        : d.step === "landmark" && d.l
+          ? /^\s*near\b/i.test(d.l)
+            ? ackSay(`Noted: ${clip(d.l)}.`, `नोट किया: ${clip(d.l)}।`, `Noted: ${clip(d.l)}.`)
+            : ackSay(`Noted: near ${clip(d.l)}.`, `नोट किया: ${clip(d.l)} के पास।`, `Noted: ${clip(d.l)} ke paas.`)
+          : d.step === "specialisation"
+            ? ackSay(`Noted: ${clip(said ?? text)}.`, `नोट किया: ${clip(said ?? text)}।`, `Noted: ${clip(said ?? text)}.`)
+            : d.step === "date" && d.d
+              ? say(DATE_NOTED_T, l).replace("{date}", showDate(d.d))
+              : null;
+    const next = await this.advanceBooking(s, d);
+    await reply(ack && next.length && !/^Your booking request|booking request has been|बुकिंग अनुरोध/.test(next[0]) ? [ack, ...next] : next);
     return true;
   }
 

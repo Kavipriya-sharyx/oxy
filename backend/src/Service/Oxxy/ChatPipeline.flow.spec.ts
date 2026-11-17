@@ -120,7 +120,7 @@ const cat = (plan: string, monthly: number, yearly: number) => [
 ];
 
 describe("17 Nov: welcome card, then the voice-call questions with buttons, then one plan with GST", () => {
-  it("hi -> welcome card -> who -> service -> age -> city -> spend -> plan -> family -> activate", async () => {
+  it("hi -> welcome -> who -> service -> verify + calculator -> spend -> age -> city -> appointment -> plan -> family -> activate", async () => {
     const needRow: Record<string, unknown> = { save: async () => undefined };
     const t = setup([], { needRow, found: () => [], catalog: [...cat("infinity", 3999, 40000), ...cat("everyday", 999, 10000)] });
     await t.run("hi");
@@ -132,11 +132,20 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
     expect(t.sent.at(-1)).toMatchObject({ kind: "list", buttonLabel: "Family Member" });
     await t.run("who_parents");
     expect(needRow.beneficiary).toBe("parents");
-    expect(t.out.at(-1)).toContain("Are you planning a consultation, test, medicine, treatment or surgery now");
+    // the client's bot, card for card (17 Nov screenshots)
+    expect(t.out.at(-1)).toContain("Regarding what are you looking for medical service?");
+    expect(t.sent.at(-1)).toMatchObject({ kind: "list", buttonLabel: "Choose the option:" });
 
     await t.run("need_consult");
     expect(t.out.at(-2)).toContain("Verify Our Healthcare Services");
-    // no condition and no insurance question (client, 17 Nov): service -> age -> city -> spend
+    expect(t.sent.at(-2)).toMatchObject({ kind: "buttons", footer: "Oxxy Healthcare" });
+    expect(t.out.at(-1)).toBe("Calculator\nSee how much you can save");
+    expect(t.conv.pending_action).toBe("flow:calc");
+    await t.run("calc_start");
+    expect(t.out.at(-1)).toBe("Sure, let us work out your savings.\n\nMay I know the yearly medical expenditure to calculate the approximate savings?");
+    await t.run("spend_50000");
+    expect(t.out.at(-2)).toContain("Oxxy can help you save up to ₹15,000");
+    // then ours: no condition and no insurance question (client, 17 Nov): age -> city -> appointment -> plan
     expect(t.out.at(-1)).toContain("May I know the patient's age?");
     expect(t.out.join(" ")).not.toContain("ongoing or pre-existing condition");
     await t.run("age_65");
@@ -146,10 +155,7 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
     // a consultation is a visit: the appointment is offered (hospital, date, time), separate from the team's call
     expect(t.out.at(-1)).toContain("Would you like me to book the appointment too?");
     await t.run("book_no");
-    expect(t.out.at(-1)).toContain("How much will your annual medical expense be next year?");
     expect(t.out.join(" ")).not.toContain("health insurance");
-    await t.run("spend_50000");
-    expect(t.out.at(-2)).toContain("Oxxy can help you save up to ₹15,000");
     const plan = t.out.at(-1)!;
     expect(plan).toContain("Since this is for your parents");
     expect(plan).toContain("Oxxy Infinity plan fits best");
@@ -187,7 +193,7 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
     expect(t.conv.pending_action).toBe("flow:insurance");
     await t.run("ins_yes");
     expect(needRow.insurance_status).toBe("has_insurance");
-    expect(t.out.at(-1)).toContain("How much will your annual medical expense be next year?");
+    expect(t.out.at(-1)).toContain("May I know the patient's age?");
   });
 
   it("Main Menu brings the welcome card back", async () => {

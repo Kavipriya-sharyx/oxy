@@ -104,7 +104,8 @@ function setup(
     // what the chat history keeps: the centre list's full text (`log`); its body has the names only in the rows
     out.push(String((a[1] as { body: string; log?: string }).log ?? (a[1] as { body: string }).body));
     if ((a[1] as { kind?: string }).kind === "location_request") pinAsked = true;
-    replied = true;
+    // only a message tagged with the inbound wamid is "the reply" (a map pin sent first is not)
+    if (a[3] || (a[1] as { kind?: string }).kind !== "location") replied = true;
     return "wamid.OUT";
   });
   const generate = jest.fn();
@@ -845,15 +846,16 @@ describe("booking request, one question per turn", () => {
       "May I do your booking at Apollo Eye, Adyar? Reply YES or NO, or send the name of another centre you prefer.",
     );
     await t.run("yes");
+    // each answer is said back first (client, 17 Nov), then the next question
     expect(t.out[1]).toBe(
-      "Which doctor specialisation, test or healthcare service should I include in the request?",
+      "Noted: Apollo Eye, Adyar.\n\nWhich doctor specialisation, test or healthcare service should I include in the request?",
     );
     await t.run("eye check-up");
     expect(row.specialisation).toBe("eye check-up");
-    expect(t.out[2]).toMatch(/^What date would you prefer\? It can be from /);
+    expect(t.out[2]).toMatch(/^Noted: eye check-up\.\n\nWhat date would you prefer\? It can be from /);
     const day = ddmmyyyy(10);
     await t.run(day.text);
-    expect(t.out[3]).toBe("What time or time window would suit you?");
+    expect(t.out[3]).toMatch(/^Noted .*\.\n\nWhat time or time window would suit you\?$/);
     await t.run("10 am");
     expect(t.bookings).toEqual([
       expect.objectContaining({
@@ -905,7 +907,7 @@ describe("booking request, one question per turn", () => {
     expect(t.out.join("\n\n")).toContain('"Kumar Nursing Home" is not in our directory yet');
     expect(t.out.join("\n\n")).not.toContain("Sure, which date?"); // one question per turn
     await t.run("near the bus stand, Velachery");
-    expect(t.out[1]).toMatch(/^What date would you prefer/);
+    expect(t.out[1]).toMatch(/^Noted: .+\n\nWhat date would you prefer/);
     await t.run(`${day.text} 11am`); // the time came with the date
     expect(t.bookings).toHaveLength(0);
     expect(t.out[2]).toContain("Our team will first check the centre and branch");
@@ -991,7 +993,7 @@ describe("booking request, one question per turn", () => {
     });
     await t.run("Apollo Eye");
     expect(classify).not.toHaveBeenCalled();
-    expect(t.out[0]).toMatch(/^What date would you prefer/);
+    expect(t.out[0]).toMatch(/^Noted: .+\n\nWhat date would you prefer/);
   });
 
   it("'Orthi' -> the LLM corrects it to Orthopaedics; a known word ('eye') is kept without a call", async () => {
@@ -1005,7 +1007,7 @@ describe("booking request, one question per turn", () => {
     });
     await t.run("Orthi.");
     expect(needRow.specialisation).toBe("Orthopaedics");
-    expect(t.out[0]).toMatch(/^What date would you prefer/);
+    expect(t.out[0]).toMatch(/^Noted: .+\n\nWhat date would you prefer/);
 
     const needRow2: Record<string, unknown> = { save: async () => undefined };
     const classify2 = reads("answer", "x");
@@ -1031,7 +1033,7 @@ describe("booking request, one question per turn", () => {
     });
     await t.run("Orthi.");
     expect(needRow.specialisation).toBe("Orthi.");
-    expect(t.out[0]).toMatch(/^What date would you prefer/);
+    expect(t.out[0]).toMatch(/^Noted: .+\n\nWhat date would you prefer/);
   });
 
   it("a date the parser cannot read ('coming friday') is worked out by the LLM, then checked against the window", async () => {
@@ -1369,9 +1371,11 @@ describe("nearby centres (location + Google Maps)", () => {
   it("picking a centre from the list also sends its map pin", async () => {
     const t = setup([], { pending: "centre_pick", needRow: { suggested_centre_ids: ["ctr9"], specialisation: "ortho", save: async () => undefined }, centres: [ABC] });
     await t.run("1");
-    expect(t.out[0]).toContain("May I do your booking at ABC Hospital?");
-    const pin = t.send.mock.calls.map((c) => (c as unknown[])[1] as Record<string, unknown>).find((x) => x.kind === "location");
-    expect(pin).toMatchObject({ latitude: 11.03, longitude: 77.01, name: "ABC Hospital" });
+    // the pin first, then the YES / NO offer as the last message (client, 17 Nov)
+    const msgs = t.send.mock.calls.map((c) => (c as unknown[])[1] as Record<string, unknown>);
+    expect(msgs[0]).toMatchObject({ kind: "location", latitude: 11.03, longitude: 77.01, name: "ABC Hospital" });
+    expect(msgs.at(-1)).toMatchObject({ kind: "buttons" });
+    expect(t.out.at(-1)).toContain("May I do your booking at ABC Hospital?");
   });
 
   it("no verified centre near the pin: Google's places go to the TEAM as a task, never to the customer", async () => {
