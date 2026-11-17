@@ -30,7 +30,9 @@ export type FlowStep =
   | "close"
   | "family"
   // "Yearly or monthly?" for the family breakdown (pricing document 13: plan -> billing -> first / subsequent)
-  | "fambill";
+  | "fambill"
+  // "Shall I book the appointment?" (client, 17 Nov: hospital, date and time were never asked)
+  | "book";
 export const FLOW_PREFIX = "flow:";
 /** pending_action while the health-data notice waits, before the service question */
 export const FLOW_AFTER_CONSENT = "after_consent:flow";
@@ -112,10 +114,10 @@ const list = (
   buttonLabel: string,
   rows: ListRow[],
   footer: string | undefined,
-  header: { type: "text"; text: string },
+  header?: { type: "text"; text: string },
 ): OutboundMessage => ({
   kind: "list",
-  header,
+  ...(header ? { header } : {}),
   body,
   buttonLabel,
   rows,
@@ -211,7 +213,6 @@ export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMe
         tr(l, "Choose the option", "विकल्प चुनें", "Option chunein"),
         NEED_ROWS(l),
         undefined,
-        title(l),
       );
     case "condition":
       return list(
@@ -219,7 +220,6 @@ export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMe
         tr(l, "Choose one", "एक चुनें", "Ek chunein"),
         CONDITION_ROWS(l),
         tr(l, "Share only what you are comfortable with", "उतना ही बताइए जितना आप सहज हों", "Utna hi bataiye jitna aap comfortable hon"),
-        title(l),
       );
     case "age":
       return list(
@@ -227,7 +227,6 @@ export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMe
         tr(l, "Choose age", "उम्र चुनें", "Age chunein"),
         AGE_ROWS(l),
         undefined,
-        title(l),
       );
     case "city":
       return {
@@ -252,6 +251,8 @@ export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMe
         undefined,
         { type: "text", text: tr(l, "Calculator: See how much you can save", "कैलकुलेटर: देखें आप कितना बचा सकते हैं", "Calculator: Dekhiye aap kitna bacha sakte hain") },
       );
+    case "book":
+      return bookOffer(l);
     default:
       return welcomeCard();
   }
@@ -605,6 +606,31 @@ export function familyCard(plan: PlanName, price: PlanPrice, extra: number, l?: 
       { id: "flow_menu", title: tr(l, "Main Menu", "मुख्य मेनू", "Main Menu") },
     ],
   };
+}
+
+/** Needs that are a visit somewhere: the appointment (hospital, date, time) is offered for them */
+export const BOOKABLE_NEEDS = new Set(["consult", "pathlab", "diagnostic", "hospital", "surgery", "pregnancy", "all"]);
+
+/** The appointment offer: the hospital and the visit's date and time, never confused with the team's call */
+export const bookOffer = (l?: Lg): OutboundMessage => ({
+  kind: "buttons",
+  body: tr(
+    l,
+    "Would you like me to book the appointment too? I will ask the hospital or centre you prefer and the date and time of the visit. (This is separate from any call from the Oxxy team.)",
+    "क्या मैं अपॉइंटमेंट भी बुक कर दूँ? मैं आपका पसंदीदा अस्पताल या सेंटर और विज़िट की तारीख और समय पूछूँगा। (यह Oxxy टीम की कॉल से अलग है।)",
+    "Kya main appointment bhi book kar doon? Main aapka pasandida hospital ya centre aur visit ki date aur time poochunga. (Yeh Oxxy team ki call se alag hai.)",
+  ),
+  buttons: [
+    { id: "book_yes", title: tr(l, "Book appointment", "अपॉइंटमेंट बुक करें", "Appointment book") },
+    { id: "book_no", title: tr(l, "Not now", "अभी नहीं", "Abhi nahi") },
+  ],
+});
+
+export function readBookAnswer(text: string): "yes" | "no" | null {
+  const s = t(text);
+  if (/^book_yes$|^(yes|yeah|yep|ok|okay|sure|haan|ha|book|book it|book appointment|aama|seri)[.!]*$/.test(s)) return "yes";
+  if (/^book_no$|^(no|nope|not now|later|skip|nahi|nahin|abhi nahi|vendam|illa)[.!]*$/.test(s)) return "no";
+  return null;
 }
 
 export const asksMainMenu = (text: string) => /^(flow_menu|main menu|menu|start again|restart)\s*[.!]?$/i.test((text || "").trim());

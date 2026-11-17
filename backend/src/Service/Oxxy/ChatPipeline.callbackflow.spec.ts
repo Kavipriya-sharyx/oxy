@@ -98,7 +98,13 @@ function setup(opts: { llm?: unknown[]; maps?: unknown } = {}) {
   stub(message, "findOne", async (o: unknown) => {
     const w = (o as { where?: { reply_to_wa_message_id?: string; type?: string } })?.where;
     if (w?.type === "location_request") return { id: "pin-asked" };
-    return replied && w?.reply_to_wa_message_id ? { id: "out" } : null;
+    if (w?.reply_to_wa_message_id) return replied ? { id: "out" } : null;
+    // the last bot message / a message with this body (lastBotText, the terms card sent once)
+    const body = (w as { body?: string } | undefined)?.body;
+    const all = sent.map((x) => String((x as { log?: string }).log ?? (x as { body?: string }).body ?? ""));
+    if (body) return all.includes(body) ? { id: "out", body } : null;
+    if ((w as { direction?: string } | undefined)?.direction === "out" && all.length) return { id: "out", body: all[all.length - 1] };
+    return null;
   });
   stub(message, "find", async () => []);
   stub(conversation, "findOne", async () => conv);
@@ -192,7 +198,8 @@ describe("17 Nov client chat: callback times after the button flow", () => {
     expect(t.conv.pending_action).toMatch(/^callback_time:/);
     await t.run("2");
     expect(text(last(t))).toBe("I have requested a callback for Tomorrow, 12-2 pm. Reference: CB-TASK1.");
-    expect(t.conv.pending_action).toBeNull();
+    // the same options may still be tapped once more to change the slot
+    expect(t.conv.pending_action).toMatch(/^callback_set:/);
     expect(t.conv.state).not.toBe(S.CentreSearch);
   });
 
@@ -214,7 +221,7 @@ describe("17 Nov client chat: callback times after the button flow", () => {
 
   it("menu row \"find a centre\" after the flow asks how far near the known area, not the city again", async () => {
     const t = setup();
-    for (const x of [...FLOW, "act_monthly", "2", "2"]) await t.run(x); // callback time 2, then a typed "2" (old menu row: find a centre)
+    for (const x of [...FLOW, "act_monthly", "2", "ok", "2"]) await t.run(x); // callback time 2, "ok", then a typed "2" (old menu row: find a centre)
     expect(text(last(t))).toBe("Near Peelamedu, Coimbatore. How far can the patient travel for this? For example 5 km, 10 km or 20 km.");
     expect(t.conv.pending_action).toBe("centre_radius");
     expect(t.sent.slice(-2).map(text).join(" ")).not.toMatch(/which city/i);
@@ -280,7 +287,7 @@ describe("17 Nov client chat: callback times after the button flow", () => {
   // Client chat, 17 Nov evening: the plan card said Infinity; "Does it support dialysis?" came back as "I recommend
   // the Thrive plan … yearly healthcare spend of about ₹5,00,000" with the spend ranges again, and "Can I buy for
   // my parents" got only the activation text.
-  const PARENTS = ["hi", "flow_start", "who_parents", "need_hospital", "age_65", "Peelamedu, Coimbatore", "spend_500000"];
+  const PARENTS = ["hi", "flow_start", "who_parents", "need_hospital", "age_65", "Peelamedu, Coimbatore", "book_no", "spend_500000"];
   const D = (reply_text: string, intent: string, extracted_fields: object = {}) => ({ reply_text, intent, extracted_fields, needs_human: false });
 
   it("a coverage question tagged 'recommend' keeps the flow's plan and its answer", async () => {
@@ -366,5 +373,55 @@ describe("17 Nov client chat: callback times after the button flow", () => {
     (t.conv as any).state = S.Discovery;
     await t.run("How do I know this is not a scam?");
     expect(t.sent.map(text).join(" ")).not.toContain("raised an urgent request");
+  });
+
+  // Client feedback list, 17 Nov evening (7 problems from a real chat)
+  const VISIT = ["hi", "flow_start", "who_family", "need_consult", "age_65", "Peelamedu, Coimbatore"];
+
+  it("1. the 'Get in Touch with Oxxy …' title only once (on the first question)", async () => {
+    const t = setup();
+    for (const x of [...VISIT, "book_no", "spend_50000"]) await t.run(x);
+    const titled = t.sent.filter((m) => /Get in Touch with Oxxy/.test(String((m.header as { text?: string } | undefined)?.text ?? "")));
+    expect(titled).toHaveLength(1);
+  });
+
+  it("2. no Terms & Conditions card when the team sends the link (no official link step)", async () => {
+    const t = setup();
+    for (const x of [...FLOW, "act_monthly"]) await t.run(x);
+    expect(t.sent.map(text).join(" ")).not.toContain("terms and conditions");
+  });
+
+  it("3 + 4. a visit: hospital, then the appointment date and time (separate from the callback), then the flow goes on", async () => {
+    const t = setup();
+    for (const x of VISIT) await t.run(x);
+    expect(text(last(t))).toContain("Would you like me to book the appointment too?");
+    for (const x of ["book_yes", "KMCH Hospital", "Avinashi Road", "cardiology", "25 Nov", "morning"]) await t.run(x);
+    const all = t.sent.map(text).join("\n");
+    expect(all).toContain("Please share the centre and branch first.");
+    expect(all).toContain("What date would you prefer?");
+    expect(all).toContain("What time or time window would suit you?");
+    expect(all).toContain("Your booking request has been made for 25 Nov 2026 at morning at KMCH Hospital");
+    expect(text(last(t))).toContain("How much will your annual medical expense be next year?");
+    expect(t.conv.pending_action).toBe("flow:spend");
+  });
+
+  it("5. a second tap on the callback options changes the slot and confirms the new one", async () => {
+    const t = setup();
+    for (const x of [...FLOW, "act_monthly", "1"]) await t.run(x);
+    expect(text(last(t))).toBe("I have requested a callback for Tomorrow, 10 am-12 pm. Reference: CB-TASK1.");
+    await t.run("3");
+    expect(text(last(t))).toBe("Updated. Your callback is now Tomorrow, 2-4 pm. Reference: CB-TASK1.");
+    expect(t.sent.map(text).join(" ")).not.toContain("lifelong healthcare savings"); // "3" is not the old menu
+    await t.run("thanks");
+    expect(t.conv.pending_action).toBeNull();
+  });
+
+  it("7. 'Yes' to an open question asks what exactly is needed, never restarts", async () => {
+    const t = setup({ llm: ["Happy to help. What type of expense do you need help with?"] });
+    (t.conv as any).state = S.Discovery;
+    Object.assign(t.needRow, { beneficiary: "family" });
+    await t.run("I need help");
+    await t.run("Yes");
+    expect(text(last(t))).toBe("Could you please specify which medicine or healthcare service your family member needs?");
   });
 });

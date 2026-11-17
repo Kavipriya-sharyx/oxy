@@ -52,6 +52,9 @@ import {
   welcomeCard,
   familyBillingQuestion,
   readFamilyBilling,
+  BOOKABLE_NEEDS,
+  bookOffer,
+  readBookAnswer,
 } from "./GuidedFlow";
 import { detectRescueSignal, readRescue, rescueLine } from "@Helper/RescueReplies";
 import { REBOOK_DECLINED_T } from "@Helper/CentreReplies";
@@ -1163,10 +1166,18 @@ export class ChatPipelineService {
 
   // The customer's answer to the callback options. Anything else stays with the team (bot quiet while ESCALATED).
   private async handleCallbackTime(m: Inbound, s: Saved): Promise<boolean> {
-    const hit = (s.conversation.pending_action ?? "").match(/^callback_time:([^:]+):(.*)$/);
+    // callback_set: a time was just saved; the next message may still pick another of the same options (client,
+    // 17 Nov: 10 am-12 pm tapped, then 2-4 pm: the bot kept 10-12 and read "3" as the old menu). Anything else
+    // ends it and is answered normally.
+    const hit = (s.conversation.pending_action ?? "").match(/^callback_(time|set):([^:]+):(.*)$/);
     if (!hit) return false;
-    const taskId = hit[1];
-    const choice = parseCallbackChoice(m.text, unpackWindows(hit[2]));
+    const change = hit[1] === "set";
+    const taskId = hit[2];
+    const choice = parseCallbackChoice(m.text, unpackWindows(hit[3]));
+    if (change && (!choice || "outside" in choice)) {
+      await this.setPending(s, null);
+      return false;
+    }
     if (!choice) return false;
     const lang = s.customer.language;
     if ("outside" in choice) {
@@ -1196,10 +1207,21 @@ export class ChatPipelineService {
       });
     });
     await this._Outbox.dispatch(row);
-    await this.setPending(s, null);
+    await this.setPending(s, `callback_set:${taskId}:${hit[3]}`);
     await this.sendAndSave(
       s.customer.id,
-      callbackSavedText(w, caseRef(taskId), lang),
+      change
+        ? say(
+            {
+              en: "Updated. Your callback is now {when}. Reference: {ref}.",
+              hi: "बदल दिया गया। आपकी कॉलबैक अब {when} है। रेफ़रेंस: {ref}।",
+              hinglish: "Update ho gaya. Aapki callback ab {when} hai. Reference: {ref}.",
+            },
+            lang,
+          )
+            .replace("{when}", showWindow(w, lang))
+            .replace("{ref}", caseRef(taskId))
+        : callbackSavedText(w, caseRef(taskId), lang),
       m.waMessageId,
     );
     return true;
@@ -1556,10 +1578,12 @@ export class ChatPipelineService {
     // Playbook 5.1: a pre-existing condition is accepted only when the customer shares it).
     const nextAfter = async (done: "need" | "age" | "city"): Promise<FlowStep> => {
       if (done === "need" && !(Number(s.customer.age) > 0)) return "age";
-      if (done !== "city") {
-        const n = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
-        if (!n?.city) return "city";
-      }
+      const n = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
+      if (done !== "city" && !n?.city) return "city";
+      // a visit (consultation, test, scan, hospital, surgery): the appointment is offered once (client, 17 Nov)
+      const nd = readNeed(String(n?.healthcare_need ?? ""));
+      const booked = !!(await quiet(() => booking_request.findOne({ where: { conversation_id: s.conversation.id } as any })));
+      if (nd && BOOKABLE_NEEDS.has(nd) && !booked) return "book";
       return "spend";
     };
 
@@ -1658,7 +1682,7 @@ export class ChatPipelineService {
           n.locality = (area?.locality ?? null) as any;
           await n.save();
         }
-        await ask("spend"); // no insurance question (client, 17 Nov)
+        await ask(await nextAfter("city")); // no insurance question (client, 17 Nov); the appointment offer for a visit
         return true;
       }
       case "insurance": {
@@ -1731,7 +1755,15 @@ export class ChatPipelineService {
             ) + "\n\n";
         }
         await reply(note + act);
-        await this.sendMore(s, termsCard(s.customer.language));
+        // the terms before the payment: only when the official link is the next step, once per chat
+        // (client, 17 Nov: "Terms & Conditions sent without a reason, many times")
+        if (s.conversation.pending_action?.startsWith("send_activation_link:")) {
+          const terms = termsCard(s.customer.language) as { body: string };
+          const sent = await quiet(() =>
+            message.findOne({ where: { conversation_id: s.conversation.id, direction: "out", body: terms.body } as any }),
+          );
+          if (!sent) await this.sendMore(s, termsCard(s.customer.language));
+        }
         return true;
       }
       case "family": {
@@ -1740,6 +1772,18 @@ export class ChatPipelineService {
         const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
         // pricing document 13: the billing first, then the breakdown for it
         await ask(`fambill:${k}` as FlowStep, familyBillingQuestion(plan, k, s.customer.language));
+        return true;
+      }
+      case "book": {
+        const a = readBookAnswer(text);
+        if (!a) return false;
+        if (a === "no") {
+          await ask("spend");
+          return true;
+        }
+        // the existing booking request: hospital -> date -> time; back to the spend question once it is saved
+        const parts = await this.startBooking(s, { asked: true, resume: "spend" });
+        await reply(parts.join("\n\n"));
         return true;
       }
       case "fambill": {
@@ -2093,6 +2137,7 @@ export class ChatPipelineService {
     if (!kbQuestion && (await this.handleMedicine(m, s, healthBlocked))) return;
     if (await this.handleObjection(m, s, healthBlocked)) return;
     if (await this.handleClosing(m, s, healthBlocked)) return;
+    if (await this.handleBareYes(m, s)) return;
     if (await this.handleRescueSignal(m, s, healthBlocked)) return;
 
     // the first message of a conversation starts the discovery
@@ -4064,6 +4109,7 @@ export class ChatPipelineService {
       date?: string | null;
       time?: string | null;
       asked?: boolean;
+      resume?: string | null;
     },
   ): Promise<string[]> {
     // "we are consulting in PSG hospital" names a centre, it does not ask for a booking: the offer
@@ -4072,6 +4118,7 @@ export class ChatPipelineService {
       step: "centre",
       ok: pre.asked !== false,
       ns: await this.noHealthQuestions(s),
+      ...(pre.resume ? { rf: pre.resume } : {}),
     };
     if (pre.centreName?.trim()) Object.assign(d, await this.resolveCentre(pre.centreName));
     let dateNote: string | null = null;
@@ -4162,6 +4209,12 @@ export class ChatPipelineService {
       "H",
       d.c ? "booking request saved" : "booking request, centre to be verified",
     );
+    if (d.rf) {
+      // started from the button flow: back to its next question (sent after this reply), no activation offer
+      await this.setPending(s, `flow:${d.rf}`);
+      (s as any).flowAfterBooking = d.rf;
+      return [text];
+    }
     const soft = await this.softActivationOffer(s, date);
     return soft ? [text, soft] : [text];
   }
@@ -4786,8 +4839,15 @@ ${res.text}` : res.text, m.waMessageId);
     const d = readDraft(s.conversation.pending_action);
     if (!d) return false;
     const raw = (m.text || "").trim();
-    const reply = (parts: string[]) =>
-      this.sendAndSave(s.customer.id, parts.join("\n\n"), m.waMessageId);
+    const reply = async (parts: string[]) => {
+      await this.sendAndSave(s.customer.id, parts.join("\n\n"), m.waMessageId);
+      // a booking started from the button flow goes back to the flow's next question
+      const next = (s as any).flowAfterBooking as FlowStep | undefined;
+      if (next) {
+        (s as any).flowAfterBooking = undefined;
+        await this.sendMore(s, stepMessage(next, undefined, s.customer.language));
+      }
+    };
     const l = s.customer.language;
     // questions about the booking itself get a plain answer here, never an LLM guess or a callback
     if (d.step === "offer" && asksWhyBooking(raw)) {
@@ -5230,6 +5290,52 @@ ${res.text}` : res.text, m.waMessageId);
     );
     if (decision)
       await this._Triggers!.record(s.customer.id, s.conversation, decision, `objection: ${kind}`);
+    return true;
+  }
+
+  /**
+   * "Yes" / "ok" to an open question ("What type of expense do you need help with?"): the answer is unclear, so
+   * the bot asks exactly what is needed, for whom it already knows (client, 17 Nov: "Yes" brought the
+   * introduction back). Not for a YES / NO question (those have their own handlers).
+   */
+  private async handleBareYes(m: Inbound, s: Saved): Promise<boolean> {
+    if (s.conversation.pending_action) return false;
+    if (!/^\s*(yes|yeah|yep|ya|ok|okay|sure|haan|ha|han|ji|aama|seri|sari)\s*[.!]*\s*$/i.test(m.text || "")) return false;
+    const last = String((await this.lastBotText(s)) ?? "").trim();
+    const q = last.split(/(?<=[.!?])\s+/).pop() ?? "";
+    if (!/\?\s*$/.test(q) || !/^\s*(what|which|where|when|how|who)\b/i.test(q)) return false;
+    const n = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
+    const nd = readNeed(String(n?.healthcare_need ?? ""));
+    const who = readWho(String(n?.beneficiary ?? ""));
+    const l = s.customer.language;
+    const thing: Record<string, [string, string, string]> = {
+      medicines: ["medicine", "दवा", "dawai"],
+      pathlab: ["test", "जाँच", "test"],
+      diagnostic: ["scan or test", "स्कैन या जाँच", "scan ya test"],
+      consult: ["doctor consultation", "डॉक्टर परामर्श", "doctor consultation"],
+      surgery: ["treatment or surgery", "इलाज या सर्जरी", "ilaaj ya surgery"],
+    };
+    const [en, hi, hg] = (nd && thing[nd]) || ["medicine or healthcare service", "दवा या हेल्थकेयर सेवा", "dawai ya healthcare service"];
+    const forWhom =
+      who === "self"
+        ? ["you need", "आपको चाहिए", "aapko chahiye"]
+        : who === "parent" || who === "parents"
+          ? ["your parent needs", "आपके माता-पिता को चाहिए", "aapke parents ko chahiye"]
+          : who
+            ? ["your family member needs", "आपके परिवार के सदस्य को चाहिए", "aapke family member ko chahiye"]
+            : ["the patient needs", "मरीज़ को चाहिए", "patient ko chahiye"];
+    await this.sendAndSave(
+      s.customer.id,
+      say(
+        {
+          en: `Could you please specify which ${en} ${forWhom[0]}?`,
+          hi: `कृपया बताइए कौन सी ${hi} ${forWhom[1]}?`,
+          hinglish: `Kripya bataiye kaunsi ${hg} ${forWhom[2]}?`,
+        },
+        l,
+      ),
+      m.waMessageId,
+    );
     return true;
   }
 

@@ -15,6 +15,7 @@ export interface BookingDraft {
   d?: string | null; // preferred date YYYY-MM-DD
   t?: string | null; // preferred time or window
   ns?: boolean; // no specialisation question (health consent refused)
+  rf?: string | null; // the button-flow step to go back to once the request is saved (e.g. "spend")
 }
 
 export type BookingStep = "offer" | "centre" | "landmark" | "specialisation" | "date" | "time";

@@ -630,6 +630,20 @@ times -> customer tapped "Tomorrow, 12-2 pm" -> bot: "Which city and locality…
   and the family total) until the client gives family / discounted links. Cut Medi Bills keeps its own text; its
   disclosure uses the same cost / GST / final lines, no 30%. Tests: `Helper/PlanPricing.spec.ts` (every figure in
   the document, display format, WhatsApp limits in en / hi / hinglish).
+- Client problem list (17 Nov night, from a real chat):
+  1. "Get in Touch with Oxxy …" title on every flow list: now only on the first question (who).
+  2. Terms card at every Activate: now only when the official-link step follows (the disclosure), once per chat.
+  3+4. No hospital / appointment date and time: after the area, a visit-type need (consult, test, scan, hospital,
+     surgery, pregnancy, all) gets "Would you like me to book the appointment too?" (Book appointment / Not now,
+     said to be separate from the team's call). Yes = the existing booking request (centre -> landmark ->
+     specialisation -> date list -> time buttons; draft `rf: "spend"`), then the flow goes on with the spend.
+  5. A second tap on the same callback options (10-12 then 2-4) kept 10-12 and the "3" opened the old menu: after a
+     time is saved the pending is `callback_set:<task>:<windows>` for one more message; a choice there updates the
+     slot ("Updated. Your callback is now …"), anything else clears it.
+  6. The repeated "for you or a family member?" in the paste is WhatsApp's quote; a known beneficiary is never
+     asked again (asksKnownAgain).
+  7. "Yes" to an open "what / which …?" question: "Could you please specify which <medicine / test / …> <who>
+     needs?" (`handleBareYes`), never the introduction again.
 - Tests: `ChatPipeline.callbackflow.spec.ts` (seed plan rows, no link).
 - Server config: every Oxxy plan row still lacks the official activation link, renewal terms and activation time
   (seed values), so every "Activate" goes to the team + callback. Fill them on the Plans page for the

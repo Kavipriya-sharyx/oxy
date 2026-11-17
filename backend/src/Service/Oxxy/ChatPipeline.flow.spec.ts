@@ -143,6 +143,9 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
     expect(t.out.at(-1)).toContain("Which city and locality");
     await t.run("Peelamedu, Coimbatore");
     expect(needRow).toMatchObject({ city: "Coimbatore", locality: "Peelamedu" });
+    // a consultation is a visit: the appointment is offered (hospital, date, time), separate from the team's call
+    expect(t.out.at(-1)).toContain("Would you like me to book the appointment too?");
+    await t.run("book_no");
     expect(t.out.at(-1)).toContain("How much will your annual medical expense be next year?");
     expect(t.out.join(" ")).not.toContain("health insurance");
     await t.run("spend_50000");

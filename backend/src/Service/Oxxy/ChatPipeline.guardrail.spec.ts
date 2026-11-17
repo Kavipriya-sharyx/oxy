@@ -245,7 +245,7 @@ describe("guardrail turns", () => {
       (t.tasks[0].callback_from as Date).getTime(),
     );
     expect(t.outbox).toEqual(["create_task", "set_callback_window"]);
-    expect(t.saved.conversation.pending_action).toBeNull();
+    expect(t.saved.conversation.pending_action).toMatch(/^callback_set:t1:/); // the same options can still change the slot once
     expect(t.replies[1].body).toMatch(/^I have requested a callback for .+\. Reference: CB-T1\.$/);
   });
 
