@@ -101,7 +101,8 @@ function setup(
   let pinAsked = !!opts.pinAsked; // a "Send location" message already went out in this conversation
   const send = jest.fn(async (...a: unknown[]) => {
     if (opts.sendFails) throw new Error("WhatsApp down");
-    out.push(String((a[1] as { body: string }).body));
+    // what the chat history keeps: the centre list's full text (`log`); its body has the names only in the rows
+    out.push(String((a[1] as { body: string; log?: string }).log ?? (a[1] as { body: string }).body));
     if ((a[1] as { kind?: string }).kind === "location_request") pinAsked = true;
     replied = true;
     return "wamid.OUT";
@@ -366,7 +367,7 @@ describe("one question, no repeat, no stalling", () => {
         save: async () => undefined,
       },
     });
-    await t.run("ok, thanks");
+    await t.run("my mother takes medicines every month"); // ("ok, thanks" now ends the chat with the summary)
     const context = JSON.parse(String((t.generate.mock.calls[0] as unknown[])[1]));
     expect(context.known).toMatchObject({
       beneficiary: "mother",
@@ -1706,13 +1707,13 @@ describe("spend -> age -> plan, never the spend twice", () => {
     const t = setup([], opts);
     await t.run("yes");
     expect(t.out[0]).toMatch(/roughly how much does your family spend on healthcare in a year\?/);
-    expect(t.conv.pending_action).toBe("plan_spend");
+    expect(t.conv.pending_action).toBe("plan_spend:activate"); // asked because the customer wants to activate
 
     t.out.length = 0;
     await t.run("5000");
     expect(needRow.annual_medical_spend).toBe(5000);
     expect(t.out[0]).toBe("To suggest the right plan, may I know the patient's age?");
-    expect(t.conv.pending_action).toBe("plan_age");
+    expect(t.conv.pending_action).toBe("plan_age:activate");
 
     t.out.length = 0;
     opts.recommend = { status: "not_worth_it", plan: "everyday", price: 10000, spend: 5000 };
@@ -1738,5 +1739,201 @@ describe("spend -> age -> plan, never the spend twice", () => {
     expect(asksSpend("Happy to help. Roughly how much does your family spend on healthcare in a year?")).toBe(true);
     expect(asksSpend("What are your monthly medical expenses?")).toBe(true); // the client saw this wording
     expect(asksSpend("How much do you spend on medicines every month?")).toBe(true);
+  });
+});
+
+// Client feedback, 17 Nov 2026
+describe("17 Nov client feedback", () => {
+  const twoCentres = [
+    { id: "k1", name: "KMCH", branch: "Peelamedu", locality: "Peelamedu", city: "Coimbatore", verified: true, active: true },
+    { id: "p1", name: "PSG Hospitals", branch: "Avinashi Road", locality: "Peelamedu", city: "Coimbatore", verified: true, active: true },
+  ];
+
+  it("the centre typed by name and branch after the list is picked: the booking starts, no list again", async () => {
+    const t = setup([], {
+      pending: "centre_pick",
+      centres: twoCentres,
+      needRow: { suggested_centre_ids: ["p1", "k1"], save: async () => undefined },
+    });
+    await t.run("KMCH Peelamedu");
+    expect(t.generate).not.toHaveBeenCalled();
+    expect(t.out.join("\n")).toMatch(/KMCH, Peelamedu/);
+    expect(t.out.join("\n")).not.toMatch(/Reply with 1/); // not the list again
+  });
+
+  it("'the second one' picks the second centre; two centres with the same name word ask for the number", async () => {
+    const t = setup([], {
+      pending: "centre_pick",
+      centres: twoCentres,
+      needRow: { suggested_centre_ids: ["p1", "k1"], save: async () => undefined },
+    });
+    await t.run("the second one");
+    expect(t.out.join("\n")).toMatch(/KMCH, Peelamedu/);
+
+    const { pickFromList } = jest.requireActual("@Helper/CentreReplies");
+    const apollos = [
+      { name: "Apollo Clinic", branch: "Anna Nagar", locality: "Anna Nagar" },
+      { name: "Apollo Clinic", branch: "T Nagar", locality: "T Nagar" },
+    ];
+    expect(pickFromList("apollo", apollos)).toBe("tie");
+    expect(pickFromList("Apollo T Nagar", apollos)).toBe(1);
+    expect(pickFromList("anna nagar", apollos)).toBeNull(); // the place alone may be a new area
+    expect(pickFromList("which one is cheaper?", apollos)).toBeNull();
+    expect(pickFromList("2", apollos)).toBe(1);
+    expect(pickFromList("7", apollos)).toBeNull();
+  });
+
+  it("the centre list shows the names once: in the rows, not again in the text", () => {
+    const { interactiveFor } = jest.requireActual("@Helper/Choices");
+    const text =
+      "Based on the patient's area, here are suitable options:\n" +
+      "1. Kovai Medical Center and Hospital, Avinashi Road - Peelamedu | Multispeciality | about 2.3 km\n" +
+      "2. PSG Hospitals - Peelamedu | Multispeciality\n" +
+      "I found only 2 verified option(s) in that area.\n\n" +
+      "I have included specialist and multispeciality choices where relevant. Reply with 1 or 2, or send the name of another centre you prefer.";
+    const m = interactiveFor(text);
+    expect(m.kind).toBe("list");
+    expect(m.body).not.toMatch(/Kovai|PSG/);
+    expect(m.body).toMatch(/^Based on the patient's area/);
+    expect(m.body).toMatch(/Reply with 1 or 2/);
+    expect(m.rows[0]).toEqual({
+      id: "1",
+      title: "Kovai Medical Center an…",
+      description: "Avinashi Road - Peelamedu | Multispeciality | about 2.3 km", // too long with the full name
+    });
+    expect(m.rows[1]).toEqual({ id: "2", title: "PSG Hospitals", description: "Peelamedu | Multispeciality" });
+    const long = interactiveFor(text.replace(" | Multispeciality | about 2.3 km", ""));
+    expect(long.rows[0].description).toBe("Kovai Medical Center and Hospital | Avinashi Road - Peelamedu");
+    expect(m.log).toBe(text); // the chat history keeps the full list
+  });
+
+  it("'activate' -> spend -> age -> plan: the activation step follows at once, not 'Would you like the plan details?'", async () => {
+    const needRow: Record<string, unknown> = { save: async () => undefined };
+    jest.spyOn(jest.requireActual("@Database/Table/Oxxy/customer").customer, "update").mockResolvedValue({} as never);
+    const opts: Record<string, unknown> = {
+      pending: "soft_activation",
+      needRow,
+      age: null,
+      recommend: { status: "ask_age" },
+    };
+    const t = setup([], opts);
+    await t.run("yes");
+    await t.run("50000");
+    expect(t.conv.pending_action).toBe("plan_age:activate");
+    t.out.length = 0;
+    opts.recommend = { status: "recommend", plan: "everyday", saving: 12000, price: 10000, rate: 20 };
+    await t.run("45");
+    const text = t.out.join("\n\n");
+    expect(text).toContain("I recommend the Everyday plan");
+    expect(text).not.toMatch(/Would you like the plan details/);
+    expect(text).toMatch(/Shall I send the official secure activation link\? Reply YES or NO\.$/);
+    expect(t.conv.pending_action).toBe("send_activation_link:cat-everyday-y");
+    expect(t.generate).not.toHaveBeenCalled();
+  });
+
+  it("'activate' read by the LLM with the spend known: the plan and the activation step in one reply", async () => {
+    const t = setup([draft("Sure, let me help you activate.", { intent: "activate" })], {
+      recommend: { status: "recommend", plan: "everyday", saving: 12000, price: 10000, rate: 20 },
+      needRow: { annual_medical_spend: 60000, healthcare_need: "check-ups", save: async () => undefined },
+    });
+    await t.run("I want to activate");
+    const text = t.out.join("\n\n");
+    expect(text).toContain("I recommend the Everyday plan");
+    expect(text).not.toMatch(/Would you like the plan details/);
+    expect(text).toMatch(/Shall I send the official secure activation link\?/);
+    expect(t.conv.pending_action).toBe("send_activation_link:cat-everyday-y");
+  });
+
+  it("the spend is known: the LLM may not ask the expenses again in any wording; its own age question is read", async () => {
+    const { asksKnownAgain, asksAge } = jest.requireActual("./ChatPipeline.service");
+    const known = { annual_medical_spend: 50000 };
+    expect(asksKnownAgain("Thanks! What are your monthly medical expenses?", known)).toMatch(/already known/);
+    expect(asksKnownAgain("Could you share your yearly healthcare expenses?", known)).toMatch(/already known/);
+    expect(asksKnownAgain("Could you share your yearly healthcare expenses?", {})).toBeNull();
+    expect(asksAge("Thanks. May I know the patient's age?")).toBe(true);
+    expect(asksAge("How old is your mother?")).toBe(true);
+    expect(asksAge("Which city do you live in?")).toBe(false);
+
+    const t = setup([draft("Thanks for sharing. May I know the patient's age?", { intent: "collect_needs" })], {
+      needRow: { annual_medical_spend: 50000, save: async () => undefined },
+      age: null,
+    });
+    await t.run("for my mother");
+    expect(t.conv.pending_action).toBe("plan_age"); // the next "62" picks the plan, the spend is not asked again
+  });
+});
+
+// Client feedback, 17 Nov 2026 (second list)
+describe("17 Nov client feedback, second list", () => {
+  it("1. one callback per chat: a time already chosen stands, same time and reference, no new options", async () => {
+    const t = setup([draft("I am not sure about that.", { needs_human: true })]);
+    const from = new Date(Date.now() + 3 * 3600 * 1000);
+    jest.spyOn(task, "find").mockResolvedValue([
+      { id: "1a1b5949-0000-4000-8000-000000000000", callback_from: from, callback_to: new Date(from.getTime() + 7200000), task_status: "open" },
+    ] as never);
+    await t.run("my uncle wants something special arranged");
+    const text = t.out.join("\n\n");
+    expect(text).toContain("CB-1A1B5949");
+    expect(text).not.toContain("Please choose a convenient time");
+  });
+
+  it("6. 'I want to discuss this with my family' at the activation question: the summary and a follow-up time, not the next step", async () => {
+    const t = setup([], { pending: "send_activation_link:cat-everyday-y", recommended: "everyday" });
+    await t.run("I want to discuss this with my family");
+    const text = t.out.join("\n\n");
+    expect(text).toContain("Here is a concise summary for your discussion");
+    expect(text).not.toMatch(/official secure activation link/);
+    expect(t.generate).not.toHaveBeenCalled();
+    const { detectObjection } = jest.requireActual("./RecoveryFlow");
+    expect(detectObjection("family kitta pesitu solren")).toBe("family");
+    expect(detectObjection("I will consult my husband first")).toBe("family");
+    expect(detectObjection("ghar pe baat karke batata hoon")).toBe("family");
+    expect(detectObjection("I need some time")).toBe("think");
+  });
+
+  it("4. 'ok thank you' at the end: the details summary (plan and price) once, then 'message here any time'", async () => {
+    const t = setup([], { recommended: "everyday", needRow: { beneficiary: "mother", city: "Coimbatore", locality: "Peelamedu", save: async () => undefined } });
+    await t.run("ok thank you");
+    const text = t.out.join("\n\n");
+    expect(text).toMatch(/^Thank you\. Here is a summary of our chat:/);
+    expect(text).toContain("For: mother. Area: Peelamedu, Coimbatore.");
+    expect(text).toContain("Price: ₹999 monthly or ₹10,000 yearly plus applicable GST.");
+    expect(text).toContain("You may message Oxxy whenever healthcare support is needed.");
+    expect(t.generate).not.toHaveBeenCalled();
+    const { isClosingMessage } = jest.requireActual("./ChatPipeline.service");
+    expect(isClosingMessage("Thanks")).toBe(true);
+    expect(isClosingMessage("ok bye")).toBe(true);
+    expect(isClosingMessage("romba nandri")).toBe(true);
+    expect(isClosingMessage("thanks, what is the price?")).toBe(false);
+    expect(isClosingMessage("I want to book")).toBe(false);
+  });
+
+  it("2. after the activation was declined, a draft offering it again is not sent", async () => {
+    const t = setup([
+      draft("You're welcome! Would you like to activate the Everyday plan now?"),
+      draft("You're welcome! Shall I send the activation link?"),
+    ], { recommended: "everyday" });
+    (t.conv as Record<string, unknown>).outcome = "activation_declined";
+    await t.run("can you tell me about dental care near me");
+    const text = t.out.join("\n\n");
+    expect(text).toContain("You're welcome!");
+    expect(text).not.toMatch(/activat|activation link/i);
+    expect(String((t.generate.mock.calls[1] as unknown[])[2])).toMatch(/do not offer the activation/);
+    const { repitchProblem } = jest.requireActual("./ChatPipeline.service");
+    expect(repitchProblem("Would you like to activate it?", "declined", "what is the price?")).toBeNull(); // they asked
+    expect(repitchProblem("Would you like to activate it?", null, "hi")).toBeNull(); // nothing settled
+  });
+
+  it("3. 'activate' with the spend already known: never the spend question again", async () => {
+    const t = setup([], {
+      pending: "soft_activation",
+      needRow: { annual_medical_spend: 50000, save: async () => undefined },
+      recommend: { status: "recommend", plan: "everyday", saving: 12000, price: 10000, rate: 20 },
+    });
+    await t.run("yes");
+    const text = t.out.join("\n\n");
+    expect(text).not.toMatch(/how much does your family spend/);
+    expect(text).toContain("I recommend the Everyday plan");
+    expect(text).toMatch(/Shall I send the official secure activation link\?/);
   });
 });

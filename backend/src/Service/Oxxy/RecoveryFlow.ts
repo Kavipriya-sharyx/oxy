@@ -16,13 +16,15 @@ export function detectObjection(text: string): Objection | null {
   )
     return "not_interested";
   if (
-    /\b(ask|discuss|check|talk|speak) (with |to )?(my )?(family|husband|wife|son|daughter|parents|father|mother|spouse)\b|\bghar (pe|par|mein) (pooch|baat)/.test(
+    // "discuss this with my family", "consult my husband first", "ghar pe baat karke", "family kitta
+    // pesitu solren" (client, 17 Nov: "I said I will discuss with my family, it moved on")
+    /\b(ask|discuss|check|talk|speak|consult|confirm|decide)\b[^.?!]{0,25}\b(family|husband|wife|son|daughter|parents|father|mother|spouse|brother|sister|kids|children|amma|appa|papa|mummy)\b|\b(family|husband|wife|ghar|gharwal[oe]n?|parents|amma|appa)\b[^.?!]{0,25}\b(pooch|baat|kitta|kita|kitte|kooda|kuda|pesi|pesa|pesanum|ketu|kettu|keka|kekkanum|se puch)/.test(
       t,
     )
   )
     return "family";
   if (
-    /\b(need|have|want|let me|i will|i'll|will) (to )?think\b|\bthink (about it|it over)\b|\bsoch(na|ke|kar|unga|ungi)\b/.test(
+    /\b(need|have|want|let me|i will|i'll|will|need some) (to )?(think|time)\b|\bthink (about it|it over|and (tell|let you know|come back))\b|\bsoch(na|ke|kar|unga|ungi)\b|\byosi(chu|kkanum|chitu|kanum)\b|\b(later|baad mein) (decide|bataunga|batati|solren|solran|sollren)\b/.test(
       t,
     )
   )
@@ -210,6 +212,13 @@ export interface SummaryFacts {
   plan?: string | null;
   reason?: string | null;
   booking?: boolean;
+  // the details (client, 17 Nov: "it does not give a summary of the details at the end"); each line only when known
+  beneficiary?: string | null;
+  area?: string | null; // "Peelamedu, Coimbatore"
+  price?: string | null; // "₹999 monthly or ₹10,000 yearly"
+  bookingDetail?: { centre: string; date?: string | null; time?: string | null; confirmed?: boolean } | null;
+  linkSent?: boolean;
+  callback?: string | null; // "Today, 4-6 pm (CB-1A1B5949)"
 }
 
 const title = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -246,7 +255,19 @@ export function summaryLines(f: SummaryFacts, l: string | null = "en"): string {
             hi: "सुझाव: आपकी उम्र और ज़रूरत के अनुसार एक Oxxy प्लान।",
             hinglish: "Suggestion: aapki age aur zaroorat ke hisaab se ek Oxxy plan.",
           };
-  const next: L = f.booking
+  const next: L = f.linkSent && !f.booking
+    ? {
+        en: "Next step: complete the payment on the official page when you are ready; message here if anything is unclear.",
+        hi: "अगला कदम: जब आप तैयार हों, आधिकारिक पेज पर भुगतान पूरा करें; कुछ भी साफ़ न हो तो यहाँ मैसेज करें।",
+        hinglish: "Next step: jab aap ready hon, official page par payment complete karein; kuch clear na ho to yahan message karein.",
+      }
+    : f.callback && !f.booking
+    ? {
+        en: "Next step: our team will call you at the time above.",
+        hi: "अगला कदम: हमारी टीम ऊपर दिए समय पर आपको कॉल करेगी।",
+        hinglish: "Next step: hamari team upar diye time par aapko call karegi.",
+      }
+    : f.booking
     ? {
         en: "Next step: your booking request is recorded; the Oxxy team will contact you about confirmation.",
         hi: "अगला कदम: आपका बुकिंग अनुरोध दर्ज है; पुष्टि के लिए Oxxy टीम आपसे संपर्क करेगी।",
@@ -259,7 +280,63 @@ export function summaryLines(f: SummaryFacts, l: string | null = "en"): string {
         hinglish:
           "Next step: koi centre chunein, booking request dein, ya kisi bhi payment se pehle plan details dekhein.",
       };
-  return `${say(need, l)}\n${say(pick, l)}\n${say(next, l)}`;
+  const lines: string[] = [say(need, l)];
+  if (f.beneficiary || f.area)
+    lines.push(
+      say(
+        {
+          en: [f.beneficiary ? `For: ${f.beneficiary}.` : "", f.area ? `Area: ${f.area}.` : ""].filter(Boolean).join(" "),
+          hi: [f.beneficiary ? `किसके लिए: ${f.beneficiary}।` : "", f.area ? `इलाका: ${f.area}।` : ""].filter(Boolean).join(" "),
+          hinglish: [f.beneficiary ? `Kiske liye: ${f.beneficiary}.` : "", f.area ? `Area: ${f.area}.` : ""].filter(Boolean).join(" "),
+        },
+        l,
+      ),
+    );
+  lines.push(
+    say(pick, l) +
+      (f.price
+        ? say(
+            {
+              en: ` Price: ${f.price} plus applicable GST.`,
+              hi: ` कीमत: ${f.price} और लागू GST।`,
+              hinglish: ` Price: ${f.price} plus applicable GST.`,
+            },
+            l,
+          )
+        : ""),
+  );
+  const b = f.bookingDetail;
+  if (b) {
+    const when = [b.date ? showDate(b.date) : "", b.time ?? ""].filter(Boolean).join(", ");
+    const at = `${b.centre}${when ? `, ${when}` : ""}`;
+    lines.push(
+      say(
+        b.confirmed
+          ? { en: `Booking: ${at} (confirmed).`, hi: `बुकिंग: ${at} (पुष्टि हो गई)।`, hinglish: `Booking: ${at} (confirmed).` }
+          : {
+              en: `Booking request: ${at} (waiting for confirmation).`,
+              hi: `बुकिंग अनुरोध: ${at} (पुष्टि बाकी)।`,
+              hinglish: `Booking request: ${at} (confirmation pending).`,
+            },
+        l,
+      ),
+    );
+  }
+  if (f.linkSent)
+    lines.push(
+      say(
+        {
+          en: "Activation: the official link was sent; the plan starts once the payment on that page is complete.",
+          hi: "एक्टिवेशन: आधिकारिक लिंक भेजा गया है; उस पेज पर भुगतान पूरा होने पर प्लान शुरू होगा।",
+          hinglish: "Activation: official link bhej diya gaya hai; us page par payment complete hone par plan start hoga.",
+        },
+        l,
+      ),
+    );
+  if (f.callback)
+    lines.push(say({ en: `Callback: ${f.callback}.`, hi: `कॉलबैक: ${f.callback}।`, hinglish: `Callback: ${f.callback}.` }, l));
+  lines.push(say(next, l));
+  return lines.join("\n");
 }
 
 /** Playbook 14 "Too expensive": value first, never a net loss as a saving */

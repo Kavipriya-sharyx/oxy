@@ -59,8 +59,24 @@ export const NO_CENTRE_T: L = {
  * No verified centre for the place. `again` = it was said in the last message too: the team checks, and the
  * customer is not asked the same thing in a loop.
  */
-export function noCentreText(place: string | null, again: boolean, l: string | null = "en"): string {
+export function noCentreText(
+  place: string | null,
+  again: boolean,
+  l: string | null = "en",
+  /** the "still" reply was already the last message: a short, different line (client, 17 Nov: the same
+   * sentence came back four times) */
+  thirdTime = false,
+): string {
   const at = { en: place ? `in ${place}` : "in that area", hi: place ? `${place} में` : "उस इलाके में", hinglish: place ? `${place} mein` : "us area mein" };
+  if (again && thirdTime)
+    return say(
+      {
+        en: `Our team is already checking centres ${at.en} and will contact you. Meanwhile, tell me another area (for example "near Gandhipuram") or the name of a centre you prefer, and I will look there.`,
+        hi: `हमारी टीम ${at.hi} केंद्र पहले से देख रही है और आपसे संपर्क करेगी। तब तक कोई दूसरा इलाका या अपनी पसंद के केंद्र का नाम बताइए, मैं वहाँ देखूँगा।`,
+        hinglish: `Hamari team ${at.hinglish} centres pehle se check kar rahi hai aur aapse sampark karegi. Tab tak koi doosra area ya apni pasand ke centre ka naam bataiye, main wahan dekhunga.`,
+      },
+      l,
+    );
   if (again)
     return say(
       {
@@ -82,9 +98,14 @@ export function noCentreText(place: string | null, again: boolean, l: string | n
   );
 }
 
+/** Was this message the second ("still ...") or third no-centre reply (any language)? */
+export function isRepeatNoCentreText(body: string | null | undefined): boolean {
+  return /still do not have a verified centre|already checking centres|अब भी कोई सत्यापित केंद्र|पहले से देख रही|ab bhi koi verified centre|pehle se check kar rahi/i.test(body || "");
+}
+
 /** Was this message one of the "no verified centre" replies (any language)? */
 export function isNoCentreText(body: string | null | undefined): boolean {
-  return /do not have a verified centre|could not find a verified option|सत्यापित केंद्र नहीं|सत्यापित विकल्प नहीं|verified centre nahi|verified option nahi/i.test(body || "");
+  return /do not have a verified centre|could not find a verified option|already checking centres|सत्यापित केंद्र नहीं|सत्यापित विकल्प नहीं|पहले से देख रही|verified centre nahi|verified option nahi|pehle se check kar rahi/i.test(body || "");
 }
 
 export const ASK_AGE = ASK_AGE_T.en;

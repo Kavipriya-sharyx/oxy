@@ -203,15 +203,40 @@ function build(text: string): OutboundMessage | null {
         ? { kind: "buttons", body, buttons: rows.map((r) => ({ id: r.id, title: cut(r.title, 20) })) }
         : { kind: "list", body, buttonLabel: hi ? "समय चुनें" : "Choose a time", rows };
   }
-  // the centre list: "1. NAME, BRANCH - AREA | type" … "Reply with 1 or 2"
+  // the centre list: "1. NAME, BRANCH - AREA | type | about 3 km" … "Reply with 1 or 2". The names are shown
+  // once, in the rows (client, 17 Nov: "it gives the hospital names in the text and again as options"): the
+  // row title is the name, the description the branch, area, type and distance; the body keeps the lead-in
+  // and the closing line. The chat history keeps the full text (`log`).
   if (/Reply with (1|1 or 2|1-\d)\b|(1|1 or 2|1-\d) (mein se|में से)/i.test(body)) {
-    const rows = numberedRows(body, /^([1-9])\.\s+(.+?)(?:\s+\|.*)?$/);
-    if (rows.length >= 1)
+    const CARD = /^([1-9])\.\s+(.+)$/;
+    const rows: ListRow[] = [];
+    for (const line of body.split(/\n/)) {
+      const m = line.trim().match(CARD);
+      if (!m) continue;
+      const [place, ...rest] = m[2].split(/\s+\|\s+/);
+      const at = place.search(/,\s|\s-\s/);
+      const name = (at > 0 ? place.slice(0, at) : place).trim();
+      const where = at > 0 ? place.slice(at).replace(/^,\s*|^\s-\s*/, "").trim() : "";
+      // a name longer than the 24-character title is written in full in the description, when the area and
+      // distance still fit next to it (they matter more)
+      const plain = [where, ...rest].filter(Boolean).join(" | ");
+      const withName = [name, plain].filter(Boolean).join(" | ");
+      const desc = [...name].length > 24 && [...withName].length <= 72 ? withName : plain;
+      rows.push({ id: m[1], title: cut(name, 24), description: desc ? cut(desc, 72) : undefined });
+    }
+    const short = body
+      .split(/\n/)
+      .filter((line) => !CARD.test(line.trim()))
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    if (rows.length >= 1 && short)
       return {
         kind: "list",
-        body,
+        body: short,
         buttonLabel: hi ? "केंद्र चुनें" : "Choose a centre",
-        rows: rows.map((r) => ({ id: r.id, title: r.title, description: r.description })),
+        rows,
+        log: body,
       };
   }
   // booking date: "It can be from 19 Nov 2026 up to 16 May 2027." -> the next 7 dates from the earliest

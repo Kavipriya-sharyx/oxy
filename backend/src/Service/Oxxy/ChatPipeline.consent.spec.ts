@@ -11,6 +11,7 @@ import { need } from "@Database/Table/Oxxy/need";
 import { task } from "@Database/Table/Oxxy/task";
 import { booking_request } from "@Database/Table/Oxxy/booking_request";
 import { activation } from "@Database/Table/Oxxy/activation";
+import { centre } from "@Database/Table/Oxxy/centre";
 
 type Fn = (...a: unknown[]) => unknown;
 const stub = (cls: unknown, name: string, impl: Fn) =>
@@ -133,15 +134,37 @@ describe("DPDP health-data consent gate", () => {
     expect(t.generate).not.toHaveBeenCalled();
   });
 
-  it("0b. a row with no health question is answered at once, the notice follows (client, 16 Nov)", async () => {
+  it("0b. 'Find or book a centre' gets the notice first, then its question after YES (client, 17 Nov)", async () => {
+    // before: "Which city?" and the notice came together, the city typed was refused, and YES brought the
+    // welcome back
     const t = setup({ state: S.IntentMenu });
     await t.run("menu_centre");
-    expect(texts(t)[0]).toContain("Which city and locality does the patient live in?");
-    expect(texts(t)[1]).toBe(fixedReply("health_notice", "en"));
-    expect(t.conv.state).toBe(S.CentreSearch);
+    expect(texts(t)).toEqual([fixedReply("health_notice", "en")]);
+    expect(t.conv.pending_action).toBe("after_consent:menu_centre");
     expect(t.cons.notice_sent_version).toBe(NOTICE_VERSION);
     await t.run("yes");
     expect(t.cons.health_data_consent).toBe(true);
+    expect(texts(t)[1]).toContain("Which city and locality does the patient live in?");
+    expect(texts(t)[1]).not.toContain("Welcome");
+    expect(t.conv.state).toBe(S.CentreSearch);
+  });
+
+  it("0b2. the area typed instead of YES is kept: no 'did not understand', no city question again", async () => {
+    const t = setup({ state: S.IntentMenu });
+    let row: Record<string, unknown> | null = null;
+    stub(centre, "find", async () => [{ city: "Coimbatore" }]);
+    stub(need, "create", (v: unknown) => ({ ...(v as object), save: async function (this: Record<string, unknown>) { row = this; } }));
+    stub(need, "findOne", async () => row);
+    await t.run("menu_centre");
+    await t.run("Tamilnadu, coimbatore, neelambur");
+    expect(texts(t)[1]).toContain("I have noted Neelambur, Coimbatore");
+    expect(texts(t)[1]).not.toContain("did not understand");
+    expect(row).toMatchObject({ city: "Coimbatore", locality: "Neelambur" });
+    await t.run("yes");
+    expect(texts(t)[2]).toContain("Thank you, your consent is saved.");
+    expect(texts(t)[2]).toContain("Or reply NO and I will search in Neelambur, Coimbatore");
+    expect(texts(t)[2]).not.toContain("Which city");
+    expect(t.conv.pending_action).toBe("centre_location");
   });
 
   it("0c. the health-need row still gets the notice first, then its answer after YES", async () => {

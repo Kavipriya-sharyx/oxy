@@ -14,7 +14,8 @@ export interface ListRow {
 export type OutboundMessage =
   | { kind: "text"; body: string }
   | { kind: "buttons"; body: string; buttons: ReplyButton[] }
-  | { kind: "list"; body: string; buttonLabel: string; rows: ListRow[] }
+  // `log`: what the chat history shows when it differs from the body (the centre list: names only in the rows)
+  | { kind: "list"; body: string; buttonLabel: string; rows: ListRow[]; log?: string }
   | { kind: "template"; name: string; languageCode: string; params?: string[] }
   // a "Send location" button: the customer shares the spot with one tap (interactive location_request_message)
   | { kind: "location_request"; body: string }

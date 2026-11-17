@@ -159,6 +159,53 @@ export const CALLBACK_OUTSIDE_HOURS_T = (h: TeamHours): L => {
   };
 };
 
+/** Hour (0-23) from "4", "4 pm", "10:30 am"; a bare 1-7 is afternoon (team hours start in the morning) */
+function hour24(h: number, ampm: string | undefined, fallbackAmPm?: string): number {
+  const a = ampm || fallbackAmPm;
+  if (a === "pm" && h < 12) return h + 12;
+  if (a === "am" && h === 12) return 0;
+  if (!a && h >= 1 && h <= 7) return h + 12;
+  return h;
+}
+
+/**
+ * The shown window the customer means, in words: a range ("4 to 6 pm", "4-6pm", "10 am - 12 pm") or a
+ * start time ("4 pm") equal to a window's start, with "today" / "tomorrow" when given. null = none of them.
+ */
+export function shownOption(
+  text: string,
+  options: CallbackWindow[],
+  now: Date = new Date(),
+): CallbackWindow | null {
+  const t = (text || "").toLowerCase();
+  const range = t.match(
+    /\b(\d{1,2})(?::\d{2})?\s*(am|pm)?\s*(?:-|–|to|till|until|and)\s*(\d{1,2})(?::\d{2})?\s*(am|pm)?\b/,
+  );
+  const single = range ? null : t.match(/\b(\d{1,2})(?::\d{2})?\s*(am|pm)\b/);
+  if (!range && !single) return null;
+  let from: number;
+  let to: number | null = null;
+  if (range) {
+    const [a, b] = [Number(range[1]), Number(range[3])];
+    to = hour24(b, range[4]);
+    // "11 to 1 pm": the start is in the morning; "4 to 6 pm": both in the afternoon
+    const startAmPm = range[2] || (range[4] === "pm" && a > b ? "am" : range[4]);
+    from = hour24(a, startAmPm);
+  } else from = hour24(Number(single![1]), single![2]);
+  const day = /\btoday\b|\btonight\b|\baaj\b|\binniku\b/.test(t)
+    ? istYmd(now)
+    : /\btomorrow\b|\btmrw\b|\bkal\b|\bnaalaikku\b/.test(t)
+      ? istYmd(new Date(now.getTime() + 24 * HOUR))
+      : null;
+  const hit = options.filter(
+    (w) =>
+      Math.floor(istHour(w.from)) === from &&
+      (to == null || Math.round(istHour(w.to)) === to) &&
+      (!day || istYmd(w.from) === day),
+  );
+  return hit[0] ?? null;
+}
+
 /**
  * The window the customer chose: "1" / "2" / "3" / "first" (Devanagari digits too), or a day and/or time
  * ("tomorrow 5 pm"). A free time becomes a one-hour window. Returns { window } when it is inside team
@@ -195,6 +242,12 @@ export function parseCallbackChoice(
     "the third one": 2,
   };
   if (t in pick) return options[pick[t]] ? { window: options[pick[t]] } : null;
+  // one of the windows shown, in words: "today 4 to 6 pm", "4-6 pm", "tomorrow 10 am" (client, 17 Nov:
+  // "today 4 to 6 pm" became "Today, 6-7 pm", the last time in the sentence)
+  const shown = shownOption(t, options, now);
+  if (shown) return { window: shown };
+  // a question or a long sentence is not a callback time ("can you suggest a centre within 5 km?")
+  if (/\?\s*$/.test(t) || t.split(/\s+/).length > 8) return null;
   const at = parseFollowUpTime(t, [options[0]?.from ?? now, options[1]?.from ?? now], now);
   if (!at) return null;
   const end = new Date(at.getTime() + HOUR);

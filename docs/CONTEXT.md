@@ -549,6 +549,94 @@ Real chat: the customer typed "coimbatore peelamedu", then "you can suggest hosp
 - Not checked on real WhatsApp. Tests: `LocationAsk.spec.ts`, `ReplyTidy.spec.ts`, the "Real chat, 16 Nov" block
   in `ChatPipeline.plan.spec.ts`.
 
+## Client feedback, 17 Nov (second list)
+
+Reproduced in tests from the code (the client's chats are on the deployed server). Tests: the "17 Nov client
+feedback, second list" block in `ChatPipeline.plan.spec.ts`. Not checked on real WhatsApp.
+
+1. **Two callback times and two references in one chat** ("Today, 4-6 pm, CB-1A1B5949", later "Today, 6-7 pm,
+   CB-000224D2"). `withCallbackOptions` only looked at the case it was called for; a second case (another
+   task type) offered new times. Now one callback per chat: a time already chosen for an open case of the chat
+   (`chosenCallback`) is copied to the new case and the customer gets the same time and reference
+   (`teamHasItText`); times already offered and not answered are shown again for the same case.
+2. **Activation / price offered again after the step was over.** `repitchProblem` rejects an LLM draft whose
+   question offers the activation, the plan or its price when the customer declined it, already has the
+   official link, said family / think / busy, or has an active plan (`activationSettled`), unless the
+   customer's own message asks about it. The second draft keeps its answer and loses the question (no
+   hand-over only for that).
+3. **Expenses asked twice (more paths).** `startActivation` with the spend already known picks the plan by
+   value (or asks the age) instead of the spend question; the rescue's second "I don't know" no longer asks
+   the yearly spend when it is known.
+4. **No summary at the end.** `handleClosing`: "thanks", "ok thank you", "bye", "that's all", "nandri",
+   "dhanyavaad" (no question) after a plan, a booking or a callback = "Thank you. Here is a summary of our
+   chat:" + the details + "You may message Oxxy whenever healthcare support is needed." Once (not right after
+   another summary). `summaryLines` now also carries who it is for, the area, the plan price, the booking
+   (centre, date, time, confirmed or not), the official link sent, the callback time and reference; the next
+   step follows the case. The same details go into the family / think / busy summary.
+5. **Centre search confusion**: handled in the other session's centre changes (nearest centres a little
+   further instead of "no verified centre" in a loop).
+6. **"I will discuss with my family" at the activation question moved on.** `detectObjection` knew only a
+   few wordings ("discuss with my family"); now "discuss this with my family", "consult my husband first",
+   "ghar pe baat karke", "family kitta pesitu solren", "I need some time". At the activation question
+   (`send_activation_link`, `soft_activation`) such an answer is never read as YES / NO: the objection
+   answer (summary for the discussion + a follow-up time) replies.
+
+## Client feedback, 17 Nov: three loops fixed
+
+The client's chats are on the deployed server (the local database has none after 14 Nov), so the three
+reports were reproduced in tests from the code, not read from the real chats.
+
+- **"Entered the branch and location as text: hospital names again, the options again."** After the centre
+  list (pending `centre_pick`) only a digit was a pick; "KMCH Peelamedu" cleared the step, went to the LLM
+  (find_centre) and the list came back. `pickFromList` (`Helper/CentreReplies.ts`) now reads a number, "the
+  second one", or the centre's name (with branch / area when two share a name; a tie asks for the number; the
+  area alone never picks, it may be a new area). Also used by `centreSwitch` during a booking. And the list
+  showed every name twice (text + list rows): the body now keeps the lead-in and closing line only; each row
+  is the name (title) with branch, area, type, distance (description). The chat history keeps the full text
+  (`log` on the list message, saved by `WhatsappClient`).
+- **"Asked all the questions, then went back to the plan details" (activation).** "Activate" with no plan
+  asked the spend, then the age, then named the plan with "Would you like the plan details?": the wish to
+  activate was lost. The pending markers carry it (`plan_spend:activate`, `plan_age:activate`); once the plan
+  is picked the same reply goes on to the activation step (price, GST, renewal, "Shall I send the official
+  secure activation link?", `pickThenActivate` / `activationText`). The LLM path does the same when the
+  spend is already known (`pickedToActivate`).
+- **"Expenses, then the age, then the expenses again."** `asksKnownAgain` only caught "how much ... spend";
+  "What are your monthly medical expenses?" passed. It now uses `asksSpend` and "medical / healthcare
+  expenses". When the LLM asks the age itself with the spend known, `plan_age` is set, so the answer picks the
+  plan (`handlePlanAge`) instead of going back to the LLM.
+- Tests: the "17 Nov client feedback" block in `ChatPipeline.plan.spec.ts`. Not checked on real WhatsApp.
+
+## Client chats, 17 Nov: the "no verified centre in Neelambur" loop and robotic replies
+
+Real chat: Neelambur was stored, then "near peelamedu", "near sitra", "Delhi" were typed and every reply was
+"I still do not have a verified centre in Neelambur, Coimbatore".
+
+- **A new area in a sentence is read in code.** City / locality used to change only through the LLM's
+  `extracted_fields`; with the old area in `known` the LLM left it out. `namedPlace` (`Helper/CentreReplies.ts`)
+  reads "near X", "around X", "in the X area of Y", "centres in X" ("in" / "at" only next to a centre word, "area"
+  or a city; "in pain", "near me" are not places). `placeChange` (pipeline) saves it (Google Maps fixes city and
+  spelling when on; a directory city named alone is the city) in the LLM path and at the radius question, and a
+  centre question about the new area becomes `find_centre`. A new city from the LLM with no locality clears the
+  old locality. Prompt: a different area IS a changed value, never "I can help only in one city".
+- **Nothing within the travel distance: the nearest verified centres** (up to 3 within `NEAREST_MAX_KM` = 30,
+  `nearestListText`: "There is no verified centre within 5 km of X. These are the nearest verified options:"),
+  only with a known spot (pin / geocoded area). The no-centre text only when none exist that close.
+- **No-centre reply: three different lines.** "again" only for the same place; the third time is a short,
+  different line (`noCentreText(..., third)`, `isRepeatNoCentreText`). English wording approved by the client (17 Nov).
+- **Consent gate.** The "Find or book a centre" row now gets the notice first (like "Reduce a medical bill"), its
+  question after YES. An area typed instead of YES / NO (`typedArea`: "Tamilnadu, coimbatore, neelambur", state
+  names dropped) is saved and answered with `CONSENT_AREA_NOTED_T`, not "Sorry, I did not understand"; after
+  YES the location step follows, not "Which city?" again. YES in the middle of a chat (more than two bot
+  messages) = `CONSENT_GO_ON_T`, never the welcome + opening list again. Both English wordings approved by the client (17 Nov); Hindi / Hinglish still drafts.
+- **Callback time in words** (`shownOption`, `CallbackFlow.ts`): "today 4 to 6 pm", "4-6pm", "tomorrow 10 am" =
+  the window shown (it was "6 pm" -> "Today, 6-7 pm"). A question or a sentence over 8 words is never a
+  callback time, so it is answered normally. The fixed "Yes, I am here. Our team has your request" for any
+  message during the callback wait was the 16 Nov code; that branch is no longer reached.
+- Directory data seen in the chat: "KMCH HOSIPTAL", branch "CITRA" (SITRA): fix in Centres. Only two verified
+  centres, both Peelamedu.
+- Tests: `Helper/PlaceText.spec.ts`, `ChatPipeline.area.spec.ts`, `ChatPipeline.consent.spec.ts` 0b / 0b2. Not
+  checked on real WhatsApp or with a real LLM.
+
 ## Template audit (16 Nov): three fixes
 
 Every `kind: "template"` send was compared with `Helper/TemplateDefinitions.ts` (variable count and order).
