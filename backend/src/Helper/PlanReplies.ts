@@ -127,6 +127,20 @@ export const INSURANCE_ANSWER_T: L = {
 };
 
 // Trigger B (Trigger layer 4): the customer already has insurance, Oxxy route. Never advise cancelling it.
+// "I have no insurance" (client Q&A Q226)
+export const NO_INSURANCE_T: L = {
+  en: "Oxxy can be useful for reducing eligible planned private-healthcare bills: consultations, tests, medicines, planned treatments and surgeries. Which healthcare expense would you most like help with?",
+  hi: "Oxxy योग्य प्लान किए गए प्राइवेट हेल्थकेयर बिल कम करने में काम आ सकता है: परामर्श, जाँच, दवाइयाँ, प्लान किया गया इलाज और सर्जरी। आप किस खर्च में सबसे ज़्यादा मदद चाहते हैं?",
+  hinglish: "Oxxy eligible planned private-healthcare bills kam karne mein kaam aa sakta hai: consultation, tests, dawaiyan, planned ilaaj aur surgery. Aap kis kharch mein sabse zyada madad chahte hain?",
+};
+// "Which is better, insurance or Oxxy?", "Why choose Oxxy over insurance?", "Insurance is cashless, what does Oxxy
+// give?" (client Q&A Q227 / Q228 / Q242): the comparison, never a bare "No."
+export const INSURANCE_COMPARE_T: L = {
+  en: "They solve different parts of healthcare cost. Insurance pays or reimburses approved claims up to a limit; Oxxy helps reduce eligible bills before the service, can be used again and again for OPD and IPD, supports new and pre-existing needs, and under Infinity has no age limit or upper eligible bill limit. The strongest setup may be to keep your insurance and add Oxxy too. Which healthcare expense would you most like help with?",
+  hi: "दोनों हेल्थकेयर खर्च के अलग हिस्से संभालते हैं। इंश्योरेंस एक सीमा तक मंज़ूर क्लेम चुकाता है; Oxxy सेवा से पहले योग्य बिल कम करने में मदद करता है, OPD और IPD दोनों के लिए बार-बार इस्तेमाल हो सकता है, नई और पुरानी बीमारियों में साथ देता है, और Infinity में कोई उम्र सीमा या ऊपरी बिल सीमा नहीं है। सबसे अच्छा है इंश्योरेंस रखें और Oxxy भी जोड़ें। आप किस खर्च में मदद चाहते हैं?",
+  hinglish: "Dono healthcare kharch ke alag hisse sambhalte hain. Insurance ek limit tak approved claim pay karta hai; Oxxy service se pehle eligible bill kam karne mein madad karta hai, OPD aur IPD dono ke liye baar-baar use ho sakta hai, nayi aur purani bimariyon mein saath deta hai, aur Infinity mein koi age limit ya upper bill limit nahi hai. Sabse achha hai insurance rakhein aur Oxxy bhi jodein. Aap kis kharch mein madad chahte hain?",
+};
+
 export const INSURANCE_HAS_ANSWER_T: L = {
   en:
     "Oxxy is not insurance, and your insurance remains valuable, so you should not cancel it. Oxxy can complement it " +

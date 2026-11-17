@@ -320,4 +320,51 @@ describe("17 Nov client chat: callback times after the button flow", () => {
     expect(text(last(t))).toMatch(/^Oxxy is /);
     expect(text(last(t))).not.toContain("What type of expense");
   });
+
+  // Client, 17 Nov: "the knowledge base does not work". A question that IS one of the approved questions is
+  // answered from it (the LLM gets it first), not by a fixed reply picked by one keyword.
+  it("an approved question goes to the approved answer, not a keyword reply", async () => {
+    const cases: [string, string][] = [
+      ["Is the price inclusive of all taxes?", "The plans are subject to GST"],
+      ["Which medicine should I take?", "I cannot prescribe or recommend"],
+      ["Does it work in government hospitals?", "Oxxy is intended primarily for private healthcare"],
+    ];
+    for (const [q, start] of cases) {
+      const { KB_QA } = await import("@Helper/KnowledgeBaseData");
+      const e = (KB_QA as any[]).find((x) => x.q === q);
+      expect(e?.a.startsWith(start.slice(0, 20))).toBe(true);
+      const t = setup({ llm: [e.a, e.a] });
+      (t.conv as any).state = S.Discovery;
+      Object.assign(t.needRow, { beneficiary: "self", healthcare_need: "doctor consultations", city: "Coimbatore" });
+      await t.run(q);
+      expect(text(last(t))).toContain(e.a.slice(0, 40));
+      jest.restoreAllMocks();
+    }
+  });
+
+  it("'What about stroke rehabilitation?' is a care question, not the emergency reply", async () => {
+    const t = setup({ llm: ["Stroke rehabilitation can be discussed under the applicable plan."] });
+    (t.conv as any).state = S.Discovery;
+    await t.run("What about stroke rehabilitation?");
+    expect(t.sent.map(text).join(" ")).not.toContain("112");
+  });
+
+  it("insurance: 'I have no insurance' and 'which is better' get their own answers", async () => {
+    let t = setup();
+    (t.conv as any).state = S.Discovery;
+    await t.run("I have no insurance.");
+    expect(text(last(t))).toMatch(/^Oxxy can be useful for reducing eligible planned private-healthcare bills/);
+    jest.restoreAllMocks();
+    t = setup();
+    (t.conv as any).state = S.Discovery;
+    await t.run("Which is better - insurance or Oxxy?");
+    expect(text(last(t))).toMatch(/^They solve different parts of healthcare cost/);
+  });
+
+  it("'How do I know this is not a scam?' is a trust question, not a complaint", async () => {
+    const t = setup({ llm: ["It is sensible to verify any service before paying."] });
+    (t.conv as any).state = S.Discovery;
+    await t.run("How do I know this is not a scam?");
+    expect(t.sent.map(text).join(" ")).not.toContain("raised an urgent request");
+  });
 });

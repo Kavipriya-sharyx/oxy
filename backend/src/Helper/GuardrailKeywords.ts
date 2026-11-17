@@ -70,6 +70,11 @@ export const EMERGENCY_ACTIVE_EVENT: string[] = [
 
 // Matched as whole words.
 export const COVERAGE_WORDS: string[] = [
+  // a planned care question about the condition ("What about stroke rehabilitation?", client Q&A Q146)
+  "rehabilitation",
+  "rehab",
+  "physiotherapy",
+  "what about",
   "cover", "covers", "covered", "coverage", "include", "includes", "included",
   "claim", "claims", "plan", "plans", "price", "policy", "insurance", "benefit", "benefits",
 ];

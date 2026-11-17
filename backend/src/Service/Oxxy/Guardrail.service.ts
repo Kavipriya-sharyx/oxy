@@ -75,7 +75,11 @@ export class GuardrailService {
     if (anywhere(t, L.selfHarm)) return { kind: "self_harm", also_stop: safetyStop };
     if (stop) return { kind: "stop", also_stop: true };
     if (anywhere(t, L.privacy)) return { kind: "privacy", also_stop: false };
-    if (anywhere(t, L.complaint)) return { kind: "complaint", also_stop: false };
+    // a trust QUESTION ("How do I know this is not a scam?", "Is this a scam?", "fraud or genuine?") is answered
+    // with the official proof (client Q&A Q038), not escalated as a complaint
+    const trustQuestion =
+      /\bnot (a )?(scam|fraud|fake)\b|\b(is|are) (this|it|oxxy|you|these)( (a|real|genuine))? (scam|fraud|fake)\b|\b(scam|fraud|fake) or (real|genuine|legit\w*)\b|\b(real|genuine|legit\w*) or (a )?(scam|fraud|fake)\b/.test(t);
+    if (!trustQuestion && anywhere(t, L.complaint)) return { kind: "complaint", also_stop: false };
     if (wholeWords(t, L.person)) return { kind: "person", also_stop: false };
     return null;
   }

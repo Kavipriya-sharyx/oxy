@@ -17,7 +17,7 @@ import {
   RADIUS_Q,
 } from "@Helper/CentreReplies";
 import { toBubbles } from "@Helper/Bubbles";
-import { knowledgeFor } from "@Helper/KnowledgeBase";
+import { closeKbQuestion, knowledgeFor } from "@Helper/KnowledgeBase";
 import {
   asksMainMenu,
   CONDITION_LABEL,
@@ -230,7 +230,7 @@ import { ConversationRepository, RESTARTED_FRESH } from "./ConversationRepositor
 import { isPlaceholder, planProblems, planReady } from "@Helper/GoLive";
 import { hasQuestion, statedYearlySpend, tidyDraft } from "@Helper/ReplyTidy";
 import { GeoPoint, GoogleMapsService } from "@Service/Maps/GoogleMaps.service";
-import { isNoCentreText, isRepeatNoCentreText, noCentreText, asksWorksAtCentre, WORKS_AT_EVERY_T, WORKS_AT_NAMED_T } from "@Helper/PlanReplies";
+import { isNoCentreText, isRepeatNoCentreText, noCentreText, asksWorksAtCentre, WORKS_AT_EVERY_T, WORKS_AT_NAMED_T, NO_INSURANCE_T, INSURANCE_COMPARE_T } from "@Helper/PlanReplies";
 import {
   CALLBACK_OUTSIDE_HOURS_T,
   callbackOptions,
@@ -2045,12 +2045,23 @@ export class ChatPipelineService {
     if (await this.handleSoftActivationAnswer(m, s)) return;
     if (await this.handlePaymentReply(m, s)) return;
     if (await this.handleInsurance(m, s)) return;
-    if (await this.handleCentreSaving(m, s)) return;
-    if (await this.handleFaq(m, s, healthBlocked)) return;
-    if (await this.handlePlanNextStep(m, s)) return;
-    if (await this.handleServiceRequest(m, s)) return;
-    if (await this.handleBarrier(m, s)) return;
-    if (await this.handleMedicine(m, s, healthBlocked)) return;
+    // The customer asked (almost exactly) one of the client's approved questions: the LLM answers from it
+    // (knowledgeFor puts it first) instead of a fixed reply picked by one keyword. Not for a waiting step
+    // (pending_action), and not for the insurance answers (the validator keeps insurance talk to Trigger B).
+    let kbQuestion =
+      !s.conversation.pending_action && !/insurance|\bbima\b|बीमा|इंश्योरेंस/i.test(m.text) ? closeKbQuestion(m.text) : null;
+    // only when its approved answer can go out (it passes the reply rules); else the fixed reply answers as before
+    if (kbQuestion && !(await this._Validator.validate(kbQuestion.a).catch(() => ({ ok: false }))).ok) kbQuestion = null;
+    if (!kbQuestion) {
+      if (await this.handleCentreSaving(m, s)) return;
+      if (await this.handleFaq(m, s, healthBlocked)) return;
+      if (await this.handlePlanNextStep(m, s)) return;
+      if (await this.handleServiceRequest(m, s)) return;
+    }
+    // the trust pack (Trigger A: official links + approved proof) only the system can send; not for a REDIRECT
+    // question such as "Help me make a fake medical bill"
+    if (kbQuestion?.mode !== "REDIRECT" && (await this.handleBarrier(m, s, !!kbQuestion))) return;
+    if (!kbQuestion && (await this.handleMedicine(m, s, healthBlocked))) return;
     if (await this.handleObjection(m, s, healthBlocked)) return;
     if (await this.handleClosing(m, s, healthBlocked)) return;
     if (await this.handleRescueSignal(m, s, healthBlocked)) return;
@@ -2405,7 +2416,9 @@ export class ChatPipelineService {
   //  A "is this genuine?" -> the trust pack (first time: full message + approved proof; again: the links)
   //  C "why activate?"    -> preparedness message with the customer's variant (once per journey)
   //  E "compare plans"    -> the compact four-plan comparison with one plan marked (no link)
-  private async handleBarrier(m: Inbound, s: Saved): Promise<boolean> {
+  // trustOnly: the customer asked one of the approved questions; only the trust pack (links the LLM cannot
+  // send) stays fixed, the price / comparison / why-activate answers come from the approved answer
+  private async handleBarrier(m: Inbound, s: Saved, trustOnly = false): Promise<boolean> {
     const text = m.text;
     const lang = s.customer.language;
     const reply = async (body: string) =>
@@ -2433,6 +2446,7 @@ export class ChatPipelineService {
       for (const a of assets) await this.logAssetSend(s, a, m.waMessageId);
       return true;
     }
+    if (trustOnly) return false;
 
     if (asksWhyActivate(text) && this.canWhyActivate(s)) {
       const d = await decide("C");
@@ -3849,7 +3863,9 @@ export class ChatPipelineService {
   private async handleInsurance(m: Inbound, s: Saved): Promise<boolean> {
     const t = (m.text || "").toLowerCase();
     if (!/insurance|\bbima\b|बीमा|इंश्योरेंस/.test(t)) return false;
-    const has = hasInsurance(t);
+    const has =
+      hasInsurance(t) &&
+      !/\b(no|don'?t have|do not have|not have|without)\b[^.?!]{0,15}\b(insurance|bima)\b/i.test(t);
     if (has) {
       let n = await need.findOne({ where: { conversation_id: s.conversation.id } });
       if (!n) n = need.create({ conversation_id: s.conversation.id } as any);
@@ -3861,8 +3877,21 @@ export class ChatPipelineService {
     //  otherwise B: "I have insurance" -> keep it, Oxxy complements it; "Is Oxxy insurance?" -> plainly no
     const product = s.customer.active_product || s.conversation.selected_product;
     const trig = has && product === ProductType.CutMediBills ? "J" : "B";
+    // "I have no insurance" is not "I have insurance"; "better / why / vs / cashless" is a comparison, not "Is
+    // Oxxy insurance?" (client Q&A Q226 / Q227 / Q228 / Q242)
+    const none = /\b(no|don'?t have|do not have|not have|without|haven'?t got)\b[^.?!]{0,15}\b(insurance|bima)\b|\b(insurance|bima)\b[^.?!]{0,10}\b(nahi|nahin|illa|illai)\b/i.test(t);
+    const compare = /\b(better|best|choose|prefer|vs\.?|versus|difference|different|compare|cashless|over insurance|instead of)\b/i.test(t);
+    const together = /\b(combine|together|along ?side|with (my |the )?insurance|after (the )?insurance|both)\b|\b(can|could|may) (i|we) (use|have|keep)\b/i.test(t);
     const text = say(
-      trig === "J" ? INSURANCE_COORDINATION_T : has ? INSURANCE_HAS_ANSWER_T : INSURANCE_ANSWER_T,
+      trig === "J"
+        ? INSURANCE_COORDINATION_T
+        : none
+          ? NO_INSURANCE_T
+          : compare
+            ? INSURANCE_COMPARE_T
+            : has || together
+              ? INSURANCE_HAS_ANSWER_T
+              : INSURANCE_ANSWER_T,
       s.customer.language,
     );
     const decision =

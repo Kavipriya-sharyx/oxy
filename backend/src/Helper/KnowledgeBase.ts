@@ -45,6 +45,28 @@ export function relevantAnswers(text: string, limit = 3): KbEntry[] {
   return scored.slice(0, limit).map((x) => x.e);
 }
 
+/**
+ * The approved question the customer asked, when the message is (almost) that question: at least 3/4 of its
+ * content words (all of them for a 1-2 word question), and not much more. The pipeline then lets the LLM answer
+ * from it instead of a keyword-based fixed reply (client, 17 Nov: "the knowledge base does not work":
+ * "Is the price inclusive of all taxes?" got the four-plan table, "Which medicine should I take?" the medicine
+ * delivery line).
+ */
+export function closeKbQuestion(text: string): KbEntry | null {
+  const said = words(text);
+  if (!said.length) return null;
+  const top = relevantAnswers(text, 1)[0];
+  if (!top) return null;
+  const asked = [...new Set(words(top.q))];
+  if (!asked.length) return null;
+  const set = new Set(said);
+  const hit = asked.filter((w) => set.has(w)).length;
+  const need = asked.length <= 2 ? asked.length : Math.ceil(asked.length * 0.75);
+  if (hit < need) return null;
+  if (said.length > asked.length + 6) return null; // a longer message says more than this question
+  return top;
+}
+
 // When a bridge helps (Bridges PDF 1-22): the customer's words -> the situation
 const BRIDGE_WHEN: [string, RegExp][] = [
   ["B02", /^(ok|okay|k|yes|no|maybe|fine|hmm+|hm|sure|achha|theek|sari|seri|aama)[\s.!]*$/i],

@@ -149,8 +149,11 @@ describe("a Claude draft is rejected when it breaks a rule", () => {
       "Verify us at https://fake-oxxy.biz/pay before paying.",
       "Please visit www.oxxy.in for details.",
       "Our site oxxy.in has everything.",
-      "Write to info@oxxy.in.",
+      "Write to help@oxxy-support.com.",
     ])("rejects a link written by the model: %p", (t) => expect(rejected(t)).toContain("contains a link"));
+    it("the official support e-mail is not a link (client Q&A Q045 / Q222, Playbook 21)", () => {
+      expect(check("Write to info@oxxy.in or call 8800855340.").reasons).not.toContain("contains a link");
+    });
     it("does not see a link in normal text", () => {
       expect(check("e.g. a check-up. Dr. Rao is fine.").reasons).not.toContain("contains a link");
     });

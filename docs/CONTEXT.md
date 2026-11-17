@@ -602,6 +602,19 @@ times -> customer tapped "Tomorrow, 12-2 pm" -> bot: "Which city and locality…
   from the fixed Trigger B / FAQ, red-team rule kept), 6 links (the system adds links), 14 discount figures /
   guarantees, 5 others. "Does it work at <hospital>?" / "every hospital?" = the approved Q181 / Q179 text
   (`asksWorksAtCentre`, no LLM). The what-is-Oxxy FAQ drops "What type of expense…?" when the need is known.
+- KB check of all 330 approved questions through the pipeline (scratchpad check, LLM mocked to give the approved
+  answer): before 227 answered from the KB, 77 by keyword fixed replies (many wrong: "Is the price inclusive of
+  taxes?" -> four-plan table, "Which medicine should I take?" -> medicine delivery, "What about stroke
+  rehabilitation?" -> EMERGENCY, "I have no insurance" -> "do not cancel your insurance", "How do I know this is not
+  a scam?" -> complaint). Now 280 KB / 33 fixed (safety, complaint, refund, opt-out, busy / think / family, price
+  objection, insurance Trigger B, trust pack) / 12 rejected by the rules (a real LLM rewords after the feedback) /
+  5 activation steps. How: `closeKbQuestion` (the message is almost one approved question) -> the content fixed
+  replies (works-at, FAQ, plan next step, service, medicine, price / comparison) step aside when that approved
+  answer passes the validator; the trust pack stays fixed (it carries the links). Also: COVERAGE_WORDS +
+  rehabilitation / rehab / physiotherapy / "what about"; Guardrail: a trust QUESTION about "scam / fraud / fake" is
+  not a complaint; insurance: NO_INSURANCE_T, INSURANCE_COMPARE_T, "combine / after insurance" = complement answer;
+  validator: "rs," inside words is no longer a ₹0 price, the official support e-mail is not a link, "help(s) you
+  save" and the family 30% rule are not promises.
 - Tests: `ChatPipeline.callbackflow.spec.ts` (seed plan rows, no link).
 - Server config: every Oxxy plan row still lacks the official activation link, renewal terms and activation time
   (seed values), so every "Activate" goes to the team + callback. Fill them on the Plans page for the
