@@ -176,7 +176,7 @@ describe("a failed draft is replaced by the fixed template and logged", () => {
     await t.run("recommend a plan");
     const text = t.out.map((o: { text?: unknown }) => String(o.text)).join("\n\n");
     expect(text).toContain("Vital plan");
-    expect(text).toContain("₹1,999 monthly or ₹20,000 yearly plus applicable GST");
+    expect(text).toContain("₹1,999 + GST ₹360 = ₹2,359 monthly or ₹20,000 + GST ₹3,600 = ₹23,600 yearly");
     expect(text).toContain("As an easy illustration");
     expect(text).toContain("₹22,500 a year");
     expect(text).toContain("Actual saving depends on the services and providers used");

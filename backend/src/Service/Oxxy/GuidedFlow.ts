@@ -12,6 +12,7 @@
 import { InteractiveHeader, ListRow, OutboundMessage } from "@Helper/WhatsappMessage";
 import { OXXY_LINKS, VERIFY_CARD_TEXT, WELCOME_CARD_TEXT } from "@Helper/TemplateDefinitions";
 import { say } from "@Helper/Lang";
+import { familyTotal, firstPlan, firstPlanLines, per, subsequentPlan, subsequentPlanLines } from "@Helper/PlanPricing";
 
 type Lg = string | null | undefined;
 /** en / hi / hinglish (Hindi and Hinglish are drafts for a native-speaker review, like the other texts) */
@@ -27,7 +28,9 @@ export type FlowStep =
   | "insurance"
   | "spend"
   | "close"
-  | "family";
+  | "family"
+  // "Yearly or monthly?" for the family breakdown (pricing document 13: plan -> billing -> first / subsequent)
+  | "fambill";
 export const FLOW_PREFIX = "flow:";
 /** pending_action while the health-data notice waits, before the service question */
 export const FLOW_AFTER_CONSENT = "after_consent:flow";
@@ -350,13 +353,13 @@ export const roundedSaving = (yearly: number): number => Math.floor((Number(year
 export const inr = (n: number) => "₹" + Math.round(Number(n)).toLocaleString("en-IN");
 
 export const GST_RATE = 0.18;
-export const gstOn = (cost: number) => Math.round(cost * GST_RATE);
-/** Pricing document 10: first plan cost + GST; each additional member: cost × 70% + GST on that */
+export const gstOn = (cost: number) => firstPlan(cost).gst;
+/** Pricing document 10 (Helper/PlanPricing): first plan cost + GST; each additional member cost × 70% + GST on that */
 export function familyPrice(cost: number, extra: number) {
-  const first = { cost, gst: gstOn(cost), total: cost + gstOn(cost) };
-  const discounted = Math.round(cost * 0.7);
-  const next = { cost: discounted, discount: cost - discounted, gst: gstOn(discounted), total: discounted + gstOn(discounted) };
-  return { first, next, extra, total: first.total + extra * next.total };
+  const first = firstPlan(cost);
+  const s = subsequentPlan(cost);
+  const next = { cost: s.cost, discount: s.discount, gst: s.gst, total: s.total };
+  return { first, next, extra, total: familyTotal(cost, extra) };
 }
 
 // ---------- the plan (Voice manual 10 + 21, KB section 4) ----------
@@ -477,7 +480,12 @@ export function savingsCard(spend: number, l?: Lg): OutboundMessage {
   };
 }
 
-const priceLine = (label: string, cost: number) => `${label}: ${inr(cost)} + GST ${inr(gstOn(cost))} = ${inr(cost + gstOn(cost))}`;
+/** Pricing document 9: "Yearly" / Plan cost / + GST / = Final payable a year */
+const priceBlock = (label: string, cost: number, billing: "yearly" | "monthly", l?: Lg): string[] => {
+  const lines = firstPlanLines(cost, l);
+  lines[lines.length - 1] += ` ${per(billing, l)}`;
+  return [label, ...lines];
+};
 const yearlyLabel = (l: Lg) => tr(l, "Yearly", "सालाना", "Saalana");
 const monthlyLabel = (l: Lg) => tr(l, "Monthly", "मासिक", "Monthly");
 const activateButtons = (l: Lg) => [
@@ -496,8 +504,9 @@ export function planCard(plan: PlanName, price: PlanPrice, f: FlowFacts, l?: Lg)
       `Aapne jo bataya uske hisaab se Oxxy ${PLAN_TITLE[plan]} plan sabse sahi hai, kyunki ${planWhy(plan, l)}.`,
     ),
     "",
-    ...(price.yearly ? [priceLine(yearlyLabel(l), price.yearly)] : []),
-    ...(price.monthly ? [priceLine(monthlyLabel(l), price.monthly)] : []),
+    ...(price.yearly ? priceBlock(yearlyLabel(l), price.yearly, "yearly", l) : []),
+    ...(price.yearly && price.monthly ? [""] : []),
+    ...(price.monthly ? priceBlock(monthlyLabel(l), price.monthly, "monthly", l) : []),
     "",
     tr(l, "Would you like to activate your Oxxy care plan?", "क्या आप अपना Oxxy केयर प्लान एक्टिवेट करना चाहेंगे?", "Kya aap apna Oxxy care plan activate karna chahenge?"),
   ];
@@ -532,29 +541,70 @@ export function readFamily(text: string): number | null {
   return n && Number(n[1]) >= 1 && Number(n[1]) <= 9 ? Number(n[1]) : null;
 }
 
-/** Pricing document 9: the transparent breakdown, yearly and monthly */
-export function familyCard(plan: PlanName, price: PlanPrice, extra: number, l?: Lg): OutboundMessage {
+/** Pricing document 13: the billing first ("yearly or monthly?"), then the breakdown for that billing */
+export const familyBillingQuestion = (plan: PlanName, extra: number, l?: Lg): OutboundMessage => ({
+  kind: "buttons",
+  body: tr(
+    l,
+    `Oxxy ${PLAN_TITLE[plan]} for ${extra + 1} members: would you like the yearly or the monthly price?`,
+    `${extra + 1} सदस्यों के लिए Oxxy ${PLAN_TITLE[plan]}: आप सालाना कीमत देखना चाहेंगे या मासिक?`,
+    `${extra + 1} members ke liye Oxxy ${PLAN_TITLE[plan]}: aap yearly price dekhna chahenge ya monthly?`,
+  ),
+  buttons: [
+    { id: "famb_yearly", title: tr(l, "Yearly", "सालाना", "Yearly") },
+    { id: "famb_monthly", title: tr(l, "Monthly", "मासिक", "Monthly") },
+  ],
+});
+
+export function readFamilyBilling(text: string): "yearly" | "monthly" | null {
+  const s = t(text);
+  if (/^famb_yearly$|\b(year|yearly|annual|annually|saal|saalana)\b|सालाना|वार्षिक/.test(s)) return "yearly";
+  if (/^famb_monthly$|\b(month|monthly|mahina|mahine)\b|मासिक/.test(s)) return "monthly";
+  return null;
+}
+
+/** Pricing document 9 for a family: member 1 at full price, each additional member 30% off, then the total */
+export function familyLines(plan: PlanName, cost: number, extra: number, billing: "yearly" | "monthly", l?: Lg): string[] {
   const n = extra + 1;
-  const out: string[] = [tr(l, `Oxxy ${PLAN_TITLE[plan]} for ${n} members:`, `${n} सदस्यों के लिए Oxxy ${PLAN_TITLE[plan]}:`, `${n} members ke liye Oxxy ${PLAN_TITLE[plan]}:`)];
-  const block = (label: string, cost: number) => {
-    const fp = familyPrice(cost, extra);
-    out.push(
-      "",
-      `${label}`,
-      `${tr(l, "Member 1", "सदस्य 1", "Member 1")}: ${inr(fp.first.cost)} + GST ${inr(fp.first.gst)} = ${inr(fp.first.total)}`,
-      `${tr(l, "Each additional member", "हर अतिरिक्त सदस्य", "Har extra member")}: ${inr(cost)} − 30% (${inr(fp.next.discount)}) = ${inr(fp.next.cost)} + GST ${inr(fp.next.gst)} = ${inr(fp.next.total)}`,
-      `${tr(l, `Total for ${n} members`, `${n} सदस्यों का कुल`, `${n} members ka total`)}: ${inr(fp.total)}`,
-    );
-  };
-  if (price.yearly) block(yearlyLabel(l), price.yearly);
-  if (price.monthly) block(monthlyLabel(l), price.monthly);
-  out.push("", tr(l, "Would you like to activate it?", "क्या आप इसे एक्टिवेट करना चाहेंगे?", "Kya aap ise activate karna chahenge?"));
+  return [
+    tr(l, `Oxxy ${PLAN_TITLE[plan]} for ${n} members (${billing})`, `${n} सदस्यों के लिए Oxxy ${PLAN_TITLE[plan]} (${billing === "yearly" ? "सालाना" : "मासिक"})`, `${n} members ke liye Oxxy ${PLAN_TITLE[plan]} (${billing})`),
+    "",
+    tr(l, "Member 1 (first plan)", "सदस्य 1 (पहला प्लान)", "Member 1 (pehla plan)"),
+    ...firstPlanLines(cost, l),
+    "",
+    tr(
+      l,
+      `Each additional member (${extra})`,
+      `हर अतिरिक्त सदस्य (${extra})`,
+      `Har extra member (${extra})`,
+    ),
+    ...subsequentPlanLines(cost, l),
+    "",
+    tr(
+      l,
+      `Total for ${n} members: ${inr(familyTotal(cost, extra))} ${per(billing, l)}`,
+      `${n} सदस्यों का कुल: ${inr(familyTotal(cost, extra))} ${per(billing, l)}`,
+      `${n} members ka total: ${inr(familyTotal(cost, extra))} ${per(billing, l)}`,
+    ),
+  ];
+}
+
+export function familyCard(plan: PlanName, price: PlanPrice, extra: number, l?: Lg, billing: "yearly" | "monthly" = "yearly"): OutboundMessage {
+  const cost = (billing === "monthly" ? price.monthly : price.yearly) ?? price.yearly ?? price.monthly ?? 0;
+  const out = [
+    ...familyLines(plan, cost, extra, billing, l),
+    "",
+    tr(l, "Would you like to activate it?", "क्या आप इसे एक्टिवेट करना चाहेंगे?", "Kya aap ise activate karna chahenge?"),
+  ];
   return {
     kind: "buttons",
     body: out.join("\n"),
-    buttons: [...activateButtons(l), { id: "flow_menu", title: tr(l, "Main Menu", "मुख्य मेनू", "Main Menu") }],
+    buttons: [
+      { id: billing === "monthly" ? "act_monthly" : "act_yearly", title: tr(l, "Activate", "एक्टिवेट करें", "Activate") },
+      { id: "flow_family", title: tr(l, "Change members", "सदस्य बदलें", "Members badlein") },
+      { id: "flow_menu", title: tr(l, "Main Menu", "मुख्य मेनू", "Main Menu") },
+    ],
   };
 }
 
-/** "main menu", "menu", "start again" or the Main Menu button */
 export const asksMainMenu = (text: string) => /^(flow_menu|main menu|menu|start again|restart)\s*[.!]?$/i.test((text || "").trim());

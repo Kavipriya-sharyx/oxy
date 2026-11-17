@@ -615,6 +615,21 @@ times -> customer tapped "Tomorrow, 12-2 pm" -> bot: "Which city and locality…
   not a complaint; insurance: NO_INSURANCE_T, INSURANCE_COMPARE_T, "combine / after insurance" = complement answer;
   validator: "rs," inside words is no longer a ₹0 price, the official support e-mail is not a link, "help(s) you
   save" and the family 30% rule are not promises.
+- Pricing document ("Monthly & Annual Plan Pricing Calculation Logic", 17 Nov) in `Helper/PlanPricing.ts`: first plan =
+  cost + 18% GST; second plan onwards = cost − 30%, GST on the discounted cost; whole rupees; doc 9 display
+  (Plan cost / + GST / = Final payable; Original / − 30% / = Discounted / + GST / = Final payable). Used by: the flow's
+  plan card (both billings, doc 9 lines), the family step (count -> "Yearly or Monthly?" buttons -> one-billing
+  breakdown + total, Activate / Change members / Main Menu), the activation disclosure (the chosen billing's final
+  payable before the YES / NO), recommendation / honest / details / price answers and the four-plan comparison
+  (cost + GST = final), the chat summary, the LLM (`plan_prices` in the context + one prompt line), the validator
+  (all figures from `priceFigures`), the oxxy_plan_recommendation template body (needs resubmission to Meta).
+  Decisions (17 Nov, final; from the pricing document's title "Individual & Additional Member Subsequent" and KB
+  Q130 / Q132): (1) "second plan onwards" = an additional family
+  member added in the SAME activation (KB Q132), not a later second purchase; (2) the official link pays the first
+  plan; the additional members are paid through the team (Activation task with each member's ₹ cost + GST = total
+  and the family total) until the client gives family / discounted links. Cut Medi Bills keeps its own text; its
+  disclosure uses the same cost / GST / final lines, no 30%. Tests: `Helper/PlanPricing.spec.ts` (every figure in
+  the document, display format, WhatsApp limits in en / hi / hinglish).
 - Tests: `ChatPipeline.callbackflow.spec.ts` (seed plan rows, no link).
 - Server config: every Oxxy plan row still lacks the official activation link, renewal terms and activation time
   (seed values), so every "Activate" goes to the team + callback. Fill them on the Plans page for the

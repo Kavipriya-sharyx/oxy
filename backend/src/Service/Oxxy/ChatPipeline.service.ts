@@ -18,6 +18,7 @@ import {
 } from "@Helper/CentreReplies";
 import { toBubbles } from "@Helper/Bubbles";
 import { closeKbQuestion, knowledgeFor } from "@Helper/KnowledgeBase";
+import { firstPlan, subsequentPlan, familyTotal, priceFigures, inlineMonthlyYearly } from "@Helper/PlanPricing";
 import {
   asksMainMenu,
   CONDITION_LABEL,
@@ -49,6 +50,8 @@ import {
   verifyCard,
   websiteCard,
   welcomeCard,
+  familyBillingQuestion,
+  readFamilyBilling,
 } from "./GuidedFlow";
 import { detectRescueSignal, readRescue, rescueLine } from "@Helper/RescueReplies";
 import { REBOOK_DECLINED_T } from "@Helper/CentreReplies";
@@ -1702,13 +1705,30 @@ export class ChatPipelineService {
         if (!act) return false;
         let note = "";
         if (extra > 0) {
+          // Decision (17 Nov): the official link is one plan; the additional members (30% off, pricing
+          // document 2 step 2) are paid through the team, who gets the exact amounts in the task
+          const cycle = billing === BillingCycle.Monthly ? "monthly" : "yearly";
+          const price = await this.flowPrice(plan);
+          const cost = Number((cycle === "monthly" ? price.monthly : price.yearly) ?? 0);
+          const sub = subsequentPlan(cost);
           await this.createTaskOnce(
             TaskType.Activation,
             TaskPriority.Normal,
             s,
-            `Add ${extra} family member(s) to Oxxy ${PLAN_TITLE[plan]} (${billing}) at 30% off the plan cost`,
+            `Add ${extra} family member(s) to Oxxy ${PLAN_TITLE[plan]} (${cycle}) at 30% off: each ₹${sub.cost} + GST ₹${sub.gst} = ₹${sub.total}; ` +
+              `first plan ₹${firstPlan(cost).total} via the official link; family total ₹${familyTotal(cost, extra)}`,
           );
-          note = `Our team will add the ${extra} family member${extra > 1 ? "s" : ""} with the 30% discount when activating.\n\n`;
+          // the family card with the breakdown was the last message: here only the total and the payment
+          const sum = `${familyTotal(cost, extra).toLocaleString("en-IN")}`;
+          note =
+            say(
+              {
+                en: `Total for ${extra + 1} members: ₹${sum} ${cycle === "monthly" ? "a month" : "a year"} (first plan ₹${firstPlan(cost).total.toLocaleString("en-IN")} + ${extra} × ₹${sub.total.toLocaleString("en-IN")}). The official link below is for the first plan; our team will send the payment for the ${extra} additional member${extra > 1 ? "s" : ""} with the 30% discount.`,
+                hi: `${extra + 1} सदस्यों का कुल: ₹${sum} ${cycle === "monthly" ? "प्रति माह" : "प्रति वर्ष"} (पहला प्लान ₹${firstPlan(cost).total.toLocaleString("en-IN")} + ${extra} × ₹${sub.total.toLocaleString("en-IN")})। नीचे का आधिकारिक लिंक पहले प्लान के लिए है; ${extra} अतिरिक्त सदस्यों का भुगतान 30% छूट के साथ हमारी टीम भेजेगी।`,
+                hinglish: `${extra + 1} members ka total: ₹${sum} ${cycle === "monthly" ? "per month" : "per year"} (pehla plan ₹${firstPlan(cost).total.toLocaleString("en-IN")} + ${extra} × ₹${sub.total.toLocaleString("en-IN")}). Neeche ka official link pehle plan ke liye hai; ${extra} extra member${extra > 1 ? "s" : ""} ka payment 30% discount ke saath hamari team bhejegi.`,
+              },
+              s.customer.language,
+            ) + "\n\n";
         }
         await reply(note + act);
         await this.sendMore(s, termsCard(s.customer.language));
@@ -1718,7 +1738,16 @@ export class ChatPipelineService {
         const k = readFamily(text);
         if (!k) return false;
         const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
-        await ask(`close:${k}` as FlowStep, familyCard(plan, await this.flowPrice(plan), k, s.customer.language));
+        // pricing document 13: the billing first, then the breakdown for it
+        await ask(`fambill:${k}` as FlowStep, familyBillingQuestion(plan, k, s.customer.language));
+        return true;
+      }
+      case "fambill": {
+        const cycle = readFamilyBilling(text);
+        if (!cycle) return false;
+        const k = flowFamily(s.conversation.pending_action) || 1;
+        const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
+        await ask(`close:${k}` as FlowStep, familyCard(plan, await this.flowPrice(plan), k, s.customer.language, cycle));
         return true;
       }
     }
@@ -2758,6 +2787,14 @@ export class ChatPipelineService {
       const known = pick(n as any, KNOWN_NEED_FIELDS);
       if (conv.selected_product) known.selected_product = conv.selected_product;
       if (conv.recommended_plan) known.recommended_plan = conv.recommended_plan;
+      // pricing document (17 Nov): cost, GST 18%, final payable, and the 30% for each additional family member
+      const rows = await quiet(() => plan_catalog.find({ where: { product: ProductType.Oxxy, status: true } }));
+      if (rows?.length)
+        out.plan_prices = rows.map((r) => {
+          const f = firstPlan(Number(r.price), Number(r.gst_rate) || undefined);
+          const x = subsequentPlan(Number(r.price), Number(r.gst_rate) || undefined);
+          return `${r.plan} ${r.billing}: cost ₹${f.cost} + GST ₹${f.gst} = ₹${f.total}; each additional family member ₹${x.original} - 30% ₹${x.discount} = ₹${x.cost} + GST ₹${x.gst} = ₹${x.total}`;
+        });
       if (conv.objection) known.objection = conv.objection;
       if (conv.outcome) known.outcome = conv.outcome;
       const b = await booking_request.findOne({
@@ -3140,6 +3177,7 @@ export class ChatPipelineService {
             cat.renewal_terms,
             cat.activation_time,
             s.customer.language,
+            Number(cat.gst_rate) || undefined,
           ),
         );
       } else if (conv.selected_product || conv.recommended_plan) {
@@ -3724,6 +3762,7 @@ export class ChatPipelineService {
       cat.renewal_terms,
       cat.activation_time,
       l,
+      Number(cat.gst_rate) || undefined,
     );
   }
 
@@ -5038,11 +5077,7 @@ ${res.text}` : res.text, m.waMessageId);
     let price: string | null = null;
     if (plan && s.conversation.selected_product !== ProductType.CutMediBills) {
       const p = await quiet(() => this._ValueCheck.prices(ProductType.Oxxy, plan));
-      const rs = (x: number) => "₹" + Math.round(Number(x)).toLocaleString("en-IN");
-      if (p?.yearly)
-        price = p.monthly
-          ? `${rs(p.monthly)} ${say({ en: "monthly or", hi: "मासिक या", hinglish: "monthly ya" }, s.customer.language)} ${rs(p.yearly)} ${say({ en: "yearly", hi: "वार्षिक", hinglish: "yearly" }, s.customer.language)}`
-          : `${rs(p.yearly)} ${say({ en: "yearly", hi: "वार्षिक", hinglish: "yearly" }, s.customer.language)}`;
+      if (p?.yearly) price = inlineMonthlyYearly(p.yearly, p.monthly ?? null, s.customer.language);
     }
     const linkSent = !!(await quiet(() =>
       activation.findOne({

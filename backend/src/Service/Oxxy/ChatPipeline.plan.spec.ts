@@ -241,9 +241,9 @@ describe("plan choice (12.3)", () => {
     });
     await t.run("we spend about 60000 a year");
     expect(t.out.join("\n\n")).toContain("I recommend the Everyday plan");
-    expect(t.out.join("\n\n")).toContain("₹999 monthly or ₹10,000 yearly plus applicable GST");
+    expect(t.out.join("\n\n")).toContain("₹999 + GST ₹180 = ₹1,179 monthly or ₹10,000 + GST ₹1,800 = ₹11,800 yearly");
     expect(t.out.join("\n\n")).toContain(
-      "save about ₹12,000 a year, against a plan price of ₹10,000 plus GST",
+      "save about ₹12,000 a year, against a plan price of ₹11,800 a year including GST",
     );
     expect(t.conv.recommended_plan).toBe("everyday");
   });
@@ -546,7 +546,7 @@ describe("activation (12.5): disclosure first, link only after YES", () => {
       recommended: "everyday",
     });
     await t.run("I want to activate");
-    expect(t.out.join("\n\n")).toContain("Price: ₹10,000 yearly plus applicable GST");
+    expect(t.out.join("\n\n")).toContain("Plan cost: ₹10,000\n+ GST (18%): ₹1,800\n= Final payable: ₹11,800 a year");
     expect(t.out.join("\n\n")).toContain("Renewal:");
     expect(t.out.join("\n\n")).toContain("Shall I send the official secure activation link?");
     expect(t.out.join("\n\n")).not.toContain("https://");
@@ -1489,7 +1489,7 @@ describe("plan choice and price after the booking (no repeats, no callback for t
     await t.run("50+");
     expect(t.generate).toHaveBeenCalledTimes(1);
     expect(t.out).toHaveLength(1);
-    expect(t.out[0]).toMatch(/^Based on what you shared, the Vital plan fits best, at ₹999 monthly or ₹10,000 yearly plus applicable GST/);
+    expect(t.out[0]).toMatch(/^Based on what you shared, the Vital plan fits best, at ₹999 \+ GST ₹180 = ₹1,179 monthly or ₹10,000 \+ GST ₹1,800 = ₹11,800 yearly/);
     expect(t.out[0]).toMatch(/may not pay for itself/);
     expect(t.out[0]).toMatch(/\?$/); // one question at the end, so "Okay" next is an answer
     expect(t.conv.recommended_plan).toBe("vital");
@@ -1510,7 +1510,7 @@ describe("plan choice and price after the booking (no repeats, no callback for t
     await t.run("I need know about price");
     expect(t.generate).not.toHaveBeenCalled();
     expect(t.out[0]).toBe(
-      "The current price of the Vital plan is ₹999 monthly or ₹10,000 yearly plus applicable GST. Would you like the official plan details or help activating it?",
+      "The current price of the Vital plan is ₹999 + GST ₹180 = ₹1,179 monthly or ₹10,000 + GST ₹1,800 = ₹11,800 yearly. Would you like the official plan details or help activating it?",
     );
     expect(t.out.join(" ")).not.toMatch(/precise answer|convenient time/);
     expect(t.conv.state).not.toBe(S.Escalated);
@@ -1549,7 +1549,7 @@ describe("16 Nov test chats: no loops, no false promises", () => {
       .spyOn(message, "findOne")
       .mockImplementation((async (o: any) => (o?.where?.reply_to_wa_message_id ? null : { body })) as never);
   const PRICE_Q =
-    "The current price of the Vital plan is ₹1,999 monthly or ₹20,000 yearly plus applicable GST. Would you like the official plan details or help activating it?";
+    "The current price of the Vital plan is ₹1,999 + GST ₹360 = ₹2,359 monthly or ₹20,000 + GST ₹3,600 = ₹23,600 yearly. Would you like the official plan details or help activating it?";
 
   it('"yes" to "plan details or help activating it?" starts the activation, never the price again', async () => {
     const t = setup([], { recommended: "vital" });
@@ -1892,7 +1892,7 @@ describe("17 Nov client feedback, second list", () => {
     const text = t.out.join("\n\n");
     expect(text).toMatch(/^Thank you\. Here is a summary of our chat:/);
     expect(text).toContain("For: mother. Area: Peelamedu, Coimbatore.");
-    expect(text).toContain("Price: ₹999 monthly or ₹10,000 yearly plus applicable GST.");
+    expect(text).toContain("Price: ₹999 + GST ₹180 = ₹1,179 monthly or ₹10,000 + GST ₹1,800 = ₹11,800 yearly.");
     expect(text).toContain("You may message Oxxy whenever healthcare support is needed.");
     expect(t.generate).not.toHaveBeenCalled();
     const { isClosingMessage } = jest.requireActual("./ChatPipeline.service");

@@ -297,9 +297,9 @@ export function summaryLines(f: SummaryFacts, l: string | null = "en"): string {
       (f.price
         ? say(
             {
-              en: ` Price: ${f.price} plus applicable GST.`,
-              hi: ` कीमत: ${f.price} और लागू GST।`,
-              hinglish: ` Price: ${f.price} plus applicable GST.`,
+              en: ` Price: ${f.price}.`,
+              hi: ` कीमत: ${f.price}।`,
+              hinglish: ` Price: ${f.price}.`,
             },
             l,
           )

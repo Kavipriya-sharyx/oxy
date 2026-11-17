@@ -1,3 +1,4 @@
+import { priceFigures } from "@Helper/PlanPricing";
 import { Injectable } from "@nestjs/common";
 import { plan_catalog } from "@Database/Table/Oxxy/plan_catalog";
 import { NEUTRAL_SAVINGS_LINE } from "@Helper/FixedReplies";
@@ -246,7 +247,8 @@ export class ReplyValidatorService {
     const rows = await plan_catalog.find({ where: { status: true } });
     const prices: number[] = [];
     for (const p of rows) {
-      prices.push(p.price, Math.round(p.price * (1 + (Number(p.gst_rate) || 0.18))));
+      // the cost, GST, final payable, the 30% for additional members and family totals (pricing document)
+      prices.push(p.price, Math.round(p.price * (1 + (Number(p.gst_rate) || 0.18))), ...priceFigures(Number(p.price), Number(p.gst_rate) || undefined));
     }
     const plans = rows.map((p) => ({ name: p.plan, product: p.product }));
     return { prices, plans };

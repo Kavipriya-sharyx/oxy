@@ -89,11 +89,11 @@ describe("Trigger E comparison (7)", () => {
   ];
   it("four plans, ONE marked, GST stated, no link", () => {
     const t = planComparisonText(rows, { plan: "vital", reason: "it covers OPD and possible hospitalisation" }, null);
-    expect(t).toContain("1. Everyday: ₹999 monthly / ₹10,000 yearly, up to age 70.");
-    expect(t).toContain("4. Infinity: ₹3,999 monthly / ₹40,000 yearly, no age limit.");
+    expect(t).toContain("1. Everyday: ₹999 + GST ₹180 = ₹1,179 monthly / ₹10,000 + GST ₹1,800 = ₹11,800 yearly, up to age 70.");
+    expect(t).toContain("4. Infinity: ₹3,999 + GST ₹720 = ₹4,719 monthly / ₹40,000 + GST ₹7,200 = ₹47,200 yearly, no age limit.");
     expect(t.match(/recommended for you/g)).toHaveLength(1);
     expect(t).toContain("2. Vital (recommended for you)");
-    expect(t).toContain("plus applicable GST");
+    expect(t).toContain("plan cost + 18% GST = final payable");
     expect(t).not.toMatch(/https?:/);
   });
   it("no plan marked yet: asks the one question instead", () => {

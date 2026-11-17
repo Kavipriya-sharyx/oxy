@@ -3,6 +3,7 @@
 // Links and contacts come from Playbook 21 (approved reference links); env vars may override them.
 // Every text: English (approved) + Hindi / Hinglish drafts (Helper/Lang.ts); the last argument is the language.
 import { L, lang, say } from "./Lang";
+import { inlineFirst } from "./PlanPricing";
 
 const inr = (n: number) => "₹" + Math.round(Number(n)).toLocaleString("en-IN");
 const title = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -230,9 +231,9 @@ export interface ComparisonRow {
 
 const CMP: Record<"head" | "monthly" | "yearly" | "upTo" | "noAge" | "mark" | "ask", L> = {
   head: {
-    en: "Here are the four Oxxy plans (prices plus applicable GST):",
-    hi: "ये रहे Oxxy के चार प्लान (कीमत + लागू GST):",
-    hinglish: "Yeh rahe Oxxy ke chaar plans (prices plus applicable GST):",
+    en: "Here are the four Oxxy plans (plan cost + 18% GST = final payable):",
+    hi: "ये रहे Oxxy के चार प्लान (प्लान की कीमत + 18% GST = कुल देय राशि):",
+    hinglish: "Yeh rahe Oxxy ke chaar plans (plan cost + 18% GST = final payable):",
   },
   monthly: { en: "monthly", hi: "मासिक", hinglish: "monthly" },
   yearly: { en: "yearly", hi: "वार्षिक", hinglish: "yearly" },
@@ -260,8 +261,8 @@ export function planComparisonText(
   const list = rows
     .map((r, i) => {
       const price = [
-        r.monthly ? `${inr(r.monthly)} ${say(CMP.monthly, l)}` : null,
-        r.yearly ? `${inr(r.yearly)} ${say(CMP.yearly, l)}` : null,
+        r.monthly ? `${inlineFirst(r.monthly)} ${say(CMP.monthly, l)}` : null,
+        r.yearly ? `${inlineFirst(r.yearly)} ${say(CMP.yearly, l)}` : null,
       ]
         .filter(Boolean)
         .join(" / ");

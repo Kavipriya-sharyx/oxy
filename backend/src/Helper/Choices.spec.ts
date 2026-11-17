@@ -33,7 +33,7 @@ describe("multiple-choice options on the bot's questions", () => {
     expect((interactiveFor("Happy to help. What consultation, test, medicine, treatment or surgery is needed, and when?") as any).kind).toBe("list");
     expect(opts(interactiveFor("Which doctor specialisation, test or healthcare service should I include in the request?"))).toHaveLength(10);
     expect(opts(interactiveFor("What time or time window would suit you?")).map((b: any) => b.title)).toEqual(["Morning", "Afternoon", "Evening"]);
-    expect(opts(interactiveFor("The current price of the Vital plan is ₹1,999 monthly or ₹20,000 yearly plus applicable GST. Would you like the official plan details or help activating it?")).map((b: any) => b.title)).toEqual(["Plan details", "Activate", "Not now"]);
+    expect(opts(interactiveFor("The current price of the Vital plan is ₹1,999 + GST ₹360 = ₹2,359 monthly or ₹20,000 + GST ₹3,600 = ₹23,600 yearly. Would you like the official plan details or help activating it?")).map((b: any) => b.title)).toEqual(["Plan details", "Activate", "Not now"]);
   });
 
   it("booking date: the next 7 dates from the earliest, each id a date the date reader takes", () => {

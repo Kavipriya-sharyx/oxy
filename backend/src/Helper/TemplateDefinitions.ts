@@ -149,7 +149,7 @@ export const TEMPLATES: TemplateDef[] = [
     name: "oxxy_plan_recommendation",
     language: "en",
     category: "MARKETING",
-    body: "Hello {{1}}, based on what you shared, the Oxxy {{2}} plan fits best because {{3}}.\n\nPrice: ₹{{4}} + GST ₹{{5}} = ₹{{6}} ({{7}}).\n\nWould you like to activate your Oxxy care plan?",
+    body: "Hello {{1}}, based on what you shared, the Oxxy {{2}} plan fits best because {{3}}.\n\nPrice ({{7}}):\nPlan cost: ₹{{4}}\n+ GST (18%): ₹{{5}}\n= Final payable: ₹{{6}}\n\nWould you like to activate your Oxxy care plan?",
     examples: ["Priya", "Infinity", "it has no age limit and no upper eligible bill limit", "40,000", "7,200", "47,200", "yearly"],
     footer: "Reply STOP to opt out",
     quickReplies: ["Activate Now", "Add Family Member", "Talk to Expert"],

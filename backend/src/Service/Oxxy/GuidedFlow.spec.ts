@@ -78,8 +78,9 @@ describe("price + GST and the family discount (pricing document)", () => {
   });
   it("the plan card shows cost + GST = payable", () => {
     const m = planCard("infinity", { monthly: 3999, yearly: 40000 }, {}) as { body: string };
-    expect(m.body).toContain("Yearly: ₹40,000 + GST ₹7,200 = ₹47,200");
-    expect(m.body).toContain("Monthly: ₹3,999 + GST ₹720 = ₹4,719");
+    // pricing document 9: Plan cost / + GST / = Final payable
+    expect(m.body).toContain("Yearly\nPlan cost: ₹40,000\n+ GST (18%): ₹7,200\n= Final payable: ₹47,200 a year");
+    expect(m.body).toContain("Monthly\nPlan cost: ₹3,999\n+ GST (18%): ₹720\n= Final payable: ₹4,719 a month");
   });
 });
 

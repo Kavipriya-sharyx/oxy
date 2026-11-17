@@ -3,6 +3,7 @@
 // Every text has English (approved), Hindi and Hinglish (drafts, see Helper/Lang.ts). The English constants
 // stay exported as before; `say(X_T, lang)` / the `l` argument gives the customer's language.
 import { L, lang, say } from "./Lang";
+import { firstPlan, firstPlanLines, inlineMonthlyYearly, per, GST_RATE } from "./PlanPricing";
 
 const inr = (n: number) => "₹" + Math.round(Number(n)).toLocaleString("en-IN");
 const title = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -209,12 +210,8 @@ export function asksCentreSaving(text: string): boolean {
   return money && place;
 }
 
-const priceText = (yearly: number, monthly: number | null, l: string) => {
-  const g = lang(l);
-  if (g === "hi") return monthly ? `${inr(monthly)} मासिक या ${inr(yearly)} वार्षिक` : `${inr(yearly)} वार्षिक`;
-  if (g === "hinglish") return monthly ? `${inr(monthly)} monthly ya ${inr(yearly)} yearly` : `${inr(yearly)} yearly`;
-  return monthly ? `${inr(monthly)} monthly or ${inr(yearly)} yearly` : `${inr(yearly)} yearly`;
-};
+// pricing document (17 Nov): the plan cost, the GST and the final payable, never "plus applicable GST" alone
+const priceText = (yearly: number, monthly: number | null, l: string) => inlineMonthlyYearly(yearly, monthly, l);
 
 export function recommendText(
   plan: string,
@@ -230,23 +227,23 @@ export function recommendText(
   switch (lang(l)) {
     case "hi":
       return (
-        `मैं ${p} प्लान की सलाह देता हूँ क्योंकि ${why}। मौजूदा कीमत ${price} और लागू GST है।\n\n` +
+        `मैं ${p} प्लान की सलाह देता हूँ क्योंकि ${why}। मौजूदा कीमत: ${price}।\n\n` +
         `आपने बताया कि आपका सालाना स्वास्थ्य खर्च लगभग ${inr(spend)} है। एक आसान उदाहरण के तौर पर, ${p} प्लान से साल में ` +
-        `लगभग ${inr(saving)} की बचत हो सकती है, जबकि प्लान की कीमत ${inr(yearly)} और GST है। असली बचत इस्तेमाल की गई सेवाओं ` +
+        `लगभग ${inr(saving)} की बचत हो सकती है, जबकि प्लान GST सहित ${inr(firstPlan(yearly).total)} सालाना है। असली बचत इस्तेमाल की गई सेवाओं ` +
         `और प्रदाताओं पर निर्भर करती है। क्या आप प्लान की जानकारी चाहेंगे?`
       );
     case "hinglish":
       return (
-        `Main ${p} plan recommend karta hoon kyunki ${why}. Current price ${price} plus applicable GST hai.\n\n` +
+        `Main ${p} plan recommend karta hoon kyunki ${why}. Current price: ${price}.\n\n` +
         `Aapne bataya ki aapka yearly healthcare kharcha lagbhag ${inr(spend)} hai. Ek easy illustration ke liye, ${p} plan se ` +
-        `saal mein lagbhag ${inr(saving)} ki bachat ho sakti hai, jabki plan price ${inr(yearly)} plus GST hai. Actual bachat ` +
+        `saal mein lagbhag ${inr(saving)} ki bachat ho sakti hai, jabki plan GST ke saath ${inr(firstPlan(yearly).total)} yearly hai. Actual bachat ` +
         `use ki gayi services aur providers par depend karti hai. Kya aap plan details chahenge?`
       );
     default:
       return (
-        `I recommend the ${p} plan because ${why}. The current price is ${price} plus applicable GST.\n\n` +
+        `I recommend the ${p} plan because ${why}. The current price is ${price}.\n\n` +
         `You mentioned a yearly healthcare spend of about ${inr(spend)}. As an easy illustration, the ${p} plan could help you save ` +
-        `about ${inr(saving)} a year, against a plan price of ${inr(yearly)} plus GST. Actual saving depends on the services and ` +
+        `about ${inr(saving)} a year, against a plan price of ${inr(firstPlan(yearly).total)} a year including GST. Actual saving depends on the services and ` +
         `providers used. Would you like the plan details?`
       );
   }
@@ -263,19 +260,19 @@ export function honestText(
   switch (lang(l)) {
     case "hi":
       return (
-        `आपकी बताई जानकारी के अनुसार ${title(plan)} प्लान सबसे उपयुक्त है, ${price} और लागू GST पर। ` +
+        `आपकी बताई जानकारी के अनुसार ${title(plan)} प्लान सबसे उपयुक्त है: ${price}। ` +
         `लगभग ${inr(spend)} सालाना खर्च पर, सिर्फ़ बचत से इसकी कीमत शायद पूरी न हो। ` +
         `मैं फिर भी बिना किसी शुल्क के केंद्र ढूँढने या बुकिंग अनुरोध लेने में मदद कर सकता हूँ। आप प्लान की जानकारी चाहेंगे या केंद्र ढूँढने में मदद?`
       );
     case "hinglish":
       return (
-        `Aapki batayi jaankari ke hisaab se ${title(plan)} plan sabse sahi hai, ${price} plus applicable GST par. ` +
+        `Aapki batayi jaankari ke hisaab se ${title(plan)} plan sabse sahi hai: ${price}. ` +
         `Lagbhag ${inr(spend)} yearly kharche par, sirf bachat se iski price shayad poori na ho. ` +
         `Main phir bhi bina kisi charge ke centre dhoondhne ya booking request lene mein madad kar sakta hoon. Aap plan details chahenge ya centre dhoondhne mein madad?`
       );
     default:
       return (
-        `Based on what you shared, the ${title(plan)} plan fits best, at ${price} plus applicable GST. ` +
+        `Based on what you shared, the ${title(plan)} plan fits best, at ${price}. ` +
         `At about ${inr(spend)} a year, it may not pay for itself in savings alone. ` +
         `I can still help you find a centre or take a booking request at no cost. Would you like the plan details or help finding a centre?`
       );
@@ -289,30 +286,37 @@ export function disclosureText(
   renewalTerms: string | null,
   activationTime: string | null,
   l: string | null = "en",
+  gstRate: number = GST_RATE,
 ): string {
   const monthly = billing === "monthly";
   const renewal = renewalTerms ? renewalTerms.replace(/[.\s]+$/, "") : null;
+  // pricing document 9: Plan cost / + GST / = Final payable, for the billing the customer chose
+  const block = firstPlanLines(price, l, Number(gstRate) || GST_RATE);
+  block[block.length - 1] += ` ${per(billing, l)}`;
+  const priceBlock = block.join("\n");
+  // "Cut Medi Bills (monthly)" already names the billing
+  const cycleTag = (c: string) => (/\(/.test(productLabel) ? "" : ` (${c})`);
   switch (lang(l)) {
     case "hi":
       return (
-        `चुना गया: ${productLabel}। कीमत: ${inr(price)} ${monthly ? "मासिक" : "वार्षिक"} और लागू GST।` +
-        (renewal ? ` नवीनीकरण: ${renewal}।` : "") +
-        (activationTime ? ` एक्टिवेशन: ${activationTime}।` : "") +
-        ` भुगतान से पहले कृपया आधिकारिक पेज देखें। क्या मैं आधिकारिक सुरक्षित एक्टिवेशन लिंक भेजूँ? कृपया हाँ या नहीं लिखें।`
+        `चुना गया: ${productLabel}${cycleTag(monthly ? "मासिक" : "वार्षिक")}\n${priceBlock}\n\n` +
+        (renewal ? `नवीनीकरण: ${renewal}। ` : "") +
+        (activationTime ? `एक्टिवेशन: ${activationTime}। ` : "") +
+        `भुगतान से पहले कृपया आधिकारिक पेज देखें। क्या मैं आधिकारिक सुरक्षित एक्टिवेशन लिंक भेजूँ? कृपया हाँ या नहीं लिखें।`
       );
     case "hinglish":
       return (
-        `Selected: ${productLabel}. Price: ${inr(price)} ${monthly ? "monthly" : "yearly"} plus applicable GST.` +
-        (renewal ? ` Renewal: ${renewal}.` : "") +
-        (activationTime ? ` Activation: ${activationTime}.` : "") +
-        ` Payment se pehle official page zaroor dekhein. Kya main official secure activation link bhejun? YES ya NO likhein.`
+        `Selected: ${productLabel}${cycleTag(monthly ? "monthly" : "yearly")}\n${priceBlock}\n\n` +
+        (renewal ? `Renewal: ${renewal}. ` : "") +
+        (activationTime ? `Activation: ${activationTime}. ` : "") +
+        `Payment se pehle official page zaroor dekhein. Kya main official secure activation link bhejun? YES ya NO likhein.`
       );
     default:
       return (
-        `Selected: ${productLabel}. Price: ${inr(price)} ${monthly ? "monthly" : "yearly"} plus applicable GST.` +
-        (renewal ? ` Renewal: ${renewal}.` : "") +
-        (activationTime ? ` Activation: ${activationTime}.` : "") +
-        ` Please review the official page before payment. Shall I send the official secure activation link? Reply YES or NO.`
+        `Selected: ${productLabel}${cycleTag(monthly ? "monthly" : "yearly")}\n${priceBlock}\n\n` +
+        (renewal ? `Renewal: ${renewal}. ` : "") +
+        (activationTime ? `Activation: ${activationTime}. ` : "") +
+        `Please review the official page before payment. Shall I send the official secure activation link? Reply YES or NO.`
       );
   }
 }
@@ -550,11 +554,11 @@ export function planDetailsText(
   const price = yearly ? priceText(yearly, monthly, l || "en") : null;
   switch (lang(l)) {
     case "hi":
-      return `${p} प्लान: ${what}।${price ? ` कीमत ${price} और लागू GST।` : ""} आप इसे इस्तेमाल करने से पहले Oxxy से संपर्क करते हैं, ताकि योग्य बचत तय की जा सके। क्या आप इसे एक्टिवेट करना चाहेंगे?`;
+      return `${p} प्लान: ${what}।${price ? ` कीमत: ${price}।` : ""} आप इसे इस्तेमाल करने से पहले Oxxy से संपर्क करते हैं, ताकि योग्य बचत तय की जा सके। क्या आप इसे एक्टिवेट करना चाहेंगे?`;
     case "hinglish":
-      return `${p} plan: ${what}.${price ? ` Price ${price} plus applicable GST.` : ""} Service lene se pehle Oxxy ko contact karte hain, taaki eligible saving coordinate ho sake. Kya aap ise activate karna chahenge?`;
+      return `${p} plan: ${what}.${price ? ` Price: ${price}.` : ""} Service lene se pehle Oxxy ko contact karte hain, taaki eligible saving coordinate ho sake. Kya aap ise activate karna chahenge?`;
     default:
-      return `The ${p} plan covers ${what}.${price ? ` The price is ${price} plus applicable GST.` : ""} You contact Oxxy before the service, so the eligible saving can be arranged. Would you like help activating it?`;
+      return `The ${p} plan covers ${what}.${price ? ` The price is ${price}.` : ""} You contact Oxxy before the service, so the eligible saving can be arranged. Would you like help activating it?`;
   }
 }
 
@@ -577,11 +581,11 @@ export function planPriceText(
   const price = priceText(yearly, monthly, l || "en");
   switch (lang(l)) {
     case "hi":
-      return `${p} प्लान की मौजूदा कीमत ${price} और लागू GST है। क्या आप प्लान की आधिकारिक जानकारी चाहेंगे या इसे एक्टिवेट करने में मदद?`;
+      return `${p} प्लान की मौजूदा कीमत: ${price}। क्या आप प्लान की आधिकारिक जानकारी चाहेंगे या इसे एक्टिवेट करने में मदद?`;
     case "hinglish":
-      return `${p} plan ki current price ${price} plus applicable GST hai. Kya aap official plan details chahenge ya activate karne mein madad?`;
+      return `${p} plan ki current price: ${price}. Kya aap official plan details chahenge ya activate karne mein madad?`;
     default:
-      return `The current price of the ${p} plan is ${price} plus applicable GST. Would you like the official plan details or help activating it?`;
+      return `The current price of the ${p} plan is ${price}. Would you like the official plan details or help activating it?`;
   }
 }
 

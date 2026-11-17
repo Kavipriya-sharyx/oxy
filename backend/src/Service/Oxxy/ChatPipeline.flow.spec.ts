@@ -150,18 +150,27 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
     const plan = t.out.at(-1)!;
     expect(plan).toContain("Since this is for your parents");
     expect(plan).toContain("Oxxy Infinity plan fits best");
-    expect(plan).toContain("Yearly: ₹40,000 + GST ₹7,200 = ₹47,200");
-    expect(plan).toContain("Monthly: ₹3,999 + GST ₹720 = ₹4,719");
+    expect(plan).toContain("Yearly\nPlan cost: ₹40,000\n+ GST (18%): ₹7,200\n= Final payable: ₹47,200 a year");
+    expect(plan).toContain("Monthly\nPlan cost: ₹3,999\n+ GST (18%): ₹720\n= Final payable: ₹4,719 a month");
     expect(t.conv.recommended_plan).toBe("infinity");
 
     await t.run("flow_family");
     await t.run("fam_1");
-    expect(t.out.at(-1)).toContain("Each additional member: ₹40,000 − 30% (₹12,000) = ₹28,000 + GST ₹5,040 = ₹33,040");
-    expect(t.out.at(-1)).toContain("Total for 2 members: ₹80,240");
+    // pricing document 13: the billing first, then the breakdown for it
+    expect(t.out.at(-1)).toContain("would you like the yearly or the monthly price?");
+    expect(t.conv.pending_action).toBe("flow:fambill:1");
+    await t.run("famb_yearly");
+    expect(t.out.at(-1)).toContain(
+      "Member 1 (first plan)\nPlan cost: ₹40,000\n+ GST (18%): ₹7,200\n= Final payable: ₹47,200\n\n" +
+        "Each additional member (1)\nOriginal plan cost: ₹40,000\n− 30% discount: ₹12,000\n= Discounted plan cost: ₹28,000\n+ GST (18%): ₹5,040\n= Final payable: ₹33,040\n\n" +
+        "Total for 2 members: ₹80,240 a year",
+    );
     expect(t.conv.pending_action).toBe("flow:close:1");
 
     await t.run("act_yearly");
-    expect(t.out.join(" ")).toContain("Our team will add the 1 family member with the 30% discount");
+    expect(t.out.join(" ")).toContain(
+      "Total for 2 members: ₹80,240 a year (first plan ₹47,200 + 1 × ₹33,040). The official link below is for the first plan; our team will send the payment for the 1 additional member with the 30% discount.",
+    );
     expect(t.conv.pending_action).toBe("send_activation_link:infinity-y");
     expect(t.out.at(-1)).toContain("terms and conditions");
   });

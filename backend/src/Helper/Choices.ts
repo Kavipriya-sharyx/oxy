@@ -105,7 +105,7 @@ const SETS: ChoiceSet[] = [
   },
   {
     name: "plan_next",
-    when: /\b(official )?plan details or help activating it\b|\bplan details ya activate\b|आधिकारिक जानकारी चाहेंगे या इसे एक्टिवेट/i,
+    when: /\b(official )?plan details or help activating it\b|\bplan details ya activate\b|आधिकारिक जानकारी चाहेंगे या इसे एक्टिवेट|\bofficial details or the secure activation link\b|official details chahenge ya secure activation link|आधिकारिक जानकारी चाहेंगे या सुरक्षित एक्टिवेशन लिंक/i,
     options: [
       { id: "please share the plan details", en: "Plan details", hi: "प्लान की जानकारी" },
       { id: "I want to activate", en: "Activate", hi: "एक्टिवेट करें" },

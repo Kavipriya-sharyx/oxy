@@ -98,7 +98,7 @@ describe("Playbook 20 acceptance tests", () => {
   it("Cut Medi Bills monthly -> states ₹4,999 + GST, monthly auto-renewal and cancel-anytime before link; no proactive refund statement", () => {
     const m = cmb("monthly");
     const t = disclosureText("Cut Medi Bills (monthly)", m.price, "monthly", m.renewal_terms, m.activation_time, "en");
-    expect(t).toMatch(/₹4,999 monthly plus applicable GST/);
+    expect(t).toMatch(/Plan cost: ₹4,999\n\+ GST \(18%\): ₹900\n= Final payable: ₹5,899 a month/); // pricing document 9
     expect(t).toMatch(/Renews every month until you cancel/);
     expect(t).not.toMatch(/refund/i);
   });
@@ -106,7 +106,7 @@ describe("Playbook 20 acceptance tests", () => {
   it("Cut Medi Bills annual -> states ₹19,999 + GST, one-time, one year, no automatic renewal; no proactive refund statement", () => {
     const y = cmb("yearly");
     const t = disclosureText("Cut Medi Bills (annual)", y.price, "yearly", y.renewal_terms, y.activation_time, "en");
-    expect(t).toMatch(/₹19,999 yearly plus applicable GST/);
+    expect(t).toMatch(/Plan cost: ₹19,999\n\+ GST \(18%\): ₹3,600\n= Final payable: ₹23,599 a year/); // pricing document 9
     expect(t).toMatch(/One-time payment, valid for one year, no automatic renewal/);
     expect(t).not.toMatch(/refund/i);
   });
