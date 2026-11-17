@@ -4,6 +4,7 @@
 import { planSeeds } from "@Database/Seeds/OxxyData";
 import { ChatPipelineService, asksKnownAgain } from "./ChatPipeline.service";
 import { matchFaq } from "@Helper/FaqReplies";
+import { asksWorksAtCentre } from "@Helper/PlanReplies";
 import { GuardrailService } from "./Guardrail.service";
 import { ReplyValidatorService } from "./ReplyValidator.service";
 import { assertTransition } from "./ConversationStateMachine";
@@ -300,5 +301,23 @@ describe("17 Nov client chat: callback times after the button flow", () => {
 
   it("'what oxxy will do' is the approved answer", () => {
     expect(matchFaq("what oxxy will do")).toBe("what_is_oxxy");
+  });
+
+  it("'Does it work at apollo?' gets the approved answer, not the holding message", async () => {
+    for (const q of ["Does it work at apollo?", "Does it work at apollo? Hospital", "can i use oxxy at KMCH", "Is PSG hospital accepted?"])
+      expect(asksWorksAtCentre(q)).toBe("named");
+    expect(asksWorksAtCentre("does it work in every hospital?")).toBe("every");
+    expect(asksWorksAtCentre("does it work for dialysis?")).toBeNull();
+    const t = setup();
+    for (const x of [...FLOW, "Does it work at apollo?"]) await t.run(x);
+    expect(text(last(t))).toContain("Let Oxxy help you with appointment booking first.");
+    expect(t.sent.map(text).join(" ")).not.toMatch(/get back to you shortly|could not answer/);
+  });
+
+  it("'Can I know about oxxy' after the flow: the approved answer without asking the known need again", async () => {
+    const t = setup();
+    for (const x of [...FLOW, "Can I know about oxxy"]) await t.run(x);
+    expect(text(last(t))).toMatch(/^Oxxy is /);
+    expect(text(last(t))).not.toContain("What type of expense");
   });
 });

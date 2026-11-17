@@ -230,7 +230,7 @@ import { ConversationRepository, RESTARTED_FRESH } from "./ConversationRepositor
 import { isPlaceholder, planProblems, planReady } from "@Helper/GoLive";
 import { hasQuestion, statedYearlySpend, tidyDraft } from "@Helper/ReplyTidy";
 import { GeoPoint, GoogleMapsService } from "@Service/Maps/GoogleMaps.service";
-import { isNoCentreText, isRepeatNoCentreText, noCentreText } from "@Helper/PlanReplies";
+import { isNoCentreText, isRepeatNoCentreText, noCentreText, asksWorksAtCentre, WORKS_AT_EVERY_T, WORKS_AT_NAMED_T } from "@Helper/PlanReplies";
 import {
   CALLBACK_OUTSIDE_HOURS_T,
   callbackOptions,
@@ -3939,11 +3939,29 @@ export class ChatPipelineService {
     let answer = faqAnswer(key, { product, noHealth }, lang);
     const back = this.pendingBack(s);
     if (back.length) answer = withoutClosingQuestion(answer);
+    else if (key === "what_is_oxxy") {
+      // "What type of expense do you need help with?" only when the need is not known yet (the button flow
+      // asked it already: client chat, 17 Nov)
+      const n = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
+      if (n?.healthcare_need) answer = withoutClosingQuestion(answer);
+    }
     await this.sendAndSave(s.customer.id, [answer, ...back].join("\n\n"), m.waMessageId);
     return true;
   }
 
   private async handleCentreSaving(m: Inbound, s: Saved): Promise<boolean> {
+    const worksAt = asksWorksAtCentre(m.text);
+    if (worksAt) {
+      // the client's approved answer (Q&A Q181 / Q179); a step that waits keeps waiting and is asked again
+      const back = this.pendingBack(s);
+      const answer = say(worksAt === "every" ? WORKS_AT_EVERY_T : WORKS_AT_NAMED_T, s.customer.language);
+      await this.sendAndSave(
+        s.customer.id,
+        [back.length ? withoutClosingQuestion(answer) : answer, ...back].join("\n\n"),
+        m.waMessageId,
+      );
+      return true;
+    }
     if (!asksCentreSaving(m.text)) return false;
     await this.sendAndSave(
       s.customer.id,

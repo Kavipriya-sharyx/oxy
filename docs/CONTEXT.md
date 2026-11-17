@@ -594,6 +594,14 @@ times -> customer tapped "Tomorrow, 12-2 pm" -> bot: "Which city and locality…
 - "Can I buy for my parents" (activate intent) got only the activation text: a QUESTION with the activate intent
   now keeps the draft's answer first (`KEEP_ANSWER`), then the activation step; the draft's own question is cut.
 - FAQ what_is_oxxy also matches "what oxxy will do / what will oxxy do / offer / provide".
+- "KB does not work" (client chat, 17 Nov: "Does it work at apollo?" -> holding message, then "could not
+  answer"). 87 of the 330 approved Q&A answers failed our own ReplyValidator, so a draft copying them was
+  dropped. Fixed false alarms: ordinary words before "plan" (overall / official / lower / higher / active …);
+  a ₹ amount next to spend / bill / limit / saving / lakh is not a plan price; "savings of up to 20/25/30/40%"
+  is the published maximum (not "save up to 40%"). Now 36 fail, on purpose: 11 insurance (insurance talk only
+  from the fixed Trigger B / FAQ, red-team rule kept), 6 links (the system adds links), 14 discount figures /
+  guarantees, 5 others. "Does it work at <hospital>?" / "every hospital?" = the approved Q181 / Q179 text
+  (`asksWorksAtCentre`, no LLM). The what-is-Oxxy FAQ drops "What type of expense…?" when the need is known.
 - Tests: `ChatPipeline.callbackflow.spec.ts` (seed plan rows, no link).
 - Server config: every Oxxy plan row still lacks the official activation link, renewal terms and activation time
   (seed values), so every "Activate" goes to the team + callback. Fill them on the Plans page for the

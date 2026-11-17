@@ -159,6 +159,33 @@ export const INSURANCE_HAS_ANSWER = INSURANCE_HAS_ANSWER_T.en;
 export const INSURANCE_COORDINATION = INSURANCE_COORDINATION_T.en;
 
 /** "Do I get a discount at this hospital?" - a saving question about a centre (Playbook 10, acceptance test) */
+/**
+ * "Does it work at Apollo?", "Can I use Oxxy at KMCH?", "Is PSG accepted?", "Does it work in every hospital?"
+ * (client chat, 17 Nov: the LLM drafts were rejected twice and the customer got the holding message, then
+ * "Sorry, I could not answer that here"). Answered with the client's approved Q&A (Q181 / Q179), no LLM.
+ */
+export function asksWorksAtCentre(text: string): "named" | "every" | null {
+  const t = (text || "").toLowerCase().trim();
+  const works =
+    /\b(does|do|will|would|can|is|are)\b[^?.!]{0,20}\b(it|oxxy|this|the plan|your plan|plan|card)\b[^?.!]{0,15}\b(work|works|valid|usable|accepted|applicable|apply|available)\b[^?.!]{0,6}\b(at|in|with)\b/.test(t) ||
+    /\bcan (i|we) use (it|oxxy|this|the plan|my plan)\b[^?.!]{0,10}\b(at|in)\b/.test(t) ||
+    /\b(is|are)\b[^?.!]{1,40}\b(accepted|included|listed|available|supported)\b[^?.!]{0,20}(\?|$)/.test(t) && /\b(hospitals?|clinics?|centres?|centers?|apollo|fortis|max|medanta|kmch|psg|manipal|narayana|aster|kims|gem|ganga|kauvery|meenakshi|lab|labs|diagnostics?)\b/.test(t);
+  if (!works) return null;
+  if (/\b(every|all|any|most)\s+(private\s+)?(hospitals?|clinics?|centres?|centers?)\b/.test(t)) return "every";
+  return "named";
+}
+
+export const WORKS_AT_NAMED_T: L = {
+  en: "Let Oxxy help you with appointment booking first. If possible, you will save on your medical bill too. Which branch and service are you asking about?",
+  hi: "पहले Oxxy को अपॉइंटमेंट बुक करने में मदद करने दीजिए। संभव होने पर आपके मेडिकल बिल पर बचत भी होगी। आप किस ब्रांच और किस सेवा के बारे में पूछ रहे हैं?",
+  hinglish: "Pehle Oxxy ko appointment booking mein madad karne dijiye. Agar possible hua, to aapke medical bill par bachat bhi hogi. Aap kis branch aur kis service ke baare mein pooch rahe hain?",
+};
+export const WORKS_AT_EVERY_T: L = {
+  en: "Oxxy operates in most private hospitals in over 1800 cities of India, and more centres keep joining. The more useful thing is to know the hospitals in your area. Which hospital and branch do you prefer?",
+  hi: "Oxxy भारत के 1800 से ज़्यादा शहरों के ज़्यादातर प्राइवेट अस्पतालों में काम करता है, और नए सेंटर जुड़ते रहते हैं। ज़्यादा काम की बात है आपके इलाके के अस्पताल जानना। आप कौन सा अस्पताल और ब्रांच चाहते हैं?",
+  hinglish: "Oxxy India ke 1800 se zyada shehron ke zyadatar private hospitals mein kaam karta hai, aur naye centres judte rehte hain. Zyada kaam ki baat hai aapke area ke hospitals jaanna. Aap kaunsa hospital aur branch chahte hain?",
+};
+
 export function asksCentreSaving(text: string): boolean {
   const t = (text || "").toLowerCase();
   const money =

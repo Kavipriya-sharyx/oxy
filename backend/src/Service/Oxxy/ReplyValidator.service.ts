@@ -31,6 +31,11 @@ const NOT_A_PLAN_NAME = new Set(
     "first second next last perfect ideal simple regular general personal personalised custom we you it there here " +
     "oxxy bills cut medi per as at by from so than then also only just very more most less ask choose pick compare " +
     "details detail information about rates pricing price prices cost costs " +
+    // words in the client's approved Q&A answers (client, 17 Nov: "the knowledge base does not work": 53 of the
+    // 330 approved answers were rejected as "plan name not in catalog: overall / official / lower …")
+    "active official customer-facing four lowest-priced overall listed upgraded on-going ongoing downgraded " +
+    "higher lower lowest highest appropriate subsequent separate international applicable strongest strong " +
+    "support after competing cheaper cheapest stronger larger smaller affordable expensive costly " +
     // Hinglish ("aur plan", "aapke plan", "kaunsa plan")
     "aur ya aapke aapka aapki apne apna apni ke ka ki kis kaunsa kaunse koi yeh ye woh sahi accha achha"
   ).split(" "),
@@ -91,8 +96,24 @@ function withoutRefusals(t: string): string {
     .join(". ");
 }
 
+// "savings of up to 30%", "up to 40% savings": the plan's published maximum (Playbook 6 / 9, the approved Q&A),
+// a limit and not a promise; "you will save 30%" / "guaranteed 30%" are still promises
+const UP_TO_MAX =
+  /\bsavings?\s+(of\s+)?(up ?to|upto|as much as)\s+(20|25|30|40)\s*(%|percent|per cent)|\b(up ?to|upto)\s+(20|25|30|40)\s*(%|percent|per cent)\s+(savings?|discounts?)\b/gi;
+
+// "Oxxy can help you save on medical bills" describes the service (the client's approved Q&A, the savings card);
+// "you will save" / "you save 30%" is still a promise
+const HELPS_SAVE = /\b(help|helps|helping)\s+(you\s+|your family\s+|families\s+|customers\s+)?(to\s+)?save\b(?!\s+(up ?to|upto|\d|₹|rs))/gi;
+// the family pricing rule (pricing document 9): the first plan at full price, 30% off each additional plan
+const FAMILY_DISCOUNT =
+  /\b(a\s+)?(discount\s+of\s+)?30\s*%\s*(discount\s+|off\s+)?[^.!?\n]{0,60}\b(subsequent|additional|each extra|extra|family member|members?)\b|\b(subsequent|additional|each extra|family member|members?)\b[^.!?\n]{0,60}\b30\s*%/gi;
+
 export function promisesSavings(text: string): boolean {
-  const t = withoutRefusals(text || "").replace(NEGATED_GUARANTEE, " ");
+  const t = withoutRefusals(text || "")
+    .replace(NEGATED_GUARANTEE, " ")
+    .replace(UP_TO_MAX, " ")
+    .replace(HELPS_SAVE, " ")
+    .replace(FAMILY_DISCOUNT, " ");
   return SAVINGS_PROMISE.some((re) => re.test(t));
 }
 
@@ -161,14 +182,25 @@ export function validateReply(
     reasons.push("mentions tie-ups");
   // links come only from plan_catalog / approved_asset, added by the system (Playbook 2.1, 12.2):
   // a draft with any link, web address or e-mail (even the right one) is rewritten
-  if (LINK_RE.test(t)) reasons.push("contains a link");
+  const officialMail = (process.env.OXXY_SUPPORT_EMAIL || "info@oxxy.in").toLowerCase();
+  const withoutOfficial = t.split(new RegExp(officialMail.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi")).join(" ");
+  if (LINK_RE.test(withoutOfficial)) reasons.push("contains a link");
   // offering both = Cut Medi Bills next to an Oxxy plan ("Cut Medi Bills is Oxxy's service" is one product)
   if (CMB_RE.test(t) && (OXXY_PLAN_RE.test(t) || BOTH_RE.test(t)))
     reasons.push("offers both products");
 
   const priceRe = /(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)/gi;
+  // an amount that is clearly a spend, a bill limit or an illustrated saving is not a plan price (the client's
+  // approved Q&A: "eligible bills up to ₹10 lakh", "a ₹3,00,000 yearly spend could save about ₹90,000"); any
+  // other amount is still checked against the catalogue
+  const NOT_A_PRICE = /\b(spend|spends|spending|spent|bills?|limit|limits|sav(e|es|ed|ing|ings)|illustrat\w*|expenses?|expenditure|estimate|treatment|surgery|rounds?|rounded|percent|per cent|step|steps|figure|range|ranges|calculation)\b|%/i;
+  const PRICE_WORD = /\b(price[sd]?|pricing|costs?|fees?|subscription|\+ ?gst|plus (applicable )?gst)\b/i;
   let m: RegExpExecArray | null;
   while ((m = priceRe.exec(t))) {
+    const after = t.slice(m.index + m[0].length, m.index + m[0].length + 25);
+    const around = t.slice(Math.max(0, m.index - 30), m.index + m[0].length + 25);
+    if (/^\s*(lakh|lakhs|crore|crores|lac)\b/i.test(after)) continue;
+    if (NOT_A_PRICE.test(around) && !PRICE_WORD.test(around)) continue;
     const n = Number(m[1].replace(/,/g, ""));
     if (!allowedPrices.some((p) => Math.abs(p - n) < 0.5))
       reasons.push(`price not in catalog: ${n}`);
