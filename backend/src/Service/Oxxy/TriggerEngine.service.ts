@@ -8,7 +8,7 @@ import { ConversationState } from "@Helper/Enum/ConversationState";
 
 export type TriggerId =
   | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I"
-  | "J" | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R";
+  | "J" | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R" | "W";
 
 export const TRIGGER_CATALOG: { id: TriggerId; name: string; when: string }[] = [
   { id: "A", name: "Trust and legitimacy pack", when: "Trust or legitimacy doubt" },
@@ -29,6 +29,8 @@ export const TRIGGER_CATALOG: { id: TriggerId; name: string; when: string }[] = 
   { id: "P", name: "Payment completed", when: "Says payment is done" },
   { id: "Q", name: "Incomplete activation", when: "Link sent, payment not completed" },
   { id: "R", name: "Stop commercial flow", when: "Refusal, opt-out, emergency or privacy" },
+  // client, 17 Nov: the voice-aligned button flow starts with the client's welcome card
+  { id: "W", name: "Welcome card and guided questions", when: "First message, or Main Menu" },
 ];
 
 export interface TriggerDecision {
@@ -41,7 +43,7 @@ export interface TriggerDecision {
 export const NEEDS_SHOWN: TriggerId[] = ["D", "E", "F", "I"];
 
 const PRIORITY: TriggerId[] = [
-  "R", "O", "P", "G", "H", "D", "A", "B", "L", "C", "J", "K", "M", "I", "F", "E", "N", "Q",
+  "R", "O", "P", "G", "H", "D", "A", "B", "L", "C", "J", "K", "M", "I", "F", "E", "N", "Q", "W",
 ];
 
 @Injectable()

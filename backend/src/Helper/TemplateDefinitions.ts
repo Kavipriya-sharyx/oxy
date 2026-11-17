@@ -13,7 +13,29 @@ export interface TemplateDef {
   examples?: string[];
   footer?: string;
   quickReplies?: string[];
+  /** buttons that open a web address (max 2), after the quick replies */
+  urlButtons?: { text: string; url: string }[];
+  /** picture header: a local image file uploaded to Meta as the example (scripts/submit-templates.ts) */
+  headerImage?: string;
 }
+
+// Official links (Q&A knowledge base 3, client's current bot). Overridable for staging.
+export const OXXY_LINKS = {
+  website: process.env.OXXY_WEBSITE_URL || "https://www.oxxy.in",
+  stories: process.env.OXXY_STORIES_URL || "https://www.oxxy.in/customer_stories",
+  media: process.env.OXXY_MEDIA_URL || "https://www.oxxy.in/media_article",
+  policies: process.env.OXXY_POLICIES_URL || "https://www.oxxy.in/policies",
+  calculator: process.env.OXXY_CALCULATOR_URL || "https://www.oxxy.in/plan_calculator",
+};
+/** The logo shown on the welcome / calculator cards (local file for the Meta template example) */
+export const LOGO_FILE = "../frontend/public/oxxy-logo.png";
+
+// The client's current WhatsApp welcome, word for word (client, 17 Nov: "first message like this")
+export const WELCOME_CARD_TEXT =
+  "Welcome to Oxxy HealthCare!\nHello 👋\n\nWe’re happy to have you with us. With Oxxy, you can access exclusive healthcare benefits and discounts at our partner hospitals, diagnostic centres, path labs and more across India.\n\nYour healthcare journey with us starts here. 💚";
+
+export const VERIFY_CARD_TEXT =
+  `Verify Our Healthcare Services\n\nHello 👋\n🏥 It is sensible to verify any healthcare service before paying. For your convenience, I am sharing Customer Testimonials, News articles, Oxxy’s official website & policy page.\n1. Customer Testimonials: ${OXXY_LINKS.stories}\n2. News Articles: ${OXXY_LINKS.media}\n3. Official Website: ${OXXY_LINKS.website}\n4. Policy Page: ${OXXY_LINKS.policies}\nHope that clarifies your doubts!`;
 
 export const TEMPLATES: TemplateDef[] = [
   {
@@ -88,19 +110,80 @@ export const TEMPLATES: TemplateDef[] = [
     body: "I will pause here so I do not disturb you. You can message Oxxy whenever convenient.",
     footer: "Reply STOP to opt out",
   },
+  // ---- Voice-aligned flow (client, 17 Nov): the same cards as the client's current bot, as templates so
+  // they can also start a chat outside the 24-hour window (after a voice call, a follow-up). Inside the
+  // window the bot sends the same content as interactive messages (Helper/GuidedFlow.ts).
+  {
+    name: "oxxy_welcome",
+    language: "en",
+    category: "MARKETING",
+    headerImage: LOGO_FILE,
+    body: WELCOME_CARD_TEXT,
+    footer: "Reply STOP to opt out",
+    quickReplies: ["Get Started", "Visit Our Website", "Contact Us"],
+  },
+  {
+    name: "oxxy_verify_services",
+    language: "en",
+    category: "MARKETING",
+    headerImage: LOGO_FILE,
+    body: VERIFY_CARD_TEXT,
+    footer: "Oxxy Healthcare",
+    quickReplies: ["Main Menu"],
+    urlButtons: [
+      { text: "Customer Testimonial", url: OXXY_LINKS.stories },
+      { text: "News Articles", url: OXXY_LINKS.media },
+    ],
+  },
+  {
+    name: "oxxy_savings_calculator",
+    language: "en",
+    category: "MARKETING",
+    headerImage: LOGO_FILE,
+    body: "Calculator: see how much you can save.\n\nYou mentioned a yearly medical expense of about ₹{{1}}. Oxxy can help you save up to ₹{{2}}. The actual saving depends on the services and providers used.",
+    examples: ["50,000", "15,000"],
+    quickReplies: ["Activate Plan", "Main Menu"],
+    urlButtons: [{ text: "Calculate Now", url: OXXY_LINKS.calculator }],
+  },
+  {
+    name: "oxxy_plan_recommendation",
+    language: "en",
+    category: "MARKETING",
+    body: "Hello {{1}}, based on what you shared, the Oxxy {{2}} plan fits best because {{3}}.\n\nPrice: ₹{{4}} + GST ₹{{5}} = ₹{{6}} ({{7}}).\n\nWould you like to activate your Oxxy care plan?",
+    examples: ["Priya", "Infinity", "it has no age limit and no upper eligible bill limit", "40,000", "7,200", "47,200", "yearly"],
+    footer: "Reply STOP to opt out",
+    quickReplies: ["Activate Now", "Add Family Member", "Talk to Expert"],
+  },
+  {
+    name: "oxxy_terms",
+    language: "en",
+    category: "UTILITY",
+    body: "Please view all our terms and conditions before proceeding with your Oxxy care plan.",
+    quickReplies: ["Main Menu"],
+    urlButtons: [{ text: "Terms & Conditions", url: OXXY_LINKS.policies }],
+  },
 ];
 
-/** Graph API body for POST /{WABA_ID}/message_templates */
-export function metaTemplateBody(t: TemplateDef) {
-  const components: Record<string, unknown>[] = [
+/**
+ * Graph API body for POST /{WABA_ID}/message_templates. `headerHandle` = the uploaded example image
+ * (Resumable Upload API); a template with a picture header cannot be created without it.
+ */
+export function metaTemplateBody(t: TemplateDef, headerHandle?: string) {
+  const components: Record<string, unknown>[] = [];
+  if (t.headerImage && headerHandle)
+    components.push({ type: "HEADER", format: "IMAGE", example: { header_handle: [headerHandle] } });
+  components.push(
     {
       type: "BODY",
       text: t.body,
       ...(t.examples?.length ? { example: { body_text: [t.examples] } } : {}),
     },
-  ];
+  );
   if (t.footer) components.push({ type: "FOOTER", text: t.footer });
-  if (t.quickReplies?.length)
-    components.push({ type: "BUTTONS", buttons: t.quickReplies.map((text) => ({ type: "QUICK_REPLY", text })) });
+  const buttons = [
+    ...(t.quickReplies ?? []).map((text) => ({ type: "QUICK_REPLY", text })),
+    ...(t.urlButtons ?? []).map((b) => ({ type: "URL", text: b.text, url: b.url })),
+  ];
+  if (buttons.length) components.push({ type: "BUTTONS", buttons });
   return { name: t.name, language: t.language, category: t.category, components };
 }

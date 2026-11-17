@@ -3,6 +3,7 @@ import { GuardrailService } from "./Guardrail.service";
 import { assertTransition } from "./ConversationStateMachine";
 import { ConversationState as S } from "@Helper/Enum/ConversationState";
 import { fixedReply, NOTICE_VERSION } from "@Helper/FixedReplies";
+import { WELCOME_CARD_TEXT } from "@Helper/TemplateDefinitions";
 import { MENU_BUTTON, MENU_ROWS, WELCOME, matchMenuRow, openingList } from "@Helper/OpeningMenu";
 import { message } from "@Database/Table/Oxxy/message";
 import { consent } from "@Database/Table/Oxxy/consent";
@@ -122,18 +123,18 @@ describe("welcome + opening list through the pipeline", () => {
     const t = setup({ state: S.New });
     await t.run("", "wamid.W1", "request_welcome");
     expect(t.out).toHaveLength(1);
-    expect((last(t).msg as { kind: string }).kind).toBe("list");
+    expect((last(t).msg as { kind: string }).kind).toBe("buttons"); // the client's welcome card (17 Nov)
     expect(t.conv.state).toBe(S.IntentMenu);
     expect(t.generate).not.toHaveBeenCalled();
   });
 
-  it("a consenting customer's first message gets the welcome + the 4-row list, state INTENT_MENU, no Claude", async () => {
+  it("a consenting customer's first message gets the client's welcome card (17 Nov), state INTENT_MENU, no Claude", async () => {
     const t = setup();
     await t.run("hi");
-    const sent = (last(t).msg as { kind: string; rows: unknown[]; buttonLabel: string });
-    expect(sent.kind).toBe("list");
-    expect(sent.rows).toHaveLength(4);
-    expect(last(t).text).toBe(WELCOME.en);
+    const sent = (last(t).msg as { kind: string; buttons: { title: string }[] });
+    expect(sent.kind).toBe("buttons");
+    expect(sent.buttons.map((b) => b.title)).toEqual(["Get Started", "Visit Our Website", "Contact Us"]);
+    expect(last(t).text).toBe(WELCOME_CARD_TEXT);
     expect(t.conv.state).toBe(S.IntentMenu);
     expect(t.generate).not.toHaveBeenCalled();
   });
@@ -147,10 +148,10 @@ describe("welcome + opening list through the pipeline", () => {
     expect(t.generate).not.toHaveBeenCalled();
   });
 
-  it("the list follows the customer's language", async () => {
+  it("the welcome card is the client's English card for every language (their wording; the AI replies in the customer's language later)", async () => {
     const t = setup({ language: "hi" });
     await t.run("नमस्ते");
-    expect(last(t).text).toBe(WELCOME.hi);
+    expect(last(t).text).toBe(WELCOME_CARD_TEXT);
   });
 
   it.each(MENU_ROWS.map((r) => [r.id, r.state] as const))("tap %s -> state %s, fixed reply, no Claude", async (id, state) => {

@@ -1,9 +1,12 @@
-import { OutboundMessage } from "@Helper/WhatsappMessage";
+import { InteractiveHeader, OutboundMessage } from "@Helper/WhatsappMessage";
 import { InvalidMessageError } from "@Helper/WhatsappErrors";
 
 export const LIMITS = {
   textBody: 4096,
   interactiveBody: 1024,
+  headerText: 60,
+  footer: 60,
+  ctaText: 20,
   buttons: { min: 1, max: 3, title: 20, id: 256 },
   list: { min: 1, max: 10, rowTitle: 24, rowDescription: 72, buttonLabel: 20 },
 } as const;
@@ -11,9 +14,32 @@ export const LIMITS = {
 const len = (s: string) => Array.from(s).length; // count characters, not UTF-16 units
 const blank = (s: string | undefined | null) => !s || s.trim() === "";
 
+function checkFrame(m: { header?: InteractiveHeader; footer?: string }) {
+  if (m.header?.type === "text" && (blank(m.header.text) || len(m.header.text) > LIMITS.headerText))
+    throw new InvalidMessageError(`header text must be 1 to ${LIMITS.headerText} characters`);
+  if (m.header?.type === "image" && !/^https:\/\/\S+$/i.test(m.header.link))
+    throw new InvalidMessageError("header image needs an https link");
+  if (m.footer != null && (blank(m.footer) || len(m.footer) > LIMITS.footer))
+    throw new InvalidMessageError(`footer must be 1 to ${LIMITS.footer} characters`);
+}
+
+const headerPayload = (h?: InteractiveHeader) =>
+  !h ? {} : h.type === "image" ? { header: { type: "image", image: { link: h.link } } } : { header: { type: "text", text: h.text } };
+const footerPayload = (f?: string) => (f ? { footer: { text: f } } : {});
+
 // Throws InvalidMessageError. Nothing is ever cut to fit.
 export function validateMessage(m: OutboundMessage): void {
+  if (m.kind === "buttons" || m.kind === "list" || m.kind === "cta_url") checkFrame(m);
   switch (m.kind) {
+    case "cta_url":
+      if (blank(m.body)) throw new InvalidMessageError("link button body is required");
+      if (len(m.body) > LIMITS.interactiveBody)
+        throw new InvalidMessageError(`body is over ${LIMITS.interactiveBody} characters`);
+      if (blank(m.buttonText) || len(m.buttonText) > LIMITS.ctaText)
+        throw new InvalidMessageError(`link button text must be 1 to ${LIMITS.ctaText} characters`);
+      if (!/^https?:\/\/\S+$/i.test(m.url)) throw new InvalidMessageError("link button needs a web address");
+      return;
+
     case "text":
       if (blank(m.body)) throw new InvalidMessageError("text body is required");
       if (len(m.body) > LIMITS.textBody)
@@ -100,7 +126,9 @@ export function buildPayload(to: string, m: OutboundMessage): Record<string, unk
         type: "interactive",
         interactive: {
           type: "button",
+          ...headerPayload(m.header),
           body: { text: m.body },
+          ...footerPayload(m.footer),
           action: {
             buttons: m.buttons.map((b) => ({ type: "reply", reply: { id: b.id, title: b.title } })),
           },
@@ -113,7 +141,9 @@ export function buildPayload(to: string, m: OutboundMessage): Record<string, unk
         type: "interactive",
         interactive: {
           type: "list",
+          ...headerPayload(m.header),
           body: { text: m.body },
+          ...footerPayload(m.footer),
           action: {
             button: m.buttonLabel,
             sections: [
@@ -143,6 +173,19 @@ export function buildPayload(to: string, m: OutboundMessage): Record<string, unk
                 ],
               }
             : {}),
+        },
+      };
+
+    case "cta_url":
+      return {
+        ...base,
+        type: "interactive",
+        interactive: {
+          type: "cta_url",
+          ...headerPayload(m.header),
+          body: { text: m.body },
+          ...footerPayload(m.footer),
+          action: { name: "cta_url", parameters: { display_text: m.buttonText, url: m.url } },
         },
       };
 

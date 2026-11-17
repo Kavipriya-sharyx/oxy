@@ -606,6 +606,42 @@ reports were reproduced in tests from the code, not read from the real chats.
   plan (`handlePlanAge`) instead of going back to the LLM.
 - Tests: the "17 Nov client feedback" block in `ChatPipeline.plan.spec.ts`. Not checked on real WhatsApp.
 
+## Voice-aligned button flow (17 Nov evening, client: "flow is not correct", "as per the voice bot call flow")
+
+New client docs in `docs/` (17 Nov): Voice AI Agent manual, Q&A Knowledge Base (330 answers), plan pricing
+calculation logic, Engagement Bridges PDF. The Playbook / Trigger layer files they sent are the OLDER 4 Aug
+editions (our REVISED 6 Nov ones are newer). The client's current bot (92173 81580) was checked from screenshots.
+
+- **First message = the client's welcome card**, word for word (`WELCOME_CARD_TEXT`, image header from
+  `OXXY_WELCOME_IMAGE_URL`, an https link; unset = no picture), buttons Get Started / Visit Our Website / Contact Us.
+  Sent for a new chat, the WhatsApp welcome event and "Main Menu" (Trigger **W**, new in `TRIGGER_CATALOG`).
+- **Then the voice call's questions with buttons** (`Service/Oxxy/GuidedFlow.ts`, handled in code by
+  `handleGuidedFlow` before the consent gate, `pending_action = flow:<step>`): who (the client's 5 rows) ->
+  health-data notice (`after_consent:flow`; YES -> service, NO -> age) -> service (their rows + surgery,
+  pregnancy/IVF) -> verify card (their 4 links, Trigger A) + condition -> age -> city / locality -> insurance ->
+  "How much will your annual medical expense be next year?" (their ranges + the missing 5,000–10,000; lower end used)
+  -> savings card "Oxxy can help you save up to ₹X" (floor(spend × 0.3 / 500) × 500, website calculator button,
+  Trigger F) + ONE plan (`pickPlan`: Infinity for parents 60+, age > 80, heart / kidney / cancer, surgery,
+  pregnancy / IVF or spend ≥ ₹2 lakh; Thrive for other conditions; Vital for hospital care; Everyday for routine
+  OPD under ₹1 lakh up to 70) with a value-bridge line and "₹40,000 + GST ₹7,200 = ₹47,200" yearly and monthly
+  (prices from `plan_catalog`, GST 18%, Trigger E) -> Activate Yearly / Activate Monthly / Add Family Member.
+- **Family** (pricing doc): first plan full price, each extra member 30% off the plan cost, GST on the discounted
+  cost; breakdown card; on Activate an Activation task "Add N family member(s) … at 30% off" (the link is still
+  one plan). Activate = the existing disclosure -> YES -> official link, then the T&C card.
+- A tap sends the row id; typed answers are read when short; a question or a long sentence goes to the normal
+  conversation and the step stays (the next tap still works). "hi" mid-flow shows the current question again.
+- **Sender**: interactive messages can carry a header (image or text) and a footer; new kind `cta_url` (one
+  link button). **Templates** (`TemplateDefinitions.ts`, migration `VoiceFlowTemplates1794730000000`):
+  oxxy_welcome, oxxy_verify_services, oxxy_savings_calculator, oxxy_plan_recommendation, oxxy_terms (URL
+  buttons supported). Image headers need `WHATSAPP_APP_ID` in backend/.env for the example upload
+  (`scripts/submit-templates.ts` skips them without it). Inside the 24-hour window the bot sends the same
+  content as interactive messages; the templates are for starting a chat outside it.
+- **Website button**: `frontend/public/oxxy-whatsapp-button.js` (one `<script … data-number="91…">` line; opens
+  wa.me with "Hi").
+- Flow texts are English only (the client's bot is English); Hindi / Hinglish customers still get the AI's
+  answers in their language. Tests: `GuidedFlow.spec.ts`, `ChatPipeline.flow.spec.ts`. Not checked on real
+  WhatsApp yet.
+
 ## Client chats, 17 Nov: the "no verified centre in Neelambur" loop and robotic replies
 
 Real chat: Neelambur was stored, then "near peelamedu", "near sitra", "Delhi" were typed and every reply was

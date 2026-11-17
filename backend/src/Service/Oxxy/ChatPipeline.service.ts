@@ -17,6 +17,38 @@ import {
   RADIUS_Q,
 } from "@Helper/CentreReplies";
 import { toBubbles } from "@Helper/Bubbles";
+import {
+  asksMainMenu,
+  CONDITION_LABEL,
+  contactText,
+  familyCard,
+  familyQuestion,
+  FlowFacts,
+  flowFamily,
+  FlowStep,
+  flowStep,
+  FLOW_AFTER_CONSENT,
+  Insurance,
+  NEED_LABEL,
+  PLAN_TITLE,
+  PlanName,
+  PlanPrice,
+  pickPlan,
+  planCard,
+  readAgeChoice,
+  readCondition,
+  readFamily,
+  readInsurance,
+  readNeed,
+  readSpendChoice,
+  readWho,
+  savingsCard,
+  stepMessage,
+  termsCard,
+  verifyCard,
+  websiteCard,
+  welcomeCard,
+} from "./GuidedFlow";
 import { detectRescueSignal, readRescue, rescueLine } from "@Helper/RescueReplies";
 import { REBOOK_DECLINED_T } from "@Helper/CentreReplies";
 import { oneQuestion } from "@Helper/OneQuestion";
@@ -1228,8 +1260,8 @@ export class ChatPipelineService {
       // the notice comes with the customer's next message, before the first health question. The row the
       // customer picked is remembered and answered right after their YES.
       if (s.conversation.state === ConversationState.New) {
-        await this.sendAndSave(customerId, openingList(lang), m.waMessageId);
-        await this.setState(s, [ConversationState.IntentMenu]);
+        // client, 17 Nov: the client's welcome card, then the voice-aligned button flow
+        await this.startGuidedFlow(m, s);
         return;
       }
       const row = matchMenuRow(m.text);
@@ -1258,6 +1290,12 @@ export class ChatPipelineService {
         notice_version: NOTICE_VERSION,
       });
       const ack = fixedReply("health_consent_yes", lang);
+      if (s.conversation.pending_action === FLOW_AFTER_CONSENT) {
+        // the voice-aligned flow goes on with the service question
+        await this.setPending(s, "flow:need");
+        await this.sendAndSave(customerId, stepMessage("need", ack), m.waMessageId);
+        return;
+      }
       const picked = this.rowAfterConsent(s);
       // the area was already typed while the notice waited: no "Which city?" again, the location step
       const typed =
@@ -1311,6 +1349,12 @@ export class ChatPipelineService {
         health_data_consent: false,
         notice_version: NOTICE_VERSION,
       });
+      if (s.conversation.pending_action === FLOW_AFTER_CONSENT) {
+        // no health questions: the flow goes on with the age, then the spend and the plan
+        await this.setPending(s, "flow:age");
+        await this.sendAndSave(customerId, stepMessage("age", fixedReply("health_consent_no", lang)), m.waMessageId);
+        return;
+      }
       if (this.rowAfterConsent(s)) await this.setPending(s, null);
       await this.sendAndSave(customerId, fixedReply("health_consent_no", lang), m.waMessageId);
     } else {
@@ -1404,6 +1448,228 @@ export class ChatPipelineService {
     const key = conv.state === ConversationState.Pause ? PAUSE_ACK_T : ESCALATED_ACK_T;
     await this.setPending(s, PARKED_ACK);
     await this.sendAndSave(s.customer.id, say(key, s.customer.language), m.waMessageId);
+  }
+
+  // ---- The voice-aligned button flow (client, 17 Nov; Service/Oxxy/GuidedFlow.ts) ----
+
+  /** The client's welcome card; the answer is read by handleGuidedFlow (Trigger W) */
+  private async startGuidedFlow(m: Inbound, s: Saved) {
+    await this.sendAndSave(s.customer.id, welcomeCard(), m.waMessageId);
+    await this.setPending(s, "flow:start");
+    if (s.conversation.state === ConversationState.New) await this.setState(s, [ConversationState.IntentMenu]);
+    await this.recordTrigger(s, "W", "welcome card");
+  }
+
+  /** A follow-up message of the same turn (the first one carries the reply tag) */
+  private async sendMore(s: Saved, msg: OutboundMessage) {
+    try {
+      await this._Wa.send(s.customer.id, msg, "reply");
+    } catch (e) {
+      this.logger.warn(`flow message not sent: ${(e as Error).message}`);
+    }
+  }
+
+  /** The flow facts stored so far (need row + age), for the plan choice */
+  private async flowFacts(s: Saved): Promise<FlowFacts> {
+    const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
+    return {
+      who: readWho(String(n?.beneficiary ?? "")),
+      need: readNeed(String(n?.healthcare_need ?? "")),
+      condition: n?.pre_existing ? readCondition(String((n as any)?.condition_if_voluntary ?? "other")) : "none",
+      age: Number(s.customer.age) || null,
+      spend: n?.annual_medical_spend != null ? Number(n.annual_medical_spend) : null,
+      insurance: (n?.insurance_status as Insurance) ?? null,
+    };
+  }
+
+  private async flowPrice(plan: string): Promise<PlanPrice> {
+    const rows = await plan_catalog
+      .find({ where: { product: ProductType.Oxxy, plan, status: true } as any })
+      .catch(() => [] as plan_catalog[]);
+    const by = (b: string) => {
+      const r = rows.find((x) => x.billing === b);
+      return r && Number(r.price) > 0 ? Number(r.price) : null;
+    };
+    return { monthly: by(BillingCycle.Monthly), yearly: by(BillingCycle.Yearly) };
+  }
+
+  /**
+   * One answer of the button flow. false = not a flow answer (the normal conversation answers it; the step
+   * stays, so a tap on the list shown before still works).
+   */
+  private async handleGuidedFlow(
+    m: Inbound,
+    s: Saved,
+    consentStatus: string,
+    cons: consent | null,
+  ): Promise<boolean> {
+    const text = (m.text || "").trim();
+    const id = text.toLowerCase();
+    if (asksMainMenu(text)) {
+      await this.startGuidedFlow(m, s);
+      return true;
+    }
+    // the welcome card's buttons work at any time
+    if (id === "flow_start" || id === "flow_website" || id === "flow_contact") {
+      if (id === "flow_website") {
+        await this.sendAndSave(s.customer.id, websiteCard(), m.waMessageId);
+        await this.sendMore(s, stepMessage("who"));
+      } else if (id === "flow_contact") {
+        await this.sendAndSave(s.customer.id, contactText(), m.waMessageId);
+        await this.sendMore(s, stepMessage("who"));
+      } else await this.sendAndSave(s.customer.id, stepMessage("who"), m.waMessageId);
+      await this.setPending(s, "flow:who");
+      return true;
+    }
+    const step = flowStep(s.conversation.pending_action);
+    if (!step) return false;
+    // a tap sends an id ("who_self"); typed words are read only when short and not a question, so "can you help
+    // me find a hospital?" goes to the normal conversation (the step stays for the next tap)
+    const tapped = /^[a-z]+_[a-z0-9]+$/.test(id);
+    if (!tapped && !m.location && (/\?\s*$/.test(text) || text.split(/\s+/).length > 8)) return false;
+    if (!tapped && isGreeting(text) && step !== "close") {
+      await this.sendAndSave(s.customer.id, stepMessage(step === "start" ? "who" : step), m.waMessageId);
+      if (step === "start") await this.setPending(s, "flow:who");
+      return true;
+    }
+    const reply = (msg: string | OutboundMessage) => this.sendAndSave(s.customer.id, msg, m.waMessageId);
+    const ask = async (next: FlowStep, msg?: OutboundMessage) => {
+      await this.setPending(s, `flow:${next}`);
+      await reply(msg ?? stepMessage(next));
+    };
+
+    switch (step) {
+      case "start":
+      case "who": {
+        const who = readWho(text);
+        if (!who) return false;
+        const n = await this.needRow(s);
+        n.beneficiary = who;
+        await n.save();
+        if (consentStatus === "granted") {
+          await ask("need");
+        } else if (consentStatus === "refused") {
+          await ask("age");
+        } else {
+          // the health-data notice before the first health question (DPDP); YES -> the service question
+          await this.setPending(s, FLOW_AFTER_CONSENT);
+          await reply(fixedReply("health_notice", s.customer.language));
+          await this.saveConsentRow(s.customer.id, cons, (c) => {
+            c.notice_sent_at = new Date();
+            c.notice_sent_version = NOTICE_VERSION;
+          });
+        }
+        return true;
+      }
+      case "need": {
+        const nd = readNeed(text);
+        if (!nd) return false;
+        const n = await this.needRow(s);
+        n.healthcare_need = NEED_LABEL[nd];
+        if (nd === "surgery") n.need_pattern = "single_expense";
+        await n.save();
+        // the client's order: the verify card after the service, then the next question (Trigger A)
+        await this.setPending(s, "flow:condition");
+        await reply(verifyCard());
+        await this.sendMore(s, stepMessage("condition"));
+        await this.recordTrigger(s, "A", "verify card in the button flow");
+        return true;
+      }
+      case "condition": {
+        const c = readCondition(text);
+        if (!c) return false;
+        const n = await this.needRow(s);
+        n.pre_existing = c !== "none";
+        (n as any).condition_if_voluntary = CONDITION_LABEL[c];
+        await n.save();
+        await ask("age");
+        return true;
+      }
+      case "age": {
+        const age = readAgeChoice(text) ?? parsePatientAge(text);
+        if (!age) return false;
+        s.customer.age = age as any;
+        await s.customer.save();
+        await ask("city");
+        return true;
+      }
+      case "city": {
+        if (!m.location) {
+          if (!text || /\?\s*$/.test(text) || text.split(/\s+/).length > 6) return false;
+          const n = await this.needRow(s);
+          const area = typedArea(text, await this.centreCities()) ?? namedPlace(text);
+          n.city = (area?.city ?? n.city ?? text).slice(0, 80);
+          n.locality = (area?.locality ?? null) as any;
+          await n.save();
+        }
+        await ask("insurance");
+        return true;
+      }
+      case "insurance": {
+        const ins = readInsurance(text);
+        if (!ins) return false;
+        const n = await this.needRow(s);
+        n.insurance_status = ins;
+        await n.save();
+        await ask("spend");
+        return true;
+      }
+      case "spend": {
+        const spend = readSpendChoice(text) ?? spendAnswer(text);
+        if (!spend) return false;
+        const n = await this.needRow(s);
+        n.annual_medical_spend = spend as any;
+        await n.save();
+        const facts = await this.flowFacts(s);
+        const plan = pickPlan(facts);
+        await this.saveRecommendation(s, plan);
+        await this.setPending(s, "flow:close:0");
+        await reply(savingsCard(spend));
+        await this.sendMore(s, planCard(plan, await this.flowPrice(plan), facts));
+        await this.recordTrigger(s, "F", "savings card in the button flow");
+        await this.recordTrigger(s, "E", `plan ${plan} with price and GST`);
+        return true;
+      }
+      case "close": {
+        const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
+        if (id === "flow_family" || /\b(add|family member|members)\b/i.test(text)) {
+          await ask("family", familyQuestion(plan));
+          return true;
+        }
+        const billing =
+          id === "act_monthly" || /\bmonth/i.test(text)
+            ? BillingCycle.Monthly
+            : id === "act_yearly" || /\b(year|annual|activate|yes)\b/i.test(text)
+              ? BillingCycle.Yearly
+              : null;
+        if (!billing) return false;
+        const extra = flowFamily(s.conversation.pending_action);
+        await this.setPending(s, null);
+        const act = await this.activationText(s, billing);
+        if (!act) return false;
+        let note = "";
+        if (extra > 0) {
+          await this.createTaskOnce(
+            TaskType.Activation,
+            TaskPriority.Normal,
+            s,
+            `Add ${extra} family member(s) to Oxxy ${PLAN_TITLE[plan]} (${billing}) at 30% off the plan cost`,
+          );
+          note = `Our team will add the ${extra} family member${extra > 1 ? "s" : ""} with the 30% discount when activating.\n\n`;
+        }
+        await reply(note + act);
+        await this.sendMore(s, termsCard());
+        return true;
+      }
+      case "family": {
+        const k = readFamily(text);
+        if (!k) return false;
+        const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
+        await ask(`close:${k}` as FlowStep, familyCard(plan, await this.flowPrice(plan), k));
+        return true;
+      }
+    }
+    return false;
   }
 
   // SERVICE_OR_ESCALATION (Playbook 3): look the customer up and say what is on record
@@ -1618,9 +1884,7 @@ export class ChatPipelineService {
     // The customer opened the chat for the first time (WhatsApp "welcome message" event, before they type):
     // the welcome and the options at once (client, 16 Nov 2026). No consent or health question in it.
     if (m.type === "request_welcome") {
-      await this.sendAndSave(s.customer.id, openingList(s.customer.language), m.waMessageId);
-      if (s.conversation.state === ConversationState.New)
-        await this.setState(s, [ConversationState.IntentMenu]);
+      await this.startGuidedFlow(m, s);
       return;
     }
 
@@ -1661,6 +1925,8 @@ export class ChatPipelineService {
     if (await this.handleLead(m, s, consentStatus, cons)) return;
     if (s.conversation.pending_action === "follow_up_time" && (await this.handleFollowUpTime(m, s)))
       return;
+    // client, 17 Nov: the voice-aligned button flow (welcome card, who, service, ... plan and price)
+    if (await this.handleGuidedFlow(m, s, consentStatus, cons)) return;
     // Client, 16 Nov 2026: "the customer can ask any question, the bot should respond". A question (or a
     // row that needs no health detail) before the consent is answered first, with NO health question and
     // nothing health-related stored; the notice follows right after the answer (askConsentLater). The consent
@@ -1692,8 +1958,7 @@ export class ChatPipelineService {
         return;
       }
       if (s.conversation.state === ConversationState.New) {
-        await this.sendAndSave(s.customer.id, openingList(s.customer.language), m.waMessageId);
-        await this.setState(s, [ConversationState.IntentMenu]);
+        await this.startGuidedFlow(m, s);
         return;
       }
     }
@@ -3334,9 +3599,9 @@ export class ChatPipelineService {
   // The activation step for the plan picked: price, GST and renewal with "Shall I send the official secure
   // activation link?" (pending send_activation_link), or "our team will send the official link" with
   // callback times when the catalogue row is not ready to sell. null = no plan picked yet.
-  private async activationText(s: Saved): Promise<string | null> {
+  private async activationText(s: Saved, billing?: string): Promise<string | null> {
     const l = s.customer.language;
-    const cat = await this.activationRow(s.conversation);
+    const cat = await this.activationRow(s.conversation, billing);
     if (!cat) return null;
     if (!planReady(cat)) {
       const taskId = await this.createTaskOnce(
