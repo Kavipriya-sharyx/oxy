@@ -262,7 +262,14 @@ function build(text: string): OutboundMessage | null {
 
   const q = lastQuestion(body);
   for (const set of SETS) {
-    if (!set.when.test(q) && !(set.name === "yearly_spend" && set.when.test(body.slice(-300)))) continue;
+    // the spend question followed by "An estimate is fine." still gets the ranges; a reply that only MENTIONS
+    // the spend ("You mentioned a yearly healthcare spend of about ₹5,00,000 … Would you like the plan
+    // details?") never does (client chat, 17 Nov: the ranges came back after the spend was already given)
+    const spendAskedAbove =
+      set.name === "yearly_spend" &&
+      !/\?\s*$/.test(q) &&
+      /\b(how much|roughly how much|approximately how much)\b[^?]{0,80}\b(spend|spends|spending|spent)\b|saal mein[^?]{0,40}kharch|साल में[^?]{0,40}खर्च/i.test(body.slice(-300));
+    if (!set.when.test(q) && !spendAskedAbove) continue;
     const title = (o: Opt) => (hi && o.hi ? o.hi : o.en);
     if (set.options.length <= 3) {
       const buttons: ReplyButton[] = set.options.map((o) => ({ id: o.id, title: cut(title(o), 20) }));

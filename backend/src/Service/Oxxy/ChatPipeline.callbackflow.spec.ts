@@ -3,6 +3,7 @@
 // the bot asked for the city again. Real plan rows from the seed, no activation link (as on the server).
 import { planSeeds } from "@Database/Seeds/OxxyData";
 import { ChatPipelineService, asksKnownAgain } from "./ChatPipeline.service";
+import { matchFaq } from "@Helper/FaqReplies";
 import { GuardrailService } from "./Guardrail.service";
 import { ReplyValidatorService } from "./ReplyValidator.service";
 import { assertTransition } from "./ConversationStateMachine";
@@ -53,7 +54,7 @@ function fmt(m: Record<string, unknown>): string {
   return `  BOT(${m.kind}): ${head}${body.replace(/\n/g, "\n       ")}${extra}`;
 }
 
-function setup(opts: { llm?: string[]; maps?: unknown } = {}) {
+function setup(opts: { llm?: unknown[]; maps?: unknown } = {}) {
   const conv = { id: "v1", state: S.New, selected_product: null as string | null, recommended_plan: null as string | null, pending_action: null as string | null, outcome: null as string | null };
   const sent: Record<string, unknown>[] = [];
   let replied = false;
@@ -63,7 +64,10 @@ function setup(opts: { llm?: string[]; maps?: unknown } = {}) {
     return "wamid.OUT";
   });
   const llm = [...(opts.llm ?? [])];
-  const generate = jest.fn(async () => ({ reply_text: llm.shift() ?? "[LLM reply]", intent: "other", extracted_fields: {}, needs_human: false }));
+  const generate = jest.fn(async () => {
+    const x = llm.shift();
+    return typeof x === "object" && x ? x : { reply_text: (x as string) ?? "[LLM reply]", intent: "other", extracted_fields: {}, needs_human: false };
+  });
   const transition = jest.fn(async (_id: unknown, to: unknown) => {
     assertTransition(conv.state, to as string);
     conv.state = to as S;
@@ -168,7 +172,7 @@ function setup(opts: { llm?: string[]; maps?: unknown } = {}) {
 
 afterEach(() => jest.restoreAllMocks());
 
-const FLOW = ["hi", "flow_start", "who_parent", "need_medicines", "cond_sugar", "age_65", "Peelamedu, Coimbatore", "ins_no", "spend_50000"];
+const FLOW = ["hi", "flow_start", "who_parent", "need_medicines", "age_65", "Peelamedu, Coimbatore", "spend_50000"];
 const last = (t: { sent: Record<string, unknown>[] }) => t.sent.at(-1) as Record<string, unknown>;
 const text = (m: Record<string, unknown>) => String(m.log ?? m.body ?? "");
 
@@ -177,7 +181,7 @@ describe("17 Nov client chat: callback times after the button flow", () => {
     const t = setup();
     for (const x of [...FLOW, "act_monthly"]) await t.run(x);
     const offer = t.sent.find((m) => /our team will send you the official secure activation link/.test(text(m)))!;
-    expect(text(offer)).toContain("To activate the Oxxy Thrive plan, our team");
+    expect(text(offer)).toContain("To activate the Oxxy Everyday plan, our team");
     expect(text(offer)).not.toContain("plan plan");
     expect((offer.buttons as { id: string; title: string }[]).map((b) => b.title)).toEqual([
       "Tomorrow 10am-12pm",
@@ -225,17 +229,17 @@ describe("17 Nov client chat: callback times after the button flow", () => {
   it("a shared pin at the flow's city question saves its area and city (no location question later)", async () => {
     const maps = { enabled: true, reverseGeocode: jest.fn(async () => ({ latitude: 11.03, longitude: 77.03, formatted: "", locality: "Peelamedu", city: "Coimbatore", approximate: false })) };
     const t = setup({ maps });
-    for (const x of ["hi", "flow_start", "who_parent", "need_medicines", "cond_sugar", "age_65"]) await t.run(x);
+    for (const x of ["hi", "flow_start", "who_parent", "need_medicines", "age_65"]) await t.run(x);
     expect(t.conv.pending_action).toBe("flow:city");
     await t.run("[location message]", { type: "location", location: { latitude: 11.03, longitude: 77.03 } });
     expect(maps.reverseGeocode).toHaveBeenCalledWith({ latitude: 11.03, longitude: 77.03 });
     expect(t.needRow).toMatchObject({ city: "Coimbatore", locality: "Peelamedu" });
-    expect(text(last(t))).toContain("Do you currently have health insurance?");
+    expect(text(last(t))).toContain("How much will your annual medical expense be next year?");
   });
 
   it("a LIVE location (Cloud API: unsupported) is never saved as the city; the question comes back with how to answer", async () => {
     const t = setup();
-    for (const x of ["hi", "flow_start", "who_parent", "need_medicines", "cond_sugar", "age_65"]) await t.run(x);
+    for (const x of ["hi", "flow_start", "who_parent", "need_medicines", "age_65"]) await t.run(x);
     await t.run("[unsupported message]", { type: "unsupported" });
     expect(t.needRow.city).toBeUndefined();
     expect(last(t)).toMatchObject({ kind: "location_request" });
@@ -245,11 +249,11 @@ describe("17 Nov client chat: callback times after the button flow", () => {
 
   it("the area given earlier in the chat skips the flow's city question", async () => {
     const t = setup();
-    for (const x of ["hi", "flow_start", "who_parent", "need_medicines", "cond_sugar"]) await t.run(x);
+    for (const x of ["hi", "flow_start", "who_parent", "need_medicines"]) await t.run(x);
     Object.assign(t.needRow, { city: "Tiruppur", locality: null }); // typed earlier ("I am in Tiruppur")
     await t.run("age_65");
-    expect(text(last(t))).toContain("Do you currently have health insurance?");
-    expect(t.conv.pending_action).toBe("flow:insurance");
+    expect(text(last(t))).toContain("How much will your annual medical expense be next year?");
+    expect(t.conv.pending_action).toBe("flow:spend");
   });
 
   it("'any hospital near me?' after the flow uses the area from the chat", async () => {
@@ -257,5 +261,44 @@ describe("17 Nov client chat: callback times after the button flow", () => {
     for (const x of [...FLOW, "act_monthly", "2", "any hospital near me?"]) await t.run(x);
     expect(text(last(t))).toBe("Near Peelamedu, Coimbatore. How far can the patient travel for this? For example 5 km, 10 km or 20 km.");
     expect(t.conv.pending_action).toBe("centre_radius");
+  });
+
+  it("'can i know about oxxy' is the approved 'what is Oxxy' answer", () => {
+    for (const q of ["can i know about oxxy", "about oxxy?", "more details about oxxy", "oxxy ke baare mein batao"])
+      expect(matchFaq(q)).toBe("what_is_oxxy");
+  });
+
+  it("a draft that asks a known thing twice keeps its answer (no 'Sorry, I could not answer that here')", async () => {
+    const d = "Oxxy helps families save on eligible consultations, tests and medicines. What type of expense do you need help with?";
+    const t = setup({ llm: [d, d] });
+    for (const x of [...FLOW, "act_monthly", "2", "how does this work for my parents?"]) await t.run(x);
+    expect(text(last(t))).toBe("Oxxy helps families save on eligible consultations, tests and medicines.");
+    expect(t.sent.map(text).join(" ")).not.toContain("could not answer");
+  });
+
+  // Client chat, 17 Nov evening: the plan card said Infinity; "Does it support dialysis?" came back as "I recommend
+  // the Thrive plan … yearly healthcare spend of about ₹5,00,000" with the spend ranges again, and "Can I buy for
+  // my parents" got only the activation text.
+  const PARENTS = ["hi", "flow_start", "who_parents", "need_hospital", "age_65", "Peelamedu, Coimbatore", "spend_500000"];
+  const D = (reply_text: string, intent: string, extracted_fields: object = {}) => ({ reply_text, intent, extracted_fields, needs_human: false });
+
+  it("a coverage question tagged 'recommend' keeps the flow's plan and its answer", async () => {
+    const dial = D("Yes. Kidney disease is listed, and Oxxy also works on dialysis.", "recommend", { healthcare_need: "dialysis" });
+    const t = setup({ llm: [dial] });
+    for (const x of [...PARENTS, "Does it support dialysis?"]) await t.run(x);
+    expect(t.conv.recommended_plan).toBe("infinity");
+    expect(text(last(t))).toBe("Yes. Kidney disease is listed, and Oxxy also works on dialysis.");
+    expect(last(t).kind).toBe("text"); // no spend-range list
+  });
+
+  it("a question with the activate intent is answered first, then the activation step", async () => {
+    const buy = D("Yes, you can take the plan for your parents. Infinity has no age limit.", "activate");
+    const t = setup({ llm: [buy] });
+    for (const x of [...PARENTS, "Can I buy for my parents"]) await t.run(x);
+    expect(text(last(t))).toMatch(/^Yes, you can take the plan for your parents\. Infinity has no age limit\.\n\nTo activate the Oxxy Infinity plan/);
+  });
+
+  it("'what oxxy will do' is the approved answer", () => {
+    expect(matchFaq("what oxxy will do")).toBe("what_is_oxxy");
   });
 });

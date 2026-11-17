@@ -22,10 +22,12 @@ const words = (s: string) =>
     .map((w) => w.replace(/(ies)$/, "y").replace(/(?<=[a-z]{3})s$/, ""))
     .filter((w) => w.length > 1 && !STOP.has(w));
 
-// inverse document frequency over the questions: rare words ("dialysis", "nri") count more than common ones
-const DOCS = KB_QA.map((e) => new Set(words(`${e.q} ${e.q}`)));
+// inverse document frequency over questions + answers: rare words ("dialysis", "nri") count more than common
+// ones ("support", "plan"). A word in the question counts fully, a word only in the answer counts half.
+const DOCS = KB_QA.map((e) => new Set(words(e.q)));
+const ANS = KB_QA.map((e) => new Set(words(e.a)));
 const DF = new Map<string, number>();
-for (const d of DOCS) for (const w of d) DF.set(w, (DF.get(w) ?? 0) + 1);
+for (let i = 0; i < KB_QA.length; i++) for (const w of new Set([...DOCS[i], ...ANS[i]])) DF.set(w, (DF.get(w) ?? 0) + 1);
 const idf = (w: string) => Math.log(1 + KB_QA.length / (1 + (DF.get(w) ?? 0)));
 
 /** The closest approved answers to the customer's message (best first); empty when nothing is close */
@@ -34,9 +36,9 @@ export function relevantAnswers(text: string, limit = 3): KbEntry[] {
   if (!said.size) return [];
   const scored = KB_QA.map((e, i) => {
     let score = 0;
-    for (const w of said) if (DOCS[i].has(w)) score += idf(w);
+    for (const w of said) score += DOCS[i].has(w) ? idf(w) : ANS[i].has(w) ? idf(w) / 2 : 0;
     // a short question that is almost the whole message wins over a long one that shares one word
-    return { e, score: score / Math.sqrt(DOCS[i].size || 1) };
+    return { e, score: score / Math.pow(DOCS[i].size || 1, 0.35) };
   })
     .filter((x) => x.score >= 1.2)
     .sort((a, b) => b.score - a.score);
@@ -47,7 +49,8 @@ export function relevantAnswers(text: string, limit = 3): KbEntry[] {
 const BRIDGE_WHEN: [string, RegExp][] = [
   ["B02", /^(ok|okay|k|yes|no|maybe|fine|hmm+|hm|sure|achha|theek|sari|seri|aama)[\s.!]*$/i],
   ["B04", /\b(i )?(don'?t|do not) know\b|\bno idea\b|\bnot sure\b|\bpata nahi\b|\btheriyala\b/i],
-  ["B03", /\b(busy|driving|in a meeting|at work|later|call me later|not now)\b/i],
+  // "later" alone or "call me later", never "can I upgrade later?"
+  ["B03", /\b(busy|driving|in a meeting|at work|not now)\b|\b(call|talk|message|text|ping) (me )?later\b|^later[\s.!]*$/i],
   ["B05", /\b(no (current |immediate )?need|nobody is (sick|ill)|we are healthy|no one is sick|healthy)\b/i],
   ["B07", /\b(need|let me|i will|i'?ll) (to )?think\b|\bthink about it\b/i],
   ["B09", /\b(expensive|costly|too much|price is high|can'?t afford|budget)\b/i],

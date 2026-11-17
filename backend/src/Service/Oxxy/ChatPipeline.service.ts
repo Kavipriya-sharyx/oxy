@@ -1548,6 +1548,17 @@ export class ChatPipelineService {
       await this.setPending(s, `flow:${next}`);
       await reply(msg ?? stepMessage(next, undefined, s.customer.language));
     };
+    // The question after the service: age -> city -> yearly spend, each skipped when this chat already has it.
+    // No condition and no insurance question (client, 17 Nov: "do not ask insurance or the medical condition";
+    // Playbook 5.1: a pre-existing condition is accepted only when the customer shares it).
+    const nextAfter = async (done: "need" | "age" | "city"): Promise<FlowStep> => {
+      if (done === "need" && !(Number(s.customer.age) > 0)) return "age";
+      if (done !== "city") {
+        const n = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
+        if (!n?.city) return "city";
+      }
+      return "spend";
+    };
 
     switch (step) {
       case "start":
@@ -1580,9 +1591,10 @@ export class ChatPipelineService {
         if (nd === "surgery") n.need_pattern = "single_expense";
         await n.save();
         // the client's order: the verify card after the service, then the next question (Trigger A)
-        await this.setPending(s, "flow:condition");
+        const next = await nextAfter("need");
+        await this.setPending(s, `flow:${next}`);
         await reply(verifyCard());
-        await this.sendMore(s, stepMessage("condition", undefined, s.customer.language));
+        await this.sendMore(s, stepMessage(next, undefined, s.customer.language));
         await this.recordTrigger(s, "A", "verify card in the button flow");
         return true;
       }
@@ -1602,8 +1614,7 @@ export class ChatPipelineService {
         s.customer.age = age as any;
         await s.customer.save();
         // the area given earlier in this chat (typed, a pin) is used: no city question again
-        const known = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
-        await ask(known?.city ? "insurance" : "city");
+        await ask(await nextAfter("age"));
         return true;
       }
       case "city": {
@@ -1644,7 +1655,7 @@ export class ChatPipelineService {
           n.locality = (area?.locality ?? null) as any;
           await n.save();
         }
-        await ask("insurance");
+        await ask("spend"); // no insurance question (client, 17 Nov)
         return true;
       }
       case "insurance": {
@@ -2097,9 +2108,14 @@ export class ChatPipelineService {
         }
         // promises the bot cannot keep (seen 16 Nov): a booking "noted" before it is saved, a payment taken
         // in the chat, the names of medicines
-        const wrong =
-          draftProblem(draft.reply_text, isBookingPending(s.conversation.pending_action)) ??
-          asksKnownAgain(draft.reply_text, knownNeed as any);
+        let wrong = draftProblem(draft.reply_text, isBookingPending(s.conversation.pending_action));
+        const known = wrong ? null : asksKnownAgain(draft.reply_text, knownNeed as any);
+        // the second draft still asks something already known: only its closing question goes, the answer stays
+        // (client chat, 17 Nov: "can i know about oxxy" mid-booking got "Sorry, I could not answer that here"
+        // because the drafts ended with a question about something already known)
+        if (known && attempt === 1 && withoutLastQuestion(draft.reply_text).trim())
+          draft.reply_text = withoutLastQuestion(draft.reply_text);
+        else if (known) wrong = known;
         const repitch = wrong ? null : repitchProblem(draft.reply_text, settled, m.text);
         // the second draft still offers it: its closing question goes, the answer stays (never a hand-over
         // only for that)
@@ -2268,7 +2284,9 @@ export class ChatPipelineService {
     // (the same for a plan recommendation, the price disclosure and the age question: the LLM's own
     // recommendation next to it is what made the customer read the same plan twice)
     // (and the city / travel-distance question or the no-centre answer: the LLM wrote empty "1. 2. 3." lists there)
-    if (["G", "D", "E", "AGE", "ASK"].some((k) => shown.has(k))) replaceReply = true;
+    // an activation step after a QUESTION keeps the draft's answer (its own question is cut by tidyDraft)
+    const answerKept = shown.has("KEEP_ANSWER") && !["G", "D", "AGE", "ASK"].some((k) => shown.has(k));
+    if (!answerKept && ["G", "D", "E", "AGE", "ASK"].some((k) => shown.has(k))) replaceReply = true;
     // a centre step (location, radius, list, no centre): the system's text is the whole reply. A list of
     // hospitals the LLM wrote by itself must never ride along with it.
     if (shown.has("LOC") || shown.has("CENTRE_STEP")) replaceReply = true;
@@ -2911,12 +2929,20 @@ export class ChatPipelineService {
     // "Yes, activate" with no plan picked yet but the yearly spend known: the plan is picked the same way as a
     // recommendation (value check, price from plan_catalog), never a second recommendation written by the LLM
     const oxxyRoute = (conv.selected_product || ProductType.Oxxy) === ProductType.Oxxy;
+    // A plan already named (the button flow's card, an earlier recommendation) stays: a coverage question
+    // ("Does it support dialysis?") tagged "recommend" by the LLM never swaps it for another plan and never
+    // replaces the answer (client chat, 17 Nov: Infinity -> "I recommend the Thrive plan"). Only an explicit
+    // "which plan / recommend / suggest a plan" picks again.
+    const asksForPlan =
+      /\b(which|what|best|suitable|right|recommend\w*|suggest\w*)\b[^?.!]{0,30}\bplans?\b|\bplans?\b[^?.!]{0,20}\b(recommend\w*|suggest\w*|suit\w*|best)\b/i.test(
+        m.text,
+      );
     const pickByValue =
       !routedToCmb &&
       !gateOpen &&
       oxxyRoute &&
       !!n?.annual_medical_spend &&
-      (r.intent === "recommend" ||
+      ((r.intent === "recommend" && (!conv.recommended_plan || asksForPlan)) ||
         (r.intent === "activate" && !conv.recommended_plan && !c.active_product));
     // "activate" with the plan picked now: the recommendation without "Would you like the plan details?",
     // then the activation step below (client, 17 Nov: it went back to the plan details)
@@ -3053,6 +3079,11 @@ export class ChatPipelineService {
       !routedToCmb &&
       !gateOpen
     ) {
+      // the customer ASKED something ("Can I buy for my parents?"): the answer goes first, then the activation
+      // step (client chat, 17 Nov: only the activation text went out, the question was never answered)
+      const said = (m.text || "").trim();
+      if (!pickedToActivate && (/\?\s*$/.test(said) || /^(can|could|is|are|does|do|will|would|shall|should|how|what|which|why|when)\b/i.test(said)))
+        shown.add("KEEP_ANSWER");
       const billing =
         f.billing || (/\bmonthly\b|\bmahina|\bmonth\b/i.test(m.text) ? "monthly" : undefined);
       let cat = await this.activationRow(conv, billing);

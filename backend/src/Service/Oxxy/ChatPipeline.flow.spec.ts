@@ -120,7 +120,7 @@ const cat = (plan: string, monthly: number, yearly: number) => [
 ];
 
 describe("17 Nov: welcome card, then the voice-call questions with buttons, then one plan with GST", () => {
-  it("hi -> welcome card -> who -> service -> condition -> age -> city -> insurance -> spend -> plan -> family -> activate", async () => {
+  it("hi -> welcome card -> who -> service -> age -> city -> spend -> plan -> family -> activate", async () => {
     const needRow: Record<string, unknown> = { save: async () => undefined };
     const t = setup([], { needRow, found: () => [], catalog: [...cat("infinity", 3999, 40000), ...cat("everyday", 999, 10000)] });
     await t.run("hi");
@@ -136,14 +136,15 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
 
     await t.run("need_consult");
     expect(t.out.at(-2)).toContain("Verify Our Healthcare Services");
-    expect(t.out.at(-1)).toContain("ongoing or pre-existing condition");
-    await t.run("cond_none");
+    // no condition and no insurance question (client, 17 Nov): service -> age -> city -> spend
+    expect(t.out.at(-1)).toContain("May I know the patient's age?");
+    expect(t.out.join(" ")).not.toContain("ongoing or pre-existing condition");
     await t.run("age_65");
     expect(t.out.at(-1)).toContain("Which city and locality");
     await t.run("Peelamedu, Coimbatore");
     expect(needRow).toMatchObject({ city: "Coimbatore", locality: "Peelamedu" });
-    await t.run("ins_no");
     expect(t.out.at(-1)).toContain("How much will your annual medical expense be next year?");
+    expect(t.out.join(" ")).not.toContain("health insurance");
     await t.run("spend_50000");
     expect(t.out.at(-2)).toContain("Oxxy can help you save up to ₹15,000");
     const plan = t.out.at(-1)!;

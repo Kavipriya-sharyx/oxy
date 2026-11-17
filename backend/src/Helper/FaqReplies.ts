@@ -96,7 +96,9 @@ const MATCHERS: [FaqKey, RegExp][] = [
   ["policies", /\b(policies|policy page|terms (and|&) conditions|t\s?&\s?c|refund policy|privacy policy)\b/i],
   [
     "what_is_oxxy",
-    /\b(what is|what's|whats|wat is|tell me about|explain|what does)\s+(oxxy|this service|your service|your company)\b|\boxxy (kya|kya hai|kya hota hai|kya karta hai)\b|oxxy क्या/iu,
+    // "can I know about Oxxy", "more details about Oxxy", "about oxxy?" too (client chat, 17 Nov: it went to the
+    // LLM in the middle of a booking and came back as "Sorry, I could not answer that here")
+    /\b(what is|what's|whats|wat is|tell me about|explain|what does)\s+(oxxy|this service|your service|your company)\b|\b(know|learn|hear|info|information|details?|more)\s+(more\s+)?(about|on|regarding|of)\s+(oxxy|this service|your service|your company)\b|^\s*(about|regarding)\s+oxxy\s*[?.!]*\s*$|\bwhat (will|does|can|do) (oxxy|you|your company) (do|offer|provide)\b|\bwhat (oxxy|your company) (will|can|does) (do|offer|provide)\b|\boxxy (kya|kya hai|kya hota hai|kya karta hai|ke baare mein|ke bare me|pathi|patthi)\b|oxxy क्या|oxxy के बारे/iu,
   ],
 ];
 

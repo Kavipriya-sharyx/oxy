@@ -3,8 +3,10 @@
 // the pipeline (handleGuidedFlow) stores the answers and moves the step.
 //
 // Order = Voice AI manual 16 / 18 / 20 / 24 in chat form, with the client's current cards:
-//   welcome card -> who -> (health-data notice) -> service -> condition -> age -> city -> insurance -> yearly
-//   spend -> savings card (up to 30%, floor ₹500) + one plan with price + GST -> activate / add family.
+//   welcome card -> who -> (health-data notice) -> service -> age -> city -> yearly spend -> savings card (up to
+//   30%, floor ₹500) + one plan with price + GST -> activate / add family. Known answers are skipped. No condition
+//   and no insurance question (client, 17 Nov); their rows stay for chats already waiting on them and for a
+//   condition the customer shares by themself (Playbook 5.1).
 // Prices come from plan_catalog; GST and the family discount follow the client's pricing document
 // (first plan full price, each additional member 30% off the plan cost, GST 18% on the discounted cost).
 import { InteractiveHeader, ListRow, OutboundMessage } from "@Helper/WhatsappMessage";

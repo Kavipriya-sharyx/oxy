@@ -573,6 +573,27 @@ times -> customer tapped "Tomorrow, 12-2 pm" -> bot: "Which city and locality…
   centre" / "any hospital near me?" / the LLM's find_centre / "suggest one" in a booking / YES after the notice all
   go to "Near {area}." + how far (or the list when the distance is known) (`useKnownArea`). The one-time "Send
   location for the nearest centres" question with a known area is gone (it was the "asked again" the client saw).
+- No condition and no insurance question in the button flow (client, 17 Nov). Order now: who -> (notice) ->
+  service -> verify card + age -> city -> yearly spend -> savings + plan; age / city skipped when already known
+  (`nextAfter`). Note for the client: the Voice manual 18 and Playbook 5 (question 8) DO list the insurance
+  question; Playbook 5.1 makes the condition optional ("accept voluntary disclosure"). Without the condition the
+  plan comes from who / need / age / spend (e.g. a parent, 65, medicines, ₹50,000 = Everyday; with diabetes it was
+  Thrive). The condition / insurance rows and readers stay for chats already waiting on them.
+- "can i know about oxxy" mid-booking -> "Sorry, I could not answer that here" (`NOT_SURE_HERE_T`): the FAQ did not
+  match the wording, so it went to the LLM, and no draft passed. The `what_is_oxxy` FAQ now matches "know / learn
+  / more details about Oxxy", "about oxxy?", "oxxy ke baare mein", "oxxy pathi". In the LLM loop a second draft
+  rejected only because its closing question asks something already known (`asksKnownAgain`) now goes out
+  without that question instead of the fallback. The server log line "no usable draft mid-step, the step is
+  asked again: <reason>" names the real reason for that chat (an LLM error would show "technical error").
+- "Does it support dialysis?" after the Infinity card -> "I recommend the Thrive plan … yearly healthcare spend of
+  about ₹5,00,000" + the spend ranges again. (1) An LLM "recommend" intent re-ran the value pick (need-level rule)
+  and its text replaced the draft (the approved Q147 answer); now a plan already named stays unless the customer
+  asks "which / best / suggest a plan" (`asksForPlan`). (2) The yearly_spend ranges were attached whenever the
+  last 300 characters MENTIONED a yearly spend; now only when the spend is asked ("how much … spend") and the
+  reply does not end with another question (Choices.ts).
+- "Can I buy for my parents" (activate intent) got only the activation text: a QUESTION with the activate intent
+  now keeps the draft's answer first (`KEEP_ANSWER`), then the activation step; the draft's own question is cut.
+- FAQ what_is_oxxy also matches "what oxxy will do / what will oxxy do / offer / provide".
 - Tests: `ChatPipeline.callbackflow.spec.ts` (seed plan rows, no link).
 - Server config: every Oxxy plan row still lacks the official activation link, renewal terms and activation time
   (seed values), so every "Activate" goes to the team + callback. Fill them on the Plans page for the
