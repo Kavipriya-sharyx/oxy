@@ -127,10 +127,9 @@ const rowsOf = (m) => (m?.interactive?.action?.sections || []).flatMap((s) => s.
     out = await say(C, button("act_monthly", "Activate Monthly"), "tap Activate Monthly");
     check("C11 no link: team will send it + 3 callback times as buttons, no T&C card", /our team will send you the official secure activation link/.test(all(out)) && buttonsOf(last(out)).length === 3 && !/terms and conditions/i.test(all(out)), all(out));
     out = await say(C, button("1", "Tomorrow 10am-12pm"), "tap time 1");
-    const firstRef = (all(out).match(/CB-[A-Z0-9]+/) || [])[0];
-    check("C12 callback saved with a reference", /I have requested a callback for .*Reference: CB-/.test(all(out)), all(out));
+    check("C12 callback saved", /I have requested a callback for /.test(all(out)), all(out));
     out = await say(C, button("3", "Tomorrow, 2-4 pm"), "tap time 3 (changed)");
-    check("C13 changed slot: updated, same reference, not the old menu", /^Updated\. Your callback is now .*2-4 pm\. Reference: /.test(all(out)) && all(out).includes(firstRef) && !/lifelong/.test(all(out)), all(out));
+    check("C13 changed slot: updated, not the old menu", /^Updated\. Your callback is now .*2-4 pm\./.test(all(out)) && !/lifelong/.test(all(out)), all(out));
     out = await say(C, text("I have done the payment"), "type I have done the payment");
     check("C14 paid: acknowledged, checked by the team, not confirmed", /Our team will check the payment and confirm your activation/.test(all(out)) && !/is (now )?active/i.test(all(out)), all(out));
   }

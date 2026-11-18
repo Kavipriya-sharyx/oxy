@@ -58,6 +58,10 @@ import {
   readBookAnswer,
   calculatorCard,
   proofLinkCard,
+  advisorContactCard,
+  readSavingsNeed,
+  readWhen,
+  PLAN_ACTIVATION_URL,
   ackLine,
   withAck,
   ageLabel,
@@ -197,6 +201,7 @@ import {
   trustPackText,
   whyActivateText,
   whyActivateVariant,
+  asksAdvisor,
 } from "@Helper/TriggerReplies";
 import { cmbWorthIt, computeSaving, PLAN_ORDER, planForNeed, PlanLike } from "./ValueCheck.service";
 import {
@@ -1220,9 +1225,9 @@ export class ChatPipelineService {
         s.customer.id,
         say(
           {
-            en: `Keeping your existing callback${when ? " for " + when : ""}. Reference: ${caseRef(taskId)}.`,
-            hi: `आपकी मौजूदा कॉलबैक${when ? " " + when + " के लिए" : ""} बनी रहेगी। संदर्भ: ${caseRef(taskId)}।`,
-            hinglish: `Aapki existing callback${when ? " " + when + " ke liye" : ""} confirm rahegi. Reference: ${caseRef(taskId)}.`,
+            en: `Keeping your existing callback${when ? " for " + when : ""}.`,
+            hi: `आपकी मौजूदा कॉलबैक${when ? " " + when + " के लिए" : ""} बनी रहेगी।`,
+            hinglish: `Aapki existing callback${when ? " " + when + " ke liye" : ""} confirm rahegi.`,
           },
           lang,
         ),
@@ -1298,9 +1303,9 @@ export class ChatPipelineService {
       change
         ? say(
             {
-              en: "Updated. Your callback is now {when}. Reference: {ref}.",
-              hi: "बदल दिया गया। आपकी कॉलबैक अब {when} है। रेफ़रेंस: {ref}।",
-              hinglish: "Update ho gaya. Aapki callback ab {when} hai. Reference: {ref}.",
+              en: "Updated. Your callback is now {when}.",
+              hi: "बदल दिया गया। आपकी कॉलबैक अब {when} है।",
+              hinglish: "Update ho gaya. Aapki callback ab {when} hai.",
             },
             lang,
           )
@@ -1613,6 +1618,8 @@ export class ChatPipelineService {
     return {
       who: readWho(String(n?.beneficiary ?? "")),
       need: readNeed(String(n?.healthcare_need ?? "")),
+      savings: readSavingsNeed(String(n?.healthcare_need ?? "")),
+      when: n?.urgency === "immediate" ? "soon" : "future",
       condition: n?.pre_existing ? readCondition(String((n as any)?.condition_if_voluntary ?? "other")) : "none",
       age: Number(s.customer.age) || null,
       spend: n?.annual_medical_spend != null ? Number(n.annual_medical_spend) : null,
@@ -1672,6 +1679,17 @@ export class ChatPipelineService {
     if (await this.handlePlanLinkOrDetails(m, s)) {
       return true;
     }
+    // Advisor assistance inquiry
+    if (id === "flow_advisor" || id === "talk_advisor" || asksAdvisor(text)) {
+      await this.createTaskOnce(
+        TaskType.HumanHandoff,
+        TaskPriority.High,
+        s,
+        "Customer requested advisor assistance: AI voice call, objection handling and follow-up",
+      );
+      await this.sendAndSave(s.customer.id, advisorContactCard(s.customer.language), m.waMessageId);
+      return true;
+    }
     // the verify card's buttons (Customer Testimonial / News Articles): the page, the flow step stays
     if (id === "verify_stories" || id === "verify_news") {
       await this.sendAndSave(s.customer.id, proofLinkCard(id === "verify_stories" ? "stories" : "news"), m.waMessageId);
@@ -1681,12 +1699,12 @@ export class ChatPipelineService {
     if (id === "flow_start" || id === "flow_website" || id === "flow_contact") {
       if (id === "flow_website") {
         await this.sendAndSave(s.customer.id, websiteCard(), m.waMessageId);
-        await this.sendMore(s, stepMessage("who", undefined, s.customer.language));
+        await this.sendMore(s, stepMessage("savings", undefined, s.customer.language));
       } else if (id === "flow_contact") {
         await this.sendAndSave(s.customer.id, contactText(s.customer.language), m.waMessageId);
-        await this.sendMore(s, stepMessage("who", undefined, s.customer.language));
-      } else await this.sendAndSave(s.customer.id, stepMessage("who", undefined, s.customer.language), m.waMessageId);
-      await this.setPending(s, "flow:who");
+        await this.sendMore(s, stepMessage("savings", undefined, s.customer.language));
+      } else await this.sendAndSave(s.customer.id, stepMessage("savings", undefined, s.customer.language), m.waMessageId);
+      await this.setPending(s, "flow:savings");
       return true;
     }
     const step = flowStep(s.conversation.pending_action);
@@ -1696,8 +1714,8 @@ export class ChatPipelineService {
     const tapped = /^[a-z]+_[a-z0-9]+$/.test(id);
     if (!tapped && !m.location && (/\?\s*$/.test(text) || text.split(/\s+/).length > 8)) return false;
     if (!tapped && isGreeting(text) && step !== "close") {
-      await this.sendAndSave(s.customer.id, stepMessage(step === "start" ? "who" : step, undefined, s.customer.language), m.waMessageId);
-      if (step === "start") await this.setPending(s, "flow:who");
+      await this.sendAndSave(s.customer.id, stepMessage(step === "start" ? "savings" : step, undefined, s.customer.language), m.waMessageId);
+      if (step === "start") await this.setPending(s, "flow:savings");
       return true;
     }
     const reply = (msg: string | OutboundMessage) => this.sendAndSave(s.customer.id, msg, m.waMessageId);
@@ -1733,29 +1751,88 @@ export class ChatPipelineService {
     };
 
     switch (step) {
+      case "savings": {
+        const sav = readSavingsNeed(text);
+        if (sav) {
+          const n = await this.needRow(s);
+          n.healthcare_need = sav;
+          if (sav === "surgery") n.need_pattern = "single_expense";
+          await n.save();
+          const ackSav = await humanAck("savings", sav);
+          await ask("who", undefined, ackSav);
+          return true;
+        }
+        const who = readWho(text);
+        if (who) {
+          const n = await this.needRow(s);
+          n.beneficiary = who;
+          await n.save();
+          const ackWho = await humanAck("who", who);
+          if (consentStatus === "granted") {
+            await ask("need", undefined, ackWho);
+          } else if (consentStatus === "refused") {
+            await ask("age", undefined, ackWho);
+          } else {
+            await this.setPending(s, FLOW_AFTER_CONSENT);
+            await reply(ackWho);
+            await this.sendMore(s, fixedReply("health_notice", s.customer.language));
+            await this.saveConsentRow(s.customer.id, cons, (c) => {
+              c.notice_sent_at = new Date();
+              c.notice_sent_version = NOTICE_VERSION;
+            });
+          }
+          return true;
+        }
+        return false;
+      }
       case "start":
       case "who": {
         const who = readWho(text);
-        if (!who) return false;
-        const n = await this.needRow(s);
-        n.beneficiary = who;
-        await n.save();
-        const ackWho = await humanAck("who", who);
-        if (consentStatus === "granted") {
-          await ask("need", undefined, ackWho);
-        } else if (consentStatus === "refused") {
-          await ask("age", undefined, ackWho);
-        } else {
-          // the health-data notice before the first health question (DPDP); YES -> the service question
-          await this.setPending(s, FLOW_AFTER_CONSENT);
-          await reply(ackWho);
-          await this.sendMore(s, fixedReply("health_notice", s.customer.language));
-          await this.saveConsentRow(s.customer.id, cons, (c) => {
-            c.notice_sent_at = new Date();
-            c.notice_sent_version = NOTICE_VERSION;
-          });
+        if (who) {
+          const n = await this.needRow(s);
+          n.beneficiary = who;
+          await n.save();
+          const ackWho = await humanAck("who", who);
+          if (n.healthcare_need) {
+            await ask("when", undefined, ackWho);
+          } else if (consentStatus === "granted") {
+            await ask("need", undefined, ackWho);
+          } else if (consentStatus === "refused") {
+            await ask("age", undefined, ackWho);
+          } else {
+            await this.setPending(s, FLOW_AFTER_CONSENT);
+            await reply(ackWho);
+            await this.sendMore(s, fixedReply("health_notice", s.customer.language));
+            await this.saveConsentRow(s.customer.id, cons, (c) => {
+              c.notice_sent_at = new Date();
+              c.notice_sent_version = NOTICE_VERSION;
+            });
+          }
+          return true;
         }
-        return true;
+        const sav = readSavingsNeed(text);
+        if (sav) {
+          const n = await this.needRow(s);
+          n.healthcare_need = sav;
+          if (sav === "surgery") n.need_pattern = "single_expense";
+          await n.save();
+          const ackSav = await humanAck("savings", sav);
+          await ask("who", undefined, ackSav);
+          return true;
+        }
+        return false;
+      }
+      case "when": {
+        const when = readWhen(text);
+        if (when) {
+          const n = await this.needRow(s);
+          if (when === "soon") n.urgency = "immediate";
+          await n.save();
+          const ackWhen = await humanAck("when", when);
+          await this.flowPlanCard(s, m.waMessageId, ackWhen);
+          return true;
+        }
+        return false;
       }
       case "need": {
         const nd = readNeed(text);
@@ -1907,7 +1984,7 @@ export class ChatPipelineService {
         const billing =
           id === "act_monthly" || /\bmonth/i.test(text)
             ? BillingCycle.Monthly
-            : id === "act_yearly" || /\b(year|annual|activate|yes)\b/i.test(text)
+            : id === "act_yearly" || id === "flow_activate" || /\b(year|annual|activate|ready to buy|buy plan|yes)\b/i.test(text)
               ? BillingCycle.Yearly
               : null;
         if (!billing) return false;

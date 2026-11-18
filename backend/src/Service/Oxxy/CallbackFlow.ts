@@ -154,10 +154,10 @@ export function callbackSavedText(
   const when = showWindow(w, l, now);
   return say(
     {
-      // Playbook 18 "Senior callback": "I have requested a callback for {{Callback_Window}}. Reference: {{Case_ID}}."
-      en: `I have requested a callback for ${when}. Reference: ${ref}.`,
-      hi: `मैंने ${when} के लिए कॉलबैक का अनुरोध कर दिया है। संदर्भ: ${ref}।`,
-      hinglish: `Maine ${when} ke liye callback request kar diya hai. Reference: ${ref}.`,
+      // Playbook 18 "Senior callback": clean callback confirmation without technical reference
+      en: `I have requested a callback for ${when}.`,
+      hi: `मैंने ${when} के लिए कॉलबैक का अनुरोध कर दिया है।`,
+      hinglish: `Maine ${when} ke liye callback request kar diya hai.`,
     },
     l,
   );

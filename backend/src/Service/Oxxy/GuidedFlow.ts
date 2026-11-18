@@ -9,7 +9,7 @@
 //   Known answers are skipped. No condition and no insurance question (client, 17 Nov).
 // Prices come from plan_catalog; GST and the family discount follow the client's pricing document
 // (first plan full price, each additional member 30% off the plan cost, GST 18% on the discounted cost).
-import { InteractiveHeader, ListRow, OutboundMessage } from "@Helper/WhatsappMessage";
+import { InteractiveHeader, ListRow, OutboundMessage, ReplyButton } from "@Helper/WhatsappMessage";
 import { OXXY_LINKS, VERIFY_CARD_TEXT, WELCOME_CARD_TEXT } from "@Helper/TemplateDefinitions";
 import { say } from "@Helper/Lang";
 import { familyTotal, firstPlan, firstPlanLines, per, subsequentPlan, subsequentPlanLines } from "@Helper/PlanPricing";
@@ -20,7 +20,9 @@ const tr = (l: Lg, en: string, hi: string, hinglish: string) => say({ en, hi, hi
 
 export type FlowStep =
   | "start"
+  | "savings"
   | "who"
+  | "when"
   | "need"
   // the calculator card's "Calculate Now", then the yearly spend list (the client's bot)
   | "calc"
@@ -92,6 +94,25 @@ export const contactText = (l?: Lg): string => {
   );
 };
 
+export function advisorContactCard(l?: Lg): OutboundMessage {
+  const phone = process.env.OXXY_SUPPORT_PHONE || "8800855340";
+  const mail = process.env.OXXY_SUPPORT_EMAIL || "info@oxxy.in";
+  return {
+    kind: "buttons",
+    header: { type: "text", text: tr(l, "Oxxy Health Advisor", "Oxxy स्वास्थ्य सलाहकार", "Oxxy Health Advisor") },
+    body: tr(
+      l,
+      `Our health advisors are ready to assist you:\n\n📞 Call/WhatsApp: ${phone}\n✉️ Email: ${mail}\n⏰ Hours: 9 AM – 7 PM (Mon–Sat)\n\nAn advisor has also been notified and will reach out to you shortly for guidance, plan options, and hospital assistance.`,
+      `हमारे स्वास्थ्य सलाहकार आपकी सहायता के लिए तैयार हैं:\n\n📞 कॉल/WhatsApp: ${phone}\n✉️ ईमेल: ${mail}\n⏰ समय: सुबह 9 बजे से शाम 7 बजे (सोम-शनि)\n\nसलाहकार को सूचित कर दिया गया है और वे मार्गदर्शन, प्लान और अस्पताल सहायता के लिए शीघ्र ही आपसे संपर्क करेंगे।`,
+      `Hamare health advisors aapki help ke liye ready hain:\n\n📞 Call/WhatsApp: ${phone}\n✉️ Email: ${mail}\n⏰ Timing: 9 AM – 7 PM (Mon–Sat)\n\nAdvisor ko notify kar diya gaya hai aur woh guidance, plan aur hospital assistance ke liye jaldi hi aapse contact karenge.`,
+    ),
+    buttons: [
+      { id: "flow_menu", title: tr(l, "Main Menu", "मुख्य मेनू", "Main Menu") },
+      { id: "flow_start", title: tr(l, "Explore Plans", "प्लान देखें", "Explore Plans") },
+    ],
+  };
+}
+
 export const verifyCard = (): OutboundMessage => ({
   kind: "buttons",
   header: logoHeader(),
@@ -151,6 +172,27 @@ const list = (
   ...(footer ? { footer } : {}),
 });
 
+export const SAVINGS_ROWS = (l?: Lg): ListRow[] => [
+  { id: "sav_consult", title: tr(l, "Consultations", "डॉक्टर परामर्श (Consultations)", "Consultations") },
+  { id: "sav_tests", title: tr(l, "Tests", "जाँच व टेस्ट (Tests)", "Tests") },
+  { id: "sav_surgery", title: tr(l, "Surgery", "सर्जरी व उपचार (Surgery)", "Surgery") },
+  { id: "sav_family", title: tr(l, "Family", "पूरा परिवार (Family)", "Family") },
+  { id: "sav_exploring", title: tr(l, "Exploring", "विकल्प देख रहे हैं (Exploring)", "Exploring") },
+];
+
+export const WHO_ROWS_V2 = (l?: Lg): ListRow[] => [
+  { id: "who_self", title: tr(l, "Self", "खुद (Self)", "Self") },
+  { id: "who_parents", title: tr(l, "Parents", "माता-पिता (Parents)", "Parents") },
+  { id: "who_family", title: tr(l, "Family", "पूरा परिवार (Family)", "Family") },
+  { id: "who_other", title: tr(l, "Someone else", "कोई और (Someone else)", "Someone else") },
+];
+
+export const WHEN_BUTTONS = (l?: Lg): ReplyButton[] => [
+  { id: "when_soon", title: tr(l, "Soon", "जल्द ही", "Soon") },
+  { id: "when_month", title: tr(l, "This month", "इस महीने", "This month") },
+  { id: "when_future", title: tr(l, "Future protection", "भविष्य सुरक्षा", "Future protection") },
+];
+
 export const WHO_ROWS = (l?: Lg): ListRow[] => [
   { id: "who_self", title: tr(l, "For Self/Spouse", "खुद / जीवनसाथी", "Khud / Spouse") },
   { id: "who_parent", title: tr(l, "Father/Mother", "पिता / माता", "Papa / Mummy") },
@@ -204,14 +246,29 @@ export const SPEND_ROWS = (l?: Lg): ListRow[] =>
 export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMessage {
   const p = (t: string) => (prefix ? `${prefix}\n\n${t}` : t);
   switch (step) {
-    case "who":
+    case "savings":
       return list(
-        p(tr(l, "Who Are You Looking For Healthcare Support For?", "आप किसके लिए हेल्थकेयर सहायता ढूँढ रहे हैं?", "Aap kiske liye healthcare support dhoondh rahe hain?")),
-        tr(l, "Family Member", "परिवार का सदस्य", "Family Member"),
-        WHO_ROWS(l),
+        p(tr(l, "Q1. What medical savings are you looking for?", "Q1. आप किस तरह की मेडिकल बचत देख रहे हैं?", "Q1. What medical savings are you looking for?")),
+        tr(l, "Select Option", "विकल्प चुनें", "Select Option"),
+        SAVINGS_ROWS(l),
         undefined,
         title(l),
       );
+    case "who":
+      return list(
+        p(tr(l, "Q2. Who needs the plan?", "Q2. प्लान किसके लिए चाहिए?", "Q2. Who needs the plan?")),
+        tr(l, "Select Member", "सदस्य चुनें", "Select Member"),
+        WHO_ROWS_V2(l),
+        undefined,
+        title(l),
+      );
+    case "when":
+      return {
+        kind: "buttons",
+        header: title(l),
+        body: p(tr(l, "Q3. When do you expect to use it?", "Q3. आप इसे कब इस्तेमाल करने की उम्मीद करते हैं?", "Q3. When do you expect to use it?")),
+        buttons: WHEN_BUTTONS(l),
+      };
     case "need":
       return list(
         p(
@@ -286,16 +343,48 @@ export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMe
 
 const t = (s: string) => (s || "").toLowerCase().trim();
 
-export type Who = "self" | "parent" | "parents" | "family" | "child";
+export type SavingsNeed = "consult" | "tests" | "surgery" | "family" | "exploring";
+export function readSavingsNeed(text: string): SavingsNeed | null {
+  const s = t(text);
+  const id = s.match(/^(?:sav|need)_(consult|tests|test|pathlab|diagnostic|medicines|surgery|family|exploring|future|all)$/);
+  if (id) {
+    const k = id[1];
+    if (k === "consult" || k === "medicines") return "consult";
+    if (k === "tests" || k === "test" || k === "pathlab" || k === "diagnostic") return "tests";
+    if (k === "surgery") return "surgery";
+    if (k === "family") return "family";
+    return "exploring";
+  }
+  if (/\b(surgery|operation|treatment|procedure|hospital|admission)\b/i.test(s)) return "surgery";
+  if (/\b(test|tests|lab|scan|mri|ct|blood|pathlab|diagnostic)\b/i.test(s)) return "tests";
+  if (/\b(consult\w*|doctor|opd|checkup|medicine|medicines)\b/i.test(s)) return "consult";
+  if (/\b(family|entire family|family protection)\b/i.test(s)) return "family";
+  if (/\b(explor\w*|future|savings?|reduce|general|just exploring|no need)\b/i.test(s)) return "exploring";
+  return null;
+}
+
+export type WhenUrgency = "soon" | "month" | "future";
+export function readWhen(text: string): WhenUrgency | null {
+  const s = t(text);
+  const id = s.match(/^when_(soon|month|future)$/);
+  if (id) return id[1] as WhenUrgency;
+  if (/\b(soon|immediately|urgent|right now|next week|jaldi|udane)\b/i.test(s)) return "soon";
+  if (/\b(this month|month|in a month|few weeks|is mahine|intha maasam)\b/i.test(s)) return "month";
+  if (/\b(future|future protection|protection|later|prevention|aage ke liye|ethirkalam)\b/i.test(s)) return "future";
+  return null;
+}
+
+export type Who = "self" | "parent" | "parents" | "family" | "child" | "other";
 export function readWho(text: string): Who | null {
   const s = t(text);
-  const id = s.match(/^who_(self|parent|parents|family|child)$/);
-  if (id) return id[1] as Who;
+  const id = s.match(/^who_(self|parent|parents|family|child|other)$/);
+  if (id) return (id[1] === "other" ? "other" : id[1]) as Who;
   if (/\b(self|myself|me|spouse|wife|husband|for me)\b/.test(s)) return "self";
   if (/\bparents\b|amma appa|maa papa/.test(s)) return "parents";
   if (/\b(father|mother|dad|mom|mum|amma|appa|papa|maa)\b/.test(s)) return "parent";
   if (/\b(family|everyone|all of us|whole)\b/.test(s)) return "family";
   if (/\b(son|daughter|child|children|kid|kids)\b/.test(s)) return "child";
+  if (/\b(someone else|other|relative|friend)\b/.test(s)) return "other";
   return null;
 }
 
@@ -397,27 +486,42 @@ export interface FlowFacts {
   age?: number | null;
   spend?: number | null;
   insurance?: Insurance | null;
+  savings?: SavingsNeed | null;
+  when?: WhenUrgency | null;
 }
 
 export function pickPlan(f: FlowFacts): PlanName {
+  const who = f.who;
+  const need = f.need;
   const age = Number(f.age) || 0;
   const spend = Number(f.spend) || 0;
-  const elderlyParent = (f.who === "parent" || f.who === "parents") && age >= 60;
-  // Infinity: above the other plans' ages, elderly parents, a major condition, a planned surgery or treatment,
-  // pregnancy / IVF, or a high yearly spend (Voice manual 10 "Natural Infinity preference")
+  const isParent = who === "parent" || who === "parents";
+  const elderlyParent = isParent && age >= 60;
+  const isSurgery = f.savings === "surgery" || need === "surgery";
+
+  // Infinity: above other plans' ages, elderly parents, major condition, surgery, pregnancy, high spend, or parents + soon
   if (
     age > 80 ||
     elderlyParent ||
+    (isParent && f.when === "soon") ||
     ["heart", "kidney", "cancer"].includes(String(f.condition)) ||
-    f.need === "surgery" ||
-    f.need === "pregnancy" ||
+    isSurgery ||
+    need === "pregnancy" ||
     spend >= 200000
   )
     return "infinity";
+
+  if (isParent) return "thrive";
+  if (f.savings === "family" || who === "family") return "thrive";
+  if (f.when === "soon") return "vital";
+  if (age <= 70 && (f.savings === "consult" || f.savings === "tests" || f.savings === "exploring") && f.when === "future") {
+    return "everyday";
+  }
+
   // another pre-existing condition: Thrive supports new and pre-existing needs (Voice manual 21)
   if (f.condition && f.condition !== "none") return age > 80 ? "infinity" : "thrive";
   // hospital care: Vital covers OPD and IPD
-  if (f.need === "hospital" || f.need === "all") return age <= 75 ? "vital" : age <= 80 ? "thrive" : "infinity";
+  if (need === "hospital" || need === "all") return age <= 75 ? "vital" : age <= 80 ? "thrive" : "infinity";
   // routine OPD: Everyday for a small spend (Voice manual 10 "When not to push Infinity")
   if (age <= 70 && spend < 100000) return "everyday";
   if (age <= 75) return "vital";
@@ -461,12 +565,16 @@ const planWhy = (plan: PlanName, l: Lg) => tr(l, ...PLAN_WHY_T[plan]);
 
 /** One line that connects the customer's own answers to the plan (Voice manual 7 / 21 value bridges) */
 export function valueBridge(f: FlowFacts, l?: Lg): string {
+  if (f.savings === "surgery" || f.need === "surgery")
+    return tr(l, "A planned surgery or treatment can create a large bill, so broader support helps.", "सर्जरी या उपचार के लिए व्यापक अस्पताल सहायता और उच्च कवर की आवश्यकता होती है।", "Planned surgery ya ilaaj ka bill bada ho sakta hai, isliye broader support kaam aata hai.");
   if (f.who === "parent" || f.who === "parents")
     return tr(l, "Since this is for your parents, the plan should not run into age or bill limits later.", "क्योंकि यह आपके माता-पिता के लिए है, प्लान में आगे चलकर उम्र या बिल की सीमा आड़े नहीं आनी चाहिए।", "Kyunki yeh aapke parents ke liye hai, plan mein aage chalkar age ya bill ki limit beech mein nahi aani chahiye.");
+  if (f.savings === "family" || f.who === "family")
+    return tr(l, "For family healthcare, the plan covers consultations, tests, and hospitalization for everyone.", "पारिवारिक देखभाल के लिए, यह प्लान सभी के लिए परामर्श, जाँच और अस्पताल में भर्ती को कवर करता है।", "Family care ke liye, yeh plan sabhi ke liye consultation, tests aur hospital coverage provide karta hai.");
+  if (f.when === "soon")
+    return tr(l, "Because you need care soon, activation is swift and covers immediate healthcare needs.", "चूँकि आपको जल्द ही देखभाल की ज़रूरत है, एक्टिवेशन त्वरित है और तत्काल ज़रूरतों को पूरा करता है।", "Kyunki aapko jaldi care chahiye, activation fast hai aur immediate medical needs ko cover karta hai.");
   if (f.condition && f.condition !== "none")
     return tr(l, `Because you mentioned ${CONDITION_LABEL[f.condition]}, support for pre-existing needs matters most.`, "क्योंकि आपने एक चल रही बीमारी बताई है, पहले से मौजूद बीमारियों में मदद सबसे ज़रूरी है।", "Kyunki aapne ek chal rahi bimari batayi hai, pehle se maujood bimariyon mein madad sabse zaroori hai.");
-  if (f.need === "surgery")
-    return tr(l, "A planned surgery or treatment can create a large bill, so broader support helps.", "प्लान की गई सर्जरी या इलाज का बिल बड़ा हो सकता है, इसलिए व्यापक सहायता काम आती है।", "Planned surgery ya ilaaj ka bill bada ho sakta hai, isliye broader support kaam aata hai.");
   if (f.need === "pregnancy")
     return tr(l, "Pregnancy and IVF care are included under Infinity.", "प्रेग्नेंसी और IVF की देखभाल Infinity में शामिल है।", "Pregnancy aur IVF care Infinity mein shaamil hai.");
   if (f.insurance === "has_insurance" || f.insurance === "corporate_insurance")
@@ -521,6 +629,12 @@ export const PLAN_DETAILS_URL: Record<PlanName, string> = {
   thrive: "https://www.oxxy.in/oxxy-thrive",
   infinity: "https://www.oxxy.in/oxxy-infinity",
 };
+export const PLAN_ACTIVATION_URL: Record<PlanName, string> = {
+  everyday: "https://www.oxxy.in/healthplan?plan_name=oxxy_everyday",
+  vital: "https://www.oxxy.in/healthplan?plan_name=oxxy_vital",
+  thrive: "https://www.oxxy.in/healthplan?plan_name=oxxy_thrive",
+  infinity: "https://www.oxxy.in/healthplan?plan_name=oxxy_infinity",
+};
 
 const activateButtons = (l: Lg) => [
   { id: "act_yearly", title: tr(l, "Activate Yearly", "सालाना एक्टिवेट करें", "Yearly Activate") },
@@ -529,6 +643,7 @@ const activateButtons = (l: Lg) => [
 
 /** The plan with its price and GST (pricing document 9), and the next step as buttons */
 export function planCard(plan: PlanName, price: PlanPrice, f: FlowFacts, l?: Lg): OutboundMessage {
+  const checkoutUrl = PLAN_ACTIVATION_URL[plan] || `https://www.oxxy.in/healthplan?plan_name=oxxy_${plan}`;
   const planUrl = PLAN_DETAILS_URL[plan] || `https://www.oxxy.in/oxxy-${plan}`;
   const lines = [
     valueBridge(f, l),
@@ -543,7 +658,15 @@ export function planCard(plan: PlanName, price: PlanPrice, f: FlowFacts, l?: Lg)
     ...(price.yearly && price.monthly ? [""] : []),
     ...(price.monthly ? priceBlock(monthlyLabel(l), price.monthly, "monthly", l) : []),
     "",
+    tr(l, `Official Checkout Link: ${checkoutUrl}`, `आधिकारिक चेकआउट लिंक: ${checkoutUrl}`, `Official Checkout Link: ${checkoutUrl}`),
     tr(l, `Plan details: ${planUrl}`, `प्लान विवरण: ${planUrl}`, `Plan details: ${planUrl}`),
+    "",
+    tr(
+      l,
+      "PURCHASE CONFIRMED:\nWelcome kit → Activation in 3–5 working days → Usage guidance",
+      "खरीद पुष्टि:\nवेलकम किट → 3–5 कार्यदिवसों में एक्टिवेशन → उपयोग मार्गदर्शन",
+      "PURCHASE CONFIRMED:\nWelcome kit → Activation 3–5 working days mein → Usage guidance",
+    ),
     "",
     tr(l, "Would you like to activate your Oxxy care plan?", "क्या आप अपना Oxxy केयर प्लान एक्टिवेट करना चाहेंगे?", "Kya aap apna Oxxy care plan activate karna chahenge?"),
   ];
@@ -551,7 +674,10 @@ export function planCard(plan: PlanName, price: PlanPrice, f: FlowFacts, l?: Lg)
     kind: "buttons",
     header: { type: "text", text: `Oxxy ${PLAN_TITLE[plan]} ${tr(l, "plan", "प्लान", "plan")}` },
     body: lines.join("\n"),
-    buttons: [...activateButtons(l), { id: "flow_family", title: tr(l, "Add Family Member", "परिवार जोड़ें", "Family jodein") }],
+    buttons: [
+      ...activateButtons(l),
+      { id: "flow_advisor", title: tr(l, "Talk to Advisor", "सलाहकार से बात करें", "Talk to Advisor") },
+    ],
   };
 }
 
@@ -695,12 +821,32 @@ export function readBookAnswer(text: string): "yes" | "no" | null {
 
 /** The answer said back in a short, user-friendly line */
 export function ackLine(
-  kind: "who" | "need" | "calc" | "age" | "city" | "spend" | "book_yes" | "book_no" | "family" | "billing" | "activate",
+  kind: "who" | "need" | "savings" | "when" | "calc" | "age" | "city" | "spend" | "book_yes" | "book_no" | "family" | "billing" | "activate",
   value: string | number | null,
   l?: Lg,
 ): string {
   const v = value == null ? "" : String(value);
   switch (kind) {
+    case "savings": {
+      const S: Record<string, [string, string, string]> = {
+        consult: ["Got it, doctor consultations savings.", "समझ गए, डॉक्टर परामर्श में बचत।", "Got it, doctor consultation savings."],
+        tests: ["Got it, diagnostic tests and lab savings.", "समझ गए, जाँच और लैब टेस्ट में बचत।", "Got it, diagnostic tests aur lab savings."],
+        surgery: ["Noted, savings on surgery and hospital treatment.", "नोट किया, सर्जरी और अस्पताल के इलाज में बचत।", "Noted, surgery aur hospital treatment par savings."],
+        family: ["Got it, savings for family healthcare.", "समझ गए, पूरे परिवार के स्वास्थ्य खर्च में बचत।", "Got it, family healthcare par savings."],
+        exploring: ["Understood, exploring medical savings with Oxxy.", "समझ गए, Oxxy के साथ मेडिकल बचत के विकल्प देख रहे हैं।", "Understood, Oxxy ke saath medical savings explore kar rahe hain."],
+      };
+      const s = S[v] ?? ["Got it, noted your healthcare savings preference.", "नोट कर लिया गया है।", "Got it, noted your preference."];
+      return tr(l, s[0], s[1], s[2]);
+    }
+    case "when": {
+      const T: Record<string, [string, string, string]> = {
+        soon: ["Noted, you're planning to use this soon.", "नोट किया, आप इसे जल्द ही इस्तेमाल करने की योजना बना रहे हैं।", "Noted, aap ise jaldi use karne ki plan kar rahe hain."],
+        month: ["Noted, planning to use this within this month.", "नोट किया, इस महीने में इस्तेमाल करने की योजना है।", "Noted, is mahine use karne ka plan hai."],
+        future: ["Understood, setting up future healthcare protection.", "समझ गए, भविष्य की स्वास्थ्य सुरक्षा की तैयारी।", "Understood, future healthcare protection plan kar rahe hain."],
+      };
+      const t = T[v] ?? ["Noted your expected timeline.", "नोट कर लिया गया है।", "Noted your expected timeline."];
+      return tr(l, t[0], t[1], t[2]);
+    }
     case "who": {
       const W: Record<string, [string, string, string]> = {
         self: ["Got it, this is for you.", "ठीक है, यह आपके लिए है।", "Theek hai, yeh aapke liye hai."],
@@ -708,6 +854,7 @@ export function ackLine(
         parents: ["Got it, this is for your parents.", "ठीक है, यह आपके माता-पिता के लिए है।", "Theek hai, yeh aapke parents ke liye hai."],
         family: ["Got it, this is for your entire family.", "ठीक है, यह आपके पूरे परिवार के लिए है।", "Theek hai, yeh aapki poori family ke liye hai."],
         child: ["Got it, this is for your son or daughter.", "ठीक है, यह आपके बेटे या बेटी के लिए है।", "Theek hai, yeh aapke bete ya beti ke liye hai."],
+        other: ["Got it, this is for someone else.", "ठीक है, यह किसी और के लिए है।", "Theek hai, yeh kisi aur ke liye hai."],
       };
       const w = W[v] ?? W.self;
       return tr(l, w[0], w[1], w[2]);

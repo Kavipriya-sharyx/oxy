@@ -67,10 +67,10 @@ describe("texts", () => {
     const w = { from: ist("2026-11-15T10:00:00"), to: ist("2026-11-15T12:00:00") };
     expect(showWindow(w, "en", now)).toBe("Tomorrow, 10 am-12 pm");
   });
-  it("saved text carries the window and the reference", () => {
+  it("saved text carries the window", () => {
     expect(caseRef("1a2b3c4d-5e6f-0000-0000-000000000000")).toBe("CB-1A2B3C4D");
     expect(callbackSavedText(o[0], "CB-1A2B3C4D", "en", now)).toBe(
-      "I have requested a callback for Today, 2-4 pm. Reference: CB-1A2B3C4D.",
+      "I have requested a callback for Today, 2-4 pm.",
     );
   });
   it("pack / unpack round trip", () => {

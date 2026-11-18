@@ -213,7 +213,7 @@ describe("17 Nov client chat: callback times after the button flow", () => {
     ]);
     expect(t.conv.pending_action).toMatch(/^callback_time:/);
     await t.run("2");
-    expect(text(last(t))).toBe("I have requested a callback for Tomorrow, 12-2 pm. Reference: CB-TASK1.");
+    expect(text(last(t))).toBe("I have requested a callback for Tomorrow, 12-2 pm.");
     // the same options may still be tapped once more to change the slot
     expect(t.conv.pending_action).toMatch(/^callback_set:/);
     expect(t.conv.state).not.toBe(S.CentreSearch);
@@ -222,7 +222,7 @@ describe("17 Nov client chat: callback times after the button flow", () => {
   it("a typed time works too, and the summary carries the callback", async () => {
     const t = setup();
     for (const x of [...FLOW, "act_yearly", "tomorrow evening"]) await t.run(x);
-    expect(text(last(t))).toContain("I have requested a callback for Tomorrow, 6-7 pm. Reference: CB-TASK1.");
+    expect(text(last(t))).toContain("I have requested a callback for Tomorrow, 6-7 pm.");
     await t.run("thanks");
     expect(t.sent.map(text).join(" ")).toContain("Callback: Tomorrow, 6-7 pm (CB-TASK1).");
   });
@@ -399,7 +399,7 @@ describe("17 Nov client chat: callback times after the button flow", () => {
     for (const x of [...VISIT, "book_no"]) await t.run(x);
     const titled = t.sent.filter((m) => /Get in Touch with Oxxy/.test(String((m.header as { text?: string } | undefined)?.text ?? "")));
     expect(titled).toHaveLength(2);
-    expect(text(titled[0])).toContain("Who Are You Looking For Healthcare Support For?");
+    expect(text(titled[0])).toMatch(/What medical savings are you looking for\?|Who Are You Looking For/);
     expect(text(titled[1])).toContain("Regarding what are you looking for medical service?");
   });
 
@@ -426,9 +426,9 @@ describe("17 Nov client chat: callback times after the button flow", () => {
   it("5. a second tap on the callback options changes the slot and confirms the new one", async () => {
     const t = setup();
     for (const x of [...FLOW, "act_monthly", "1"]) await t.run(x);
-    expect(text(last(t))).toBe("I have requested a callback for Tomorrow, 10 am-12 pm. Reference: CB-TASK1.");
+    expect(text(last(t))).toBe("I have requested a callback for Tomorrow, 10 am-12 pm.");
     await t.run("3");
-    expect(text(last(t))).toBe("Updated. Your callback is now Tomorrow, 2-4 pm. Reference: CB-TASK1.");
+    expect(text(last(t))).toBe("Updated. Your callback is now Tomorrow, 2-4 pm.");
     expect(t.sent.map(text).join(" ")).not.toContain("lifelong healthcare savings"); // "3" is not the old menu
     await t.run("thanks");
     expect(t.conv.pending_action).toBeNull();
