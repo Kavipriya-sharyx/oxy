@@ -280,6 +280,83 @@ Your previous draft was rejected: ${feedback}. Rewrite it without those problems
     return null;
   }
 
+  /**
+   * Generates a warm, empathetic, human-like acknowledgment for customer responses.
+   * Returns null on any failure so the caller seamlessly falls back to pre-defined friendly text.
+   */
+  async generateHumanAck(
+    kind: string,
+    value: string,
+    language: string,
+    userInput?: string,
+    timeout = 4_000,
+  ): Promise<string | null> {
+    const order = providerOrder(
+      this._Config.get<string>("Llm.Provider"),
+      this._Config.get<string>("Llm.Fallback"),
+      this.configured(),
+    );
+    const lang = language === "hi" ? "Hindi" : language === "hinglish" ? "Hinglish" : "English";
+    const prompt = `You are Oxxy Healthcare's caring assistant in India.
+The customer answered the "${kind}" question with: "${value}" (customer text: "${userInput || value}").
+Generate a single brief, warm, natural, human-like acknowledgment sentence (maximum 15 words) in ${lang}.
+Rules:
+- Be warm, empathetic, and human-like.
+- Do NOT say "Noted" or "Got it".
+- Do NOT ask any question.
+- Do NOT mention specific discounts or guarantees.
+- Just warmly acknowledge what they shared.
+Return a valid JSON object with a single key "ack" containing the acknowledgment text.`;
+
+    for (const provider of order) {
+      try {
+        if (provider === "claude") {
+          const res = await this.getClient().messages.create(
+            {
+              model: this._Config.get<string>("Anthropic.Model") || "claude-3-5-haiku-latest",
+              max_tokens: 150,
+              system: "You are Oxxy's warm and empathetic healthcare advisor. Always return a valid JSON object with key 'ack'.",
+              messages: [{ role: "user", content: prompt }],
+            },
+            { timeout },
+          );
+          const raw = res.content.map((b: any) => (b.type === "text" ? b.text : "")).join("");
+          const match = raw.match(/\{[\s\S]*\}/);
+          if (match) {
+            const parsed = JSON.parse(match[0]);
+            if (parsed.ack && typeof parsed.ack === "string") return parsed.ack.trim();
+          }
+        } else if (provider === "openai") {
+          const res = await axios.post(
+            "https://api.openai.com/v1/chat/completions",
+            {
+              model: this._Config.get<string>("OpenAI.Model") || "gpt-4o-mini",
+              temperature: 0.3,
+              response_format: { type: "json_object" },
+              messages: [
+                { role: "system", content: "You are Oxxy's warm and empathetic healthcare advisor. Always return a valid JSON object with key 'ack'." },
+                { role: "user", content: prompt },
+              ],
+            },
+            {
+              headers: { Authorization: `Bearer ${this._Config.get<string>("OpenAI.ApiKey")}` },
+              timeout,
+            },
+          );
+          const raw = String(res.data?.choices?.[0]?.message?.content ?? "");
+          const match = raw.match(/\{[\s\S]*\}/);
+          if (match) {
+            const parsed = JSON.parse(match[0]);
+            if (parsed.ack && typeof parsed.ack === "string") return parsed.ack.trim();
+          }
+        }
+      } catch (e) {
+        this.logger.debug(`Human ack via ${provider} failed: ${(e as Error).message}`);
+      }
+    }
+    return null;
+  }
+
   private async call(
     provider: LlmProvider,
     history: ChatTurn[],

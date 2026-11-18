@@ -1701,6 +1701,7 @@ export class ChatPipelineService {
       return true;
     }
     const reply = (msg: string | OutboundMessage) => this.sendAndSave(s.customer.id, msg, m.waMessageId);
+    const humanAck = (k: any, v: any) => this.humanAck(k, v, s, text);
     const ask = async (next: FlowStep, msg?: OutboundMessage, ack?: string | null) => {
       await this.setPending(s, `flow:${next}`);
       const out = msg ?? stepMessage(next, undefined, s.customer.language);
@@ -1739,7 +1740,7 @@ export class ChatPipelineService {
         const n = await this.needRow(s);
         n.beneficiary = who;
         await n.save();
-        const ackWho = ackLine("who", who, s.customer.language);
+        const ackWho = await humanAck("who", who);
         if (consentStatus === "granted") {
           await ask("need", undefined, ackWho);
         } else if (consentStatus === "refused") {
@@ -1763,7 +1764,7 @@ export class ChatPipelineService {
         n.healthcare_need = NEED_LABEL[nd];
         if (nd === "surgery") n.need_pattern = "single_expense";
         await n.save();
-        const ack = ackLine("need", NEED_LABEL[nd], s.customer.language);
+        const ack = await humanAck("need", NEED_LABEL[nd]);
         await goOn(true, undefined, ack);
         return true;
       }
@@ -1772,7 +1773,7 @@ export class ChatPipelineService {
         const typed = readSpendChoice(text) ?? spendAnswer(text);
         if (typed) return this.flowSpend(s, typed, reply, goOn);
         if (id !== "calc_start" && !/\b(calculat\w*|start|yes|ok|okay|plan|plans|price|save|saving|savings|next)\b/i.test(text)) return false;
-        await ask("spend", undefined, ackLine("calc", null, s.customer.language));
+        await ask("spend", undefined, await humanAck("calc", null));
         return true;
       }
       case "condition": {
@@ -1791,7 +1792,7 @@ export class ChatPipelineService {
         s.customer.age = age as any;
         await s.customer.save();
         // the area given earlier in this chat (typed, a pin) is used: no city question again
-        await goOn(true, undefined, ackLine("age", ageLabel(text, age, s.customer.language), s.customer.language));
+        await goOn(true, undefined, await humanAck("age", ageLabel(text, age, s.customer.language)));
         return true;
       }
       case "city": {
@@ -1880,7 +1881,7 @@ export class ChatPipelineService {
         }
         const placed = this.placeOf(await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } })));
         // no insurance question (client, 17 Nov); the appointment offer for a visit
-        await goOn(true, undefined, placed ? ackLine("city", placed, s.customer.language) : null);
+        await goOn(true, undefined, placed ? await humanAck("city", placed) : null);
         return true;
       }
       case "insurance": {
@@ -1941,7 +1942,7 @@ export class ChatPipelineService {
               s.customer.language,
             ) + "\n\n";
         }
-        const ack = ackLine("activate", billing === BillingCycle.Monthly ? "monthly" : "yearly", s.customer.language);
+        const ack = await humanAck("activate", billing === BillingCycle.Monthly ? "monthly" : "yearly");
         await reply(ack);
         await this.sendMore(s, `${note}${act}`);
         // the terms before the payment: only when the official link is the next step, once per chat
@@ -1959,7 +1960,7 @@ export class ChatPipelineService {
         const k = readFamily(text);
         if (!k) return false;
         const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
-        const ack = ackLine("family", k, s.customer.language);
+        const ack = await humanAck("family", k);
         // pricing document 13: the billing first, then the breakdown for it
         await ask(`fambill:${k}` as FlowStep, familyBillingQuestion(plan, k, s.customer.language), ack);
         return true;
@@ -1969,12 +1970,12 @@ export class ChatPipelineService {
         if (!a) return false;
         if (a === "no") {
           await this.setPending(s, null);
-          const ack = ackLine("book_no", null, s.customer.language);
+          const ack = await humanAck("book_no", null);
           await goOn(true, "book", ack); // answered: never offered twice
           return true;
         }
         // the existing booking request: hospital -> date -> time; back to the flow once it is saved
-        const ack = ackLine("book_yes", null, s.customer.language);
+        const ack = await humanAck("book_yes", null);
         await reply(ack);
         const parts = await this.startBooking(s, { asked: true, resume: "next" });
         await this.sendMore(s, parts.join("\n\n"));
@@ -1985,7 +1986,7 @@ export class ChatPipelineService {
         if (!a) return false;
         if (a === "no") {
           await this.setPending(s, null);
-          const ack = ackLine("book_no", null, s.customer.language).replace(/book the appointment/, "check medicine delivery").replace(/अपॉइंटमेंट बाद में कभी भी बुक हो सकता है/, "दवाइयों की डिलीवरी बाद में कभी भी जाँच सकते हैं").replace(/appointment baad mein kabhi bhi book ho sakta hai/, "medicine delivery baad mein kabhi bhi check ho sakti hai");
+          const ack = (await humanAck("book_no", null)).replace(/book the appointment/, "check medicine delivery").replace(/अपॉइंटमेंट बाद में कभी भी बुक हो सकता है/, "दवाइयों की डिलीवरी बाद में कभी भी जाँच सकते हैं").replace(/appointment baad mein kabhi bhi book ho sakta hai/, "medicine delivery baad mein kabhi bhi check ho sakti hai");
           await goOn(true, "med", ack);
           return true;
         }
@@ -2005,7 +2006,7 @@ export class ChatPipelineService {
         if (!cycle) return false;
         const k = flowFamily(s.conversation.pending_action) || 1;
         const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
-        const ack = ackLine("billing", cycle, s.customer.language);
+        const ack = await humanAck("billing", cycle);
         await ask(`close:${k}` as FlowStep, familyCard(plan, await this.flowPrice(plan), k, s.customer.language, cycle), ack);
         return true;
       }
@@ -2023,7 +2024,7 @@ export class ChatPipelineService {
     const n = await this.needRow(s);
     n.annual_medical_spend = spend as any;
     await n.save();
-    const ack = ackLine("spend", spendLabel(spend), s.customer.language);
+    const ack = await this.humanAck("spend", spendLabel(spend), s);
     await reply(ack);
     await this.sendMore(s, savingsCard(spend, s.customer.language));
     await this.recordTrigger(s, "F", "savings card in the button flow");
@@ -5036,6 +5037,26 @@ export class ChatPipelineService {
       (await need.findOne({ where: { conversation_id: s.conversation.id } })) ??
       (need.create({ conversation_id: s.conversation.id } as any) as unknown as need)
     );
+  }
+
+  private async humanAck(
+    kind: "who" | "need" | "calc" | "age" | "city" | "spend" | "book_yes" | "book_no" | "family" | "billing" | "activate",
+    value: string | number | null,
+    s: Saved,
+    userText?: string,
+  ): Promise<string> {
+    const fallback = ackLine(kind, value, s.customer.language);
+    if (!this._Llm || typeof (this._Llm as any).generateHumanAck !== "function") return fallback;
+    const vStr = value == null ? "" : String(value);
+    try {
+      const generated = await (this._Llm as any).generateHumanAck(kind, vStr, s.customer.language, userText);
+      if (generated && generated.length > 5 && generated.length < 150 && !generated.includes("?")) {
+        return generated;
+      }
+    } catch (e) {
+      this.logger.debug(`generateHumanAck error: ${(e as Error).message}`);
+    }
+    return fallback;
   }
 
   // "Send location" button + the same question in words. The answer is a pin (handleLocationShare) or a
