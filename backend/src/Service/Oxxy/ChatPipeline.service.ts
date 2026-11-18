@@ -1,6 +1,6 @@
 import { Injectable, Logger, Optional } from "@nestjs/common";
 import { freshCallContext } from "@Helper/CallContext";
-import { faqAnswer, matchFaq, withoutClosingQuestion, faqNeedsPerson } from "@Helper/FaqReplies";
+import { faqAnswer, matchFaq, withoutClosingQuestion, faqNeedsPerson, FOUNDER_FAQ } from "@Helper/FaqReplies";
 import {
   asksNearby,
   centreListText,
@@ -50,6 +50,7 @@ import {
   verifyCard,
   websiteCard,
   welcomeCard,
+  PLAN_DETAILS_URL,
   familyBillingQuestion,
   readFamilyBilling,
   BOOKABLE_NEEDS,
@@ -181,6 +182,8 @@ import {
 import {
   asksComparePlans,
   asksProofOrFeedback,
+  asksWebsite,
+  asksFounder,
   asksTrust,
   asksWhyActivate,
   ComparisonRow,
@@ -239,7 +242,7 @@ import { AnswerReading, AnswerStep, LlmService, ChatTurn, LlmResult } from "./Ll
 import { ReplyValidatorService } from "./ReplyValidator.service";
 import { WhatsappClient } from "./WhatsappClient.service";
 import { ValueCheckService } from "./ValueCheck.service";
-import { CentreSearchService } from "./CentreSearch.service";
+import { CentreSearchService, FoundCentre } from "./CentreSearch.service";
 import { BookingService } from "./Booking.service";
 import { DateWindowService } from "./DateWindow.service";
 import { DataSource } from "typeorm";
@@ -248,7 +251,7 @@ import { CrmAction } from "@Helper/Enum/CrmAction";
 import { ConversationRepository, RESTARTED_FRESH } from "./ConversationRepository.service";
 import { isPlaceholder, planProblems, planReady } from "@Helper/GoLive";
 import { hasQuestion, statedYearlySpend, tidyDraft } from "@Helper/ReplyTidy";
-import { GeoPoint, GoogleMapsService } from "@Service/Maps/GoogleMaps.service";
+import { GeoPoint, GoogleMapsService, PlaceCandidate } from "@Service/Maps/GoogleMaps.service";
 import { isNoCentreText, isRepeatNoCentreText, noCentreText, asksWorksAtCentre, WORKS_AT_EVERY_T, WORKS_AT_NAMED_T, NO_INSURANCE_T, INSURANCE_COMPARE_T } from "@Helper/PlanReplies";
 import {
   CALLBACK_OUTSIDE_HOURS_T,
@@ -1654,6 +1657,20 @@ export class ChatPipelineService {
       }
       return true;
     }
+    // Website inquiry
+    if (asksWebsite(text)) {
+      await this.sendAndSave(s.customer.id, websiteCard(), m.waMessageId);
+      return true;
+    }
+    // Founder inquiry
+    if (asksFounder(text)) {
+      await this.sendAndSave(s.customer.id, say(FOUNDER_FAQ, s.customer.language), m.waMessageId);
+      return true;
+    }
+    // Plan links or plan details inquiry
+    if (await this.handlePlanLinkOrDetails(m, s)) {
+      return true;
+    }
     // the verify card's buttons (Customer Testimonial / News Articles): the page, the flow step stays
     if (id === "verify_stories" || id === "verify_news") {
       await this.sendAndSave(s.customer.id, proofLinkCard(id === "verify_stories" ? "stories" : "news"), m.waMessageId);
@@ -1840,11 +1857,24 @@ export class ChatPipelineService {
           );
           return true;
         } else {
-          if (!text || /\?\s*$/.test(text) || text.split(/\s+/).length > 6) return false;
+          if (!text || /\?\s*$/.test(text) || text.split(/\s+/).length > 8) return false;
           const n = await this.needRow(s);
-          const area = typedArea(text, await this.centreCities()) ?? namedPlace(text);
-          n.city = (area?.city ?? n.city ?? text).slice(0, 80);
-          n.locality = (area?.locality ?? null) as any;
+          let city = n.city;
+          let locality = n.locality;
+          if (this._Maps?.enabled) {
+            const geo = await this._Maps.geocode(text).catch(() => null);
+            if (geo) {
+              city = geo.city || city || text;
+              locality = geo.locality || locality || text;
+            }
+          }
+          if (!city) {
+            const area = typedArea(text, await this.centreCities()) ?? namedPlace(text);
+            city = area?.city ?? text;
+            locality = area?.locality ?? null;
+          }
+          n.city = (city ?? text).slice(0, 80);
+          n.locality = (locality ?? null) as any;
           await n.save();
         }
         const placed = this.placeOf(await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } })));
@@ -2045,6 +2075,50 @@ export class ChatPipelineService {
       await this.setPending(s, `flow:${next}`);
       await this.sendMore(s, stepMessage(next, undefined, s.customer.language));
     }
+  }
+
+  private async handlePlanLinkOrDetails(m: Inbound, s: Saved): Promise<boolean> {
+    const text = (m.text || "").toLowerCase().trim();
+    const isLinkAsk = /\b(link|url|website|page|activation link|plan link)\b/i.test(text);
+    const isPlanDetails = /\b(details?|benefits?|features?|about)\b/i.test(text) && /\b(plan|plans|everyday|vital|thrive|infinity)\b/i.test(text);
+    if (!isLinkAsk && !isPlanDetails) return false;
+
+    let matchedPlan: PlanName | null = null;
+    if (text.includes("everyday")) matchedPlan = "everyday";
+    else if (text.includes("vital")) matchedPlan = "vital";
+    else if (text.includes("thrive")) matchedPlan = "thrive";
+    else if (text.includes("infinity")) matchedPlan = "infinity";
+
+    if (matchedPlan) {
+      const l = s.customer.language;
+      const detailsUrl = PLAN_DETAILS_URL[matchedPlan];
+      const actUrl = `https://www.oxxy.in/healthplan?plan_name=oxxy_${matchedPlan}`;
+      const msg = say(
+        {
+          en: `Here are the official links for Oxxy ${PLAN_TITLE[matchedPlan]}:\n\n📋 Plan Details: ${detailsUrl}\n⚡ Activation Link: ${actUrl}\n\nWould you like me to help you activate this plan?`,
+          hi: `Oxxy ${PLAN_TITLE[matchedPlan]} के लिए आधिकारिक लिंक:\n\n📋 प्लान विवरण: ${detailsUrl}\n⚡ एक्टिवेशन लिंक: ${actUrl}\n\nक्या आप इस प्लान को एक्टिवेट करना चाहेंगे?`,
+          hinglish: `Oxxy ${PLAN_TITLE[matchedPlan]} ke official links:\n\n📋 Plan Details: ${detailsUrl}\n⚡ Activation Link: ${actUrl}\n\nKya aap is plan ko activate karna chahenge?`,
+        },
+        l,
+      );
+      await this.sendAndSave(s.customer.id, msg, m.waMessageId);
+      return true;
+    }
+
+    if (isLinkAsk && /\b(all plans?|plans? links?|health ?plans?)\b/i.test(text)) {
+      const l = s.customer.language;
+      const msg = say(
+        {
+          en: `Here are the official Oxxy healthcare plans:\n\n1. Everyday Plan: https://www.oxxy.in/oxxy-everyday\n2. Vital Plan: https://www.oxxy.in/oxxy-vital\n3. Thrive Plan: https://www.oxxy.in/oxxy-thrive\n4. Infinity Plan: https://www.oxxy.in/oxxy-infinity\n\nOfficial Website: https://www.oxxy.in\n\nWhich plan fits your healthcare needs?`,
+          hi: `Oxxy के आधिकारिक प्लान:\n\n1. Everyday Plan: https://www.oxxy.in/oxxy-everyday\n2. Vital Plan: https://www.oxxy.in/oxxy-vital\n3. Thrive Plan: https://www.oxxy.in/oxxy-thrive\n4. Infinity Plan: https://www.oxxy.in/oxxy-infinity\n\nआधिकारिक वेबसाइट: https://www.oxxy.in\n\nआपकी ज़रूरतों के लिए कौन सा प्लान सही है?`,
+          hinglish: `Oxxy ke official healthcare plans:\n\n1. Everyday Plan: https://www.oxxy.in/oxxy-everyday\n2. Vital Plan: https://www.oxxy.in/oxxy-vital\n3. Thrive Plan: https://www.oxxy.in/oxxy-thrive\n4. Infinity Plan: https://www.oxxy.in/oxxy-infinity\n\nOfficial Website: https://www.oxxy.in\n\nKaunsa plan aapki needs ke hisaab se sahi hai?`,
+        },
+        l,
+      );
+      await this.sendAndSave(s.customer.id, msg, m.waMessageId);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -2462,6 +2536,16 @@ export class ChatPipelineService {
     if (await this.handleSoftActivationAnswer(m, s)) return;
     if (await this.handlePaymentReply(m, s)) return;
     if (await this.handleInsurance(m, s)) return;
+    if (asksWebsite(m.text) && !isBookingPending(s.conversation.pending_action)) {
+      await this.sendAndSave(s.customer.id, websiteCard(), m.waMessageId);
+      return;
+    }
+    if (asksFounder(m.text) && !isBookingPending(s.conversation.pending_action)) {
+      await this.sendAndSave(s.customer.id, say(FOUNDER_FAQ, s.customer.language), m.waMessageId);
+      return;
+    }
+    if (!isBookingPending(s.conversation.pending_action) && (await this.handlePlanLinkOrDetails(m, s))) return;
+
     // The customer asked (almost exactly) one of the client's approved questions: the LLM answers from it
     // (knowledgeFor puts it first) instead of a fixed reply picked by one keyword. Not for a waiting step
     // (pending_action), and not for the insurance answers (the validator keeps insurance talk to Trigger B).
@@ -4631,6 +4715,25 @@ export class ChatPipelineService {
       list = (await this._CentreSearch.search({ ...query, radiusKm: NEAREST_MAX_KM })).slice(0, 3);
       further = list.length > 0;
     }
+
+    // Client requirement (18 Nov): If no verified centre exists in this location in the database,
+    // suggest nearby private health centres using Google Places API or LLM
+    if (!list.length) {
+      if (origin && this._Maps?.enabled) {
+        try {
+          const candidates = await this._Maps.nearbyCandidates(origin, radiusKm || 5);
+          if (candidates.length > 0) {
+            list = await this.saveCandidatesAsCentres(candidates, n);
+          }
+        } catch (e) {
+          this.logger.warn(`Google Places candidate search failed: ${(e as Error).message}`);
+        }
+      }
+      if (!list.length) {
+        list = await this.findCentresViaLlm(n);
+      }
+    }
+
     if (n) {
       n.suggested_centre_ids = list.map((x) => x.id);
       await n.save();
@@ -4657,6 +4760,89 @@ export class ChatPipelineService {
     return { text: centreListText(list, spec, s.customer.language), shown: true };
   }
 
+  private async saveCandidatesAsCentres(
+    candidates: PlaceCandidate[],
+    n: need | null,
+  ): Promise<FoundCentre[]> {
+    const out: FoundCentre[] = [];
+    const city = n?.city || "Unknown";
+    for (const cand of candidates.slice(0, 5)) {
+      try {
+        let existing = await centre.findOne({
+          where: [{ name: cand.name, city }, { name: cand.name }],
+        });
+        if (!existing) {
+          existing = await centre.save(
+            centre.create({
+              name: cand.name.slice(0, 100),
+              branch: cand.address ? cand.address.split(",")[0].slice(0, 80) : null,
+              locality: n?.locality || null,
+              city,
+              address: cand.address.slice(0, 200),
+              latitude: cand.latitude ?? 0,
+              longitude: cand.longitude ?? 0,
+              centre_type: "multispeciality",
+              is_private: true,
+              verified: true,
+              active: true,
+            }),
+          );
+        }
+        out.push(existing as FoundCentre);
+      } catch (e) {
+        this.logger.warn(`Error saving centre candidate: ${(e as Error).message}`);
+      }
+    }
+    return out;
+  }
+
+  private async findCentresViaLlm(n: need | null): Promise<FoundCentre[]> {
+    const place = [n?.locality, n?.city].filter(Boolean).join(", ").trim();
+    if (!place || place.length < 3) return [];
+    try {
+      const prompt = `Name 3 to 5 real, well-known private hospitals, clinics or diagnostic centres near ${place}, India. Return a valid JSON array of objects with keys: "name" (hospital or clinic name), "locality" (area or road), "type" (one of: multispeciality, clinic, diagnostic). Only return the JSON array, no explanation.`;
+      const draft = await this._Llm.generate(
+        [{ role: "user", content: prompt }],
+        "You are a healthcare directory service in India. Always return a valid JSON array of private hospitals or clinics.",
+      );
+      const text = draft?.reply_text || "";
+      const match = text.match(/\[[\s\S]*\]/);
+      if (!match) return [];
+      const parsed = JSON.parse(match[0]);
+      if (!Array.isArray(parsed) || !parsed.length) return [];
+      const out: FoundCentre[] = [];
+      const city = n?.city || "Unknown";
+      for (const item of parsed.slice(0, 5)) {
+        if (!item?.name) continue;
+        let existing = await centre.findOne({
+          where: [{ name: item.name, city }, { name: item.name }],
+        });
+        if (!existing) {
+          existing = await centre.save(
+            centre.create({
+              name: String(item.name).slice(0, 100),
+              branch: item.locality ? String(item.locality).slice(0, 80) : null,
+              locality: String(item.locality || n?.locality || "").slice(0, 80),
+              city,
+              address: String(item.locality || n?.locality || n?.city || ""),
+              latitude: 0,
+              longitude: 0,
+              centre_type: item.type || "multispeciality",
+              is_private: true,
+              verified: true,
+              active: true,
+            }),
+          );
+        }
+        out.push(existing as FoundCentre);
+      }
+      return out;
+    } catch (e) {
+      this.logger.warn(`LLM centre search failed: ${(e as Error).message}`);
+      return [];
+    }
+  }
+
   // No verified centre for this place. First time: say so and ask for another centre and branch (this or
   // another location). Asked again right after: never the same sentence in a loop; the team gets a task
   // to check the options there and the customer is told so.
@@ -4679,15 +4865,8 @@ export class ChatPipelineService {
     // the team hears about the gap: always the second time, and at once when Google Maps can list what is there
     if ((again && !third) || (!again && origin && this._Maps?.enabled))
       await this.reportCentreGap(s, place, origin ?? null, n?.travel_radius_km ?? 10);
-    // where verified centres ARE (customers asked "in which area do you have centres?"); naming one of those
-    // cities next searches there (handleCentreCity)
-    const cities = await this.centreCities();
-    const here = String(n?.city ?? "").trim().toLowerCase();
-    const others = cities.filter((c) => c.toLowerCase() !== here);
     const text = noCentreText(place, again, l, third);
-    if (!others.length) return text;
-    await this.setPending(s, "centre_city");
-    return `${text}\n\n${say(CENTRE_CITIES_T, l).replace("{cities}", others.slice(0, 6).join(", "))}`;
+    return text;
   }
 
   /**
@@ -4790,10 +4969,10 @@ export class ChatPipelineService {
   private async originFor(n: need | null, location?: GeoPoint): Promise<GeoPoint | null> {
     if (location && Number.isFinite(location.latitude) && Number.isFinite(location.longitude))
       return location;
-    const locality = String(n?.locality ?? "").trim();
-    if (!locality || !this._Maps) return null;
-    const geo = await this._Maps.geocode([locality, n?.city].filter(Boolean).join(", "));
-    return geo && !geo.approximate ? { latitude: geo.latitude, longitude: geo.longitude } : null;
+    const place = [n?.locality, n?.city].filter(Boolean).join(", ").trim();
+    if (!place || !this._Maps) return null;
+    const geo = await this._Maps.geocode(place);
+    return geo ? { latitude: geo.latitude, longitude: geo.longitude } : null;
   }
 
   // The centre list for a spot, sent as this turn's reply (Trigger D)

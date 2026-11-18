@@ -355,11 +355,18 @@ export function withoutClosingQuestion(text: string): string {
   return parts.join(" ");
 }
 
+export const FOUNDER_FAQ: L = {
+  en: "Oxxy Healthcare was founded by Pankaj Gupta with the mission to bring transparency and affordable healthcare savings to people across India. You can explore more on our official website: https://www.oxxy.in.",
+  hi: "Oxxy Healthcare की स्थापना पंकज गुप्ता द्वारा पूरे भारत में स्वास्थ्य सेवाओं में पारदर्शिता और बचत लाने के उद्देश्य से की गई थी। अधिक जानकारी के लिए आधिकारिक वेबसाइट https://www.oxxy.in पर जाएँ।",
+  hinglish: "Oxxy Healthcare ki shuruat Pankaj Gupta ne poore India mein transparent aur affordable healthcare savings provide karne ke mission ke saath ki thi. Aap official website https://www.oxxy.in par explore kar sakte hain.",
+};
+
 /** The approved answers in English, for the LLM prompt: paraphrased questions get the same facts */
 export function faqForPrompt(): string {
   const o = officialReferences();
   return [
     `What is Oxxy? -> ${WHAT_IS_OXXY.en}`,
+    `Who is the founder? -> ${FOUNDER_FAQ.en}`,
     `Who pays the bill? -> ${WHO_PAYS.en}`,
     `Can it be used repeatedly? -> ${REPEAT_USE.en}`,
     `Pre-existing diseases? -> Oxxy route: ${PRE_EXISTING_OXXY.en} Cut Medi Bills route: ${PRE_EXISTING_CMB.en}`,

@@ -522,6 +522,13 @@ const priceBlock = (label: string, cost: number, billing: "yearly" | "monthly", 
 };
 const yearlyLabel = (l: Lg) => tr(l, "Yearly", "सालाना", "Saalana");
 const monthlyLabel = (l: Lg) => tr(l, "Monthly", "मासिक", "Monthly");
+export const PLAN_DETAILS_URL: Record<PlanName, string> = {
+  everyday: "https://www.oxxy.in/oxxy-everyday",
+  vital: "https://www.oxxy.in/oxxy-vital",
+  thrive: "https://www.oxxy.in/oxxy-thrive",
+  infinity: "https://www.oxxy.in/oxxy-infinity",
+};
+
 const activateButtons = (l: Lg) => [
   { id: "act_yearly", title: tr(l, "Activate Yearly", "सालाना एक्टिवेट करें", "Yearly Activate") },
   { id: "act_monthly", title: tr(l, "Activate Monthly", "मासिक एक्टिवेट करें", "Monthly Activate") },
@@ -529,6 +536,7 @@ const activateButtons = (l: Lg) => [
 
 /** The plan with its price and GST (pricing document 9), and the next step as buttons */
 export function planCard(plan: PlanName, price: PlanPrice, f: FlowFacts, l?: Lg): OutboundMessage {
+  const planUrl = PLAN_DETAILS_URL[plan] || `https://www.oxxy.in/oxxy-${plan}`;
   const lines = [
     valueBridge(f, l),
     tr(
@@ -541,6 +549,8 @@ export function planCard(plan: PlanName, price: PlanPrice, f: FlowFacts, l?: Lg)
     ...(price.yearly ? priceBlock(yearlyLabel(l), price.yearly, "yearly", l) : []),
     ...(price.yearly && price.monthly ? [""] : []),
     ...(price.monthly ? priceBlock(monthlyLabel(l), price.monthly, "monthly", l) : []),
+    "",
+    tr(l, `Plan details: ${planUrl}`, `प्लान विवरण: ${planUrl}`, `Plan details: ${planUrl}`),
     "",
     tr(l, "Would you like to activate your Oxxy care plan?", "क्या आप अपना Oxxy केयर प्लान एक्टिवेट करना चाहेंगे?", "Kya aap apna Oxxy care plan activate karna chahenge?"),
   ];

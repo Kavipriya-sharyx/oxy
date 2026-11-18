@@ -33,6 +33,18 @@ export function asksProofOrFeedback(text: string): boolean {
   return /\b(testimonial\w*|review\w*|feedback|proof|news article\w*|news coverage|customer stories|rating\w*)\b/i.test(t);
 }
 
+/** Checks if the user is asking for the website */
+export function asksWebsite(text: string): boolean {
+  const t = (text || "").toLowerCase();
+  return /\b(oxxy\s+)?(website|web\s*site|site link|website link|official site|official website|portal)\b/i.test(t);
+}
+
+/** Checks if the user is asking who founded or started Oxxy */
+export function asksFounder(text: string): boolean {
+  const t = (text || "").toLowerCase();
+  return /\b(who (is|was) (the )?founder|founder|founded by|who started|who created|who owns)\b/i.test(t);
+}
+
 /** Trigger layer 14.1 A. "scam" / "fraud" are complaint keywords (guardrail) and never reach this. */
 export function asksTrust(text: string): boolean {
   const t = (text || "").toLowerCase();

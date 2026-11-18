@@ -72,9 +72,9 @@ export function noCentreText(
   if (again && thirdTime)
     return say(
       {
-        en: `Our team is already checking centres ${at.en} and will contact you. Meanwhile, tell me another area (for example "near Gandhipuram") or the name of a centre you prefer, and I will look there.`,
-        hi: `हमारी टीम ${at.hi} केंद्र पहले से देख रही है और आपसे संपर्क करेगी। तब तक कोई दूसरा इलाका या अपनी पसंद के केंद्र का नाम बताइए, मैं वहाँ देखूँगा।`,
-        hinglish: `Hamari team ${at.hinglish} centres pehle se check kar rahi hai aur aapse sampark karegi. Tab tak koi doosra area ya apni pasand ke centre ka naam bataiye, main wahan dekhunga.`,
+        en: `Our team is already checking centres ${at.en} and will contact you. Meanwhile, tell me another nearby area or the name of a hospital or centre you prefer, and I will look there.`,
+        hi: `हमारी टीम ${at.hi} केंद्र पहले से देख रही है और आपसे संपर्क करेगी। तब तक कोई दूसरा नज़दीकी इलाका या अपनी पसंद के अस्पताल या केंद्र का नाम बताइए, मैं वहाँ देखूँगा।`,
+        hinglish: `Hamari team ${at.hinglish} centres pehle se check kar rahi hai aur aapse sampark karegi. Tab tak koi doosra nearby area ya apni pasand ke hospital ya centre ka naam bataiye, main wahan dekhunga.`,
       },
       l,
     );
