@@ -114,16 +114,16 @@ export const FIXED_REPLIES: Record<ReplyKey, Record<ReplyLanguage, string>> = {
   // A change here = a new NOTICE_VERSION.
   health_notice: {
     en:
-      "Before you share health details: Oxxy uses them only to arrange your booking, savings and support, keeps " +
-      "them for {retention}, and you can ask for deletion anytime at {privacy_contact}. Sharing them is your choice. Is that okay? Please reply YES or NO.",
+      "Before sharing health details: Oxxy uses them solely to arrange your care, savings and support, " +
+      "keeping them secure for {retention}. You can request deletion anytime at {privacy_contact}. Sharing them is your choice. Is that okay? Please reply YES or NO.",
     // [CONFIRM]
     hi:
-      "स्वास्थ्य से जुड़ी जानकारी देने से पहले: Oxxy इसका उपयोग केवल आपकी बुकिंग, बचत और सहायता के लिए करता है, इसे " +
-      "{retention} तक रखता है, और आप {privacy_contact} पर कभी भी इसे हटाने के लिए कह सकते हैं। यह जानकारी देना आपकी मर्ज़ी है। क्या यह ठीक है? कृपया YES या NO लिखें।",
+      "स्वास्थ्य से जुड़ी जानकारी देने से पहले: Oxxy इसका उपयोग केवल आपकी देखभाल, बचत और सहायता के लिए करता है, " +
+      "इसे {retention} तक सुरक्षित रखता है, और आप {privacy_contact} पर कभी भी इसे हटाने के लिए कह सकते हैं। यह जानकारी देना आपकी मर्ज़ी है। क्या यह ठीक है? कृपया YES या NO लिखें।",
     // [CONFIRM]
     hinglish:
-      "Health details share karne se pehle: Oxxy inka use sirf aapki booking, savings aur support ke liye karta hai, " +
-      "inhe {retention} tak rakhta hai, aur aap {privacy_contact} par kabhi bhi deletion ke liye keh sakte hain. " +
+      "Health details share karne se pehle: Oxxy inka use sirf aapki care, savings aur support ke liye karta hai, " +
+      "inhe {retention} tak securely rakhta hai, aur aap {privacy_contact} par kabhi bhi delete karne ko keh sakte hain. " +
       "Yeh share karna aapki marzi hai. Kya yeh theek hai? Kripya YES ya NO likhiye.",
   },
   health_consent_yes: {

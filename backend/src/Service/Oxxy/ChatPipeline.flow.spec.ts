@@ -137,6 +137,9 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
     expect(t.sent.at(-1)).toMatchObject({ kind: "list", buttonLabel: "Choose the option:" });
 
     await t.run("need_consult");
+    expect(t.conv.pending_action).toBe("flow:calc");
+    expect(t.out.at(-1)).toContain("See how much you can save");
+    await t.run("calc_start");
     expect(t.out.at(-1)).toContain("May I know the yearly medical expenditure to calculate the approximate savings?");
     expect(t.conv.pending_action).toBe("flow:spend");
     await t.run("spend_50000");

@@ -1722,18 +1722,19 @@ export class ChatPipelineService {
     // the verify card's buttons (Customer Testimonial / News Articles): the page, the flow step stays
     if (id === "verify_stories" || id === "verify_news") {
       await this.sendAndSave(s.customer.id, proofLinkCard(id === "verify_stories" ? "stories" : "news"), m.waMessageId);
+      await this.sendMore(s, termsCard(s.customer.language));
       return true;
     }
     // the welcome card's buttons work at any time
     if (id === "flow_start" || id === "flow_website" || id === "flow_contact") {
       if (id === "flow_website") {
         await this.sendAndSave(s.customer.id, websiteCard(), m.waMessageId);
-        await this.sendMore(s, stepMessage("savings", undefined, s.customer.language));
+        await this.sendMore(s, stepMessage("who", undefined, s.customer.language));
       } else if (id === "flow_contact") {
         await this.sendAndSave(s.customer.id, contactText(s.customer.language), m.waMessageId);
-        await this.sendMore(s, stepMessage("savings", undefined, s.customer.language));
-      } else await this.sendAndSave(s.customer.id, stepMessage("savings", undefined, s.customer.language), m.waMessageId);
-      await this.setPending(s, "flow:savings");
+        await this.sendMore(s, stepMessage("who", undefined, s.customer.language));
+      } else await this.sendAndSave(s.customer.id, stepMessage("who", undefined, s.customer.language), m.waMessageId);
+      await this.setPending(s, "flow:who");
       return true;
     }
     const step = flowStep(s.conversation.pending_action);
@@ -1743,8 +1744,8 @@ export class ChatPipelineService {
     const tapped = /^[a-z]+_[a-z0-9]+$/.test(id);
     if (!tapped && !m.location && (/\?\s*$/.test(text) || text.split(/\s+/).length > 8)) return false;
     if (!tapped && isGreeting(text) && step !== "close") {
-      await this.sendAndSave(s.customer.id, stepMessage(step === "start" ? "savings" : step, undefined, s.customer.language), m.waMessageId);
-      if (step === "start") await this.setPending(s, "flow:savings");
+      await this.sendAndSave(s.customer.id, stepMessage(step === "start" ? "who" : step, undefined, s.customer.language), m.waMessageId);
+      if (step === "start") await this.setPending(s, "flow:who");
       return true;
     }
     const reply = (msg: string | OutboundMessage) => this.sendAndSave(s.customer.id, msg, m.waMessageId);
@@ -1894,7 +1895,10 @@ export class ChatPipelineService {
         if (nd === "surgery") n.need_pattern = "single_expense";
         await n.save();
         const ack = await humanAck("need", NEED_LABEL[nd]);
-        await goOn(true, undefined, ack);
+        await reply(ack);
+        await this.sendMore(s, verifyCard());
+        await this.sendMore(s, calculatorCard(s.customer.language));
+        await this.setPending(s, "flow:calc");
         return true;
       }
       case "calc": {
@@ -5877,6 +5881,7 @@ ${res.text}` : res.text, m.waMessageId);
       if (!(await this.alreadyReplied(m.waMessageId))) return;
       const conv = await conversation.findOne({ where: { id: s.conversation.id } });
       if (!conv || conv.closed_at || !RESCUE_STATES.has(conv.state as ConversationState)) return;
+      if (s.conversation.pending_action?.startsWith("flow:") || s.conversation.pending_action?.startsWith("send_activation_link:")) return;
       const done = conv.rescue_count ?? 0;
       if (done >= MAX_RESCUES) return;
       const cons = await consent.findOne({ where: { customer_id: s.customer.id } });
