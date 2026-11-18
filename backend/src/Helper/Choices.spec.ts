@@ -47,7 +47,7 @@ describe("multiple-choice options on the bot's questions", () => {
     const cb: any = interactiveFor("Please choose a convenient time:\n1) Today, 10 am-12 pm\n2) Today, 12-2 pm\n3) Today, 2-4 pm\nReply 1, 2 or 3, or tell me another time.");
     expect(opts(cb).map((b: any) => b.id)).toEqual(["1", "2", "3"]);
     const centres: any = interactiveFor(
-      "Based on the patient's area, here are suitable options:\n1. PSG HOSPITAL, PEELAMEDU - COIMBATORE | Multispeciality | about 1.2 km\n2. KMCH HOSPITAL, CHITRA - COIMBATORE | Multispeciality\nI found only 2 verified option(s) in that area.\n\nReply with 1 or 2, or send the name of another centre you prefer.",
+      "Based on the patient's area, here are suitable options:\n1. PSG HOSPITAL, PEELAMEDU - COIMBATORE | Multispeciality | about 1.2 km\n2. KMCH HOSPITAL, CHITRA - COIMBATORE | Multispeciality\nI found only 2 verified option(s) in that area.\n\nI have included specialist and multispeciality choices where relevant. Reply with 1 or 2, or send the name of another centre you prefer.",
     );
     expect(centres.kind).toBe("list");
     expect(opts(centres).map((r: any) => r.id)).toEqual(["1", "2"]);

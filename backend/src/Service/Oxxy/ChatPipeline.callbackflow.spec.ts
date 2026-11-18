@@ -224,7 +224,7 @@ describe("17 Nov client chat: callback times after the button flow", () => {
     for (const x of [...FLOW, "act_yearly", "tomorrow evening"]) await t.run(x);
     expect(text(last(t))).toContain("I have requested a callback for Tomorrow, 6-7 pm.");
     await t.run("thanks");
-    expect(t.sent.map(text).join(" ")).toContain("Callback: Tomorrow, 6-7 pm (CB-TASK1).");
+    expect(t.sent.map(text).join(" ")).toContain("Callback: Tomorrow, 6-7 pm.");
   });
 
   it("follow-up times '2' in INTENT_MENU is the follow-up, not the opening menu", async () => {

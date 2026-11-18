@@ -30,7 +30,8 @@ const FEWER: L = {
 const FOOT: L = {
   en: "Reply with {range}, or send the name of another centre you prefer.",
   hi: "{range} में से कोई नंबर लिखें, या अपनी पसंद के किसी दूसरे सेंटर का नाम भेजें।",
-  hinglish: "{range} mein se number likhein, ya apni pasand ke kisi doosre centre ka naam bhejein.",
+  hinglish:
+    "{range} mein se number likhein, ya apni pasand ke kisi doosre centre ka naam bhejein.",
 };
 const KIND: Record<"multi" | "specialist" | "clinic" | "diagnostic", L> = {
   clinic: { en: "Clinic", hi: "क्लिनिक", hinglish: "Clinic" },

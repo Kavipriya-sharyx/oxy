@@ -210,16 +210,26 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
     await t.run("sav_consult");
     expect(needRow.healthcare_need).toBe("consult");
     expect(t.conv.pending_action).toBe("flow:who");
-    expect(t.out.at(-1)).toContain("Who Are You Looking For Healthcare Support For?");
+    expect(t.out.at(-1)).toContain("Who needs the plan?");
 
-    // Q2: Who needs the plan? -> moves to need in the full guided flow
+    // Q2: Who needs the plan?
     await t.run("who_family");
     expect(needRow.beneficiary).toBe("family");
-    expect(t.conv.pending_action).toBe("flow:need");
-    expect(t.out.at(-1)).toContain("Regarding what are you looking for medical service?");
+    expect(t.conv.pending_action).toBe("flow:when");
+    expect(t.out.at(-1)).toContain("When do you expect to use it?");
 
-    // Need answered -> spend question
-    await t.run("need_consult");
-    expect(t.conv.pending_action).toBe("flow:spend");
+    // Q3: When do you expect to use it? -> decision
+    await t.run("when_soon");
+    expect(needRow.urgency).toBe("immediate");
+    expect(t.conv.pending_action).toBe("flow:decision");
+    expect(t.out.at(-1)).toContain("How would you like to proceed?");
+
+    // Decision: Ready to buy -> Plan recommendation & tracked checkout link
+    await t.run("flow_ready_to_buy");
+    expect(t.conv.pending_action).toBe("flow:close:0");
+    const lastMsg = t.out.at(-1);
+    expect(lastMsg).toContain("OXXY WEBSITE — PLAN PAYMENT");
+    expect(lastMsg).toContain("PURCHASE CONFIRMED");
+    expect(lastMsg).toContain("https://www.oxxy.in/healthplan?plan_name=oxxy_");
   });
 });

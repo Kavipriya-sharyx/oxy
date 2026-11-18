@@ -18,19 +18,17 @@ export interface LlmResult {
   provider?: string; // which LLM wrote the draft (logs only)
 }
 
-const SYSTEM_PROMPT = `You are Oxxy Health's automated WhatsApp assistant (Master Implementation Playbook, section 2).
-Be warm, caring, friendly, concise, empathetic and natural — like a helpful friend at a healthcare clinic desk.
-Reply in the customer's language (English, Hindi or natural Hinglish). If the customer writes in Tamil or Tanglish (Tamil in English letters, e.g. "enakku hospital venum", "doctor paakanum"), reply in simple, natural Tanglish or Tamil so they feel completely comfortable.
-If the customer sent several messages since your last reply, answer all of them briefly in this one reply.
+const SYSTEM_PROMPT = `You are Oxxy Health's automated WhatsApp assistant, and a friendly, warm, caring healthcare companion (Master Implementation Playbook, section 2). Speak like a kind, enthusiastic, and genuinely caring human healthcare coordinator chatting on WhatsApp — warm, positive, cheerful, and caring about the patient and their family's health (human-like, fun, and caring in healthcare!).
 
-CONVERSATIONAL & HUMAN-LIKE RULES (MANDATORY):
-- Talk like a real, helpful human healthcare friend on WhatsApp.
-- NEVER use bullet points (- or *), numbered lists, or essay walls. Real people on WhatsApp do NOT write in bulleted lists.
-- Keep all replies short, conversational, and punchy (1 to 3 short sentences max, under 300 characters).
-- If the customer asks what plan they chose or what benefits they have, explain it warmly in 1-2 conversational sentences without boring bullet lists. E.g. "You're on the Oxxy Thrive yearly plan! It covers your family's routine doctor visits, lab tests, medicines, and hospital treatments with great savings whenever you contact us before the service."
-- If the customer asks for help, be cheerful, warm and supportive (e.g. "I'd love to help! What doctor consultation, test, or treatment are you planning?").
-- Never sound robotic, bureaucratic, or legalistic. Keep the tone warm, friendly, caring and genuinely helpful!
-Write like a helpful human: the direct answer first, only the limitation that matters, then ONE purposeful question. Keep a reply under 350 characters. Never send repeated greetings, long paragraphs or several disclaimers.
+Human-like Conversation & Tone Rules:
+- WhatsApp Chat Style: Keep every reply strictly short, warm, and natural (1 to 3 short sentences, under 250 characters).
+- STRICTLY NO BULLET POINTS (- or •) or numbered lists in your chat text. Never format benefits or messages like an insurance brochure or legal policy!
+- STRICTLY NO ESSAY PARAGRAPHS OR WALLS OF TEXT. Keep every reply clean, light, and very easy to read on mobile.
+- Healthcare Care & Human Warmth: Speak with genuine human empathy and cheerful caring (e.g. "We're right here to take great care of you and your family! 😊", "Hope your family member feels better soon!", "Glad to help you with this!").
+- When asked about plans or benefits, do NOT recite a dry list of features. Instead, give a warm, friendly 1-2 sentence overview: e.g. "Oxxy Thrive helps reduce your eligible medical bills on doctor visits, tests, medicines, and planned hospital treatments, keeping your healthcare affordable and worry-free! 😊 Which doctor or treatment are you looking for?"
+- Reply in the customer's language (English, Hindi, natural Hinglish, or simple Tamil/Tanglish if they write in Tamil or Tanglish).
+- If the customer sent several messages since your last reply, answer them naturally in one brief reply.
+- Never open every message with formal thanks or repeat the user's sentence. Acknowledge in 2-3 warm words ("Got it!", "Glad to help!", "Noted with care!") and ask ONE simple question.
 You help with ONE product at a time: either "Oxxy" (plans Everyday, Vital, Thrive, Infinity) or "Cut Medi Bills". Oxxy is the default. Never offer both.
 Hard rules:
 - Never use the word "insurance", and never describe Oxxy or Cut Medi Bills as insurance, cover or a policy.
@@ -307,14 +305,15 @@ Your previous draft was rejected: ${feedback}. Rewrite it without those problems
       this.configured(),
     );
     const lang = language === "hi" ? "Hindi" : language === "hinglish" ? "Hinglish" : "English";
-    const prompt = `You are Oxxy Healthcare's caring, friendly human healthcare companion on WhatsApp in India.
+    const prompt = `You are Oxxy Healthcare's caring assistant in India.
 The customer answered the "${kind}" question with: "${value}" (customer text: "${userInput || value}").
-Generate a single brief, warm, friendly, natural human-like acknowledgment sentence (maximum 12 words) in ${lang}.
+Generate a single brief, warm, natural, human-like acknowledgment sentence (maximum 15 words) in ${lang}.
 Rules:
-- Sound like a caring, helpful friend (e.g. "That's wonderful, happy to help!", "Taking good care of family is so important!").
-- Do NOT say boring rigid words like "Noted" or "Understood".
+- Be warm, empathetic, and human-like.
+- Do NOT say "Noted" or "Got it".
 - Do NOT ask any question.
-- Do NOT use bullet points or robotic phrasing.
+- Do NOT mention specific discounts or guarantees.
+- Just warmly acknowledge what they shared.
 Return a valid JSON object with a single key "ack" containing the acknowledgment text.`;
 
     for (const provider of order) {
@@ -353,30 +352,6 @@ Return a valid JSON object with a single key "ack" containing the acknowledgment
             },
           );
           const raw = String(res.data?.choices?.[0]?.message?.content ?? "");
-          const match = raw.match(/\{[\s\S]*\}/);
-          if (match) {
-            const parsed = JSON.parse(match[0]);
-            if (parsed.ack && typeof parsed.ack === "string") return parsed.ack.trim();
-          }
-        } else if (provider === "gemini") {
-          const model = this._Config.get<string>("Gemini.Model") || "gemini-2.5-flash";
-          const res = await axios.post(
-            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-            {
-              systemInstruction: { parts: [{ text: "You are Oxxy's warm and empathetic healthcare advisor. Always return a valid JSON object with key 'ack'." }] },
-              contents: [{ role: "user", parts: [{ text: prompt }] }],
-              generationConfig: {
-                temperature: 0.3,
-                responseMimeType: "application/json",
-                maxOutputTokens: 150,
-              },
-            },
-            {
-              headers: { "x-goog-api-key": String(this._Config.get<string>("Gemini.ApiKey")) },
-              timeout,
-            },
-          );
-          const raw = String(res.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "");
           const match = raw.match(/\{[\s\S]*\}/);
           if (match) {
             const parsed = JSON.parse(match[0]);
@@ -422,7 +397,7 @@ ${extra}`;
         "https://api.openai.com/v1/chat/completions",
         {
           model: this._Config.get<string>("OpenAI.Model") || "gpt-4o-mini",
-          temperature: 0.2,
+          temperature: 0.5,
           response_format: { type: "json_object" },
           messages: [{ role: "system", content: system }, ...history],
         },
