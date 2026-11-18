@@ -46,3 +46,4 @@ export class UpdateOfficialPlanActivationLinks1794750000000 implements Migration
     `);
   }
 }
+

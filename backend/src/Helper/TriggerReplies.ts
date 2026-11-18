@@ -45,6 +45,19 @@ export function asksFounder(text: string): boolean {
   return /\b(who (is|was) (the )?founder|founder|founded by|who started|who created|who owns)\b/i.test(t);
 }
 
+/** Inquiries asking for other/different centres, more choices, or another hospital */
+export function asksOtherCentres(text: string): boolean {
+  const t = (text || "").toLowerCase().trim();
+  if (!t) return false;
+  return (
+    /\b(other|another|different|more|next|change|new|doosra|dusra|aur|koi aur|kisi aur|vera|matroru)\b.*\b(centres?|centers?|hospitals?|clinics?|options?|places?)\b/i.test(t) ||
+    /\b(centres?|centers?|hospitals?|clinics?|options?)\b.*\b(other|another|different|more|next|new)\b/i.test(t) ||
+    /^\s*(other|another|more|next|different|near ?by other|aur dikhao|koi aur|kuch aur|aur centre|aur option|vera centre|vera options?|kandupidi)\s*$/i.test(t) ||
+    /\b(need|want|show|give|suggest)\b.*\b(other|another|different|more)\b/i.test(t) ||
+    /\b(some other|any other|some more|any more|near ?by other)\b/i.test(t)
+  );
+}
+
 /** Trigger layer 14.1 A. "scam" / "fraud" are complaint keywords (guardrail) and never reach this. */
 export function asksTrust(text: string): boolean {
   const t = (text || "").toLowerCase();

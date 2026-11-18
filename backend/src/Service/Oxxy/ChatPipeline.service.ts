@@ -184,6 +184,7 @@ import {
   asksProofOrFeedback,
   asksWebsite,
   asksFounder,
+  asksOtherCentres,
   asksTrust,
   asksWhyActivate,
   ComparisonRow,
@@ -3581,7 +3582,9 @@ export class ChatPipelineService {
     } else if (r.intent === "find_centre" && readDraft(conv.pending_action)?.c) {
       // a booking for a verified centre is in progress: the list again would only confuse ("which doctor?")
     } else if (r.intent === "find_centre") {
-      const text = await this.centreSuggestions(s, n, m.location);
+      const isOther = asksOtherCentres(m.text);
+      const exclude = isOther ? (n?.suggested_centre_ids ?? []) : undefined;
+      const text = await this.centreSuggestions(s, n, m.location, exclude);
       shown.add("CENTRE_STEP");
       if (text.shown) shown.add("D");
       else shown.add("ASK"); // no verified centre: that answer stands alone
@@ -4716,21 +4719,32 @@ export class ChatPipelineService {
       further = list.length > 0;
     }
 
-    // Client requirement (18 Nov): If no verified centre exists in this location in the database,
-    // suggest nearby private health centres using Google Places API or LLM
-    if (!list.length) {
-      if (origin && this._Maps?.enabled) {
-        try {
-          const candidates = await this._Maps.nearbyCandidates(origin, radiusKm || 5);
-          if (candidates.length > 0) {
-            list = await this.saveCandidatesAsCentres(candidates, n);
+    // Client requirement (18 Nov): Suggest up to 5 nearby private health centres using Google Places API or LLM
+    if (list.length < 5 && origin && this._Maps?.enabled) {
+      try {
+        const candidates = await this._Maps.nearbyCandidates(origin, radiusKm || 10);
+        if (candidates.length > 0) {
+          const excludeIds = [...(exclude || []), ...list.map((c) => c.id)];
+          const added = await this.saveCandidatesAsCentres(candidates, n, excludeIds);
+          for (const c of added) {
+            if (list.length >= 5) break;
+            if (!list.some((existing) => existing.id === c.id || existing.name.toLowerCase() === c.name.toLowerCase())) {
+              list.push(c);
+            }
           }
-        } catch (e) {
-          this.logger.warn(`Google Places candidate search failed: ${(e as Error).message}`);
         }
+      } catch (e) {
+        this.logger.warn(`Google Places candidate search failed: ${(e as Error).message}`);
       }
-      if (!list.length) {
-        list = await this.findCentresViaLlm(n);
+    }
+    if (list.length < 5) {
+      const excludeNames = list.map((c) => c.name);
+      const llmCentres = await this.findCentresViaLlm(n, excludeNames);
+      for (const c of llmCentres) {
+        if (list.length >= 5) break;
+        if (!list.some((existing) => existing.id === c.id || existing.name.toLowerCase() === c.name.toLowerCase())) {
+          list.push(c);
+        }
       }
     }
 
@@ -4763,32 +4777,48 @@ export class ChatPipelineService {
   private async saveCandidatesAsCentres(
     candidates: PlaceCandidate[],
     n: need | null,
+    excludeIds: string[] = [],
   ): Promise<FoundCentre[]> {
     const out: FoundCentre[] = [];
     const city = n?.city || "Unknown";
-    for (const cand of candidates.slice(0, 5)) {
+    for (const cand of candidates) {
+      if (out.length >= 5) break;
       try {
         let existing = await centre.findOne({
           where: [{ name: cand.name, city }, { name: cand.name }],
         });
+        if (existing && excludeIds.includes(existing.id)) {
+          continue;
+        }
+        let centreType = "multispeciality";
+        const lower = ((cand.name || "") + " " + (cand.address || "")).toLowerCase();
+        if (lower.includes("diagnostic") || lower.includes("lab") || lower.includes("scan") || lower.includes("pathology")) {
+          centreType = "diagnostic";
+        } else if (lower.includes("clinic") || lower.includes("dental") || lower.includes("care centre")) {
+          centreType = "clinic";
+        } else if (lower.includes("eye") || lower.includes("ortho") || lower.includes("heart") || lower.includes("cancer") || lower.includes("skin")) {
+          centreType = "specialist";
+        }
         if (!existing) {
           existing = await centre.save(
             centre.create({
               name: cand.name.slice(0, 100),
-              branch: cand.address ? cand.address.split(",")[0].slice(0, 80) : null,
+              branch: null,
               locality: n?.locality || null,
               city,
-              address: cand.address.slice(0, 200),
+              address: (cand.address || "").slice(0, 200),
               latitude: cand.latitude ?? 0,
               longitude: cand.longitude ?? 0,
-              centre_type: "multispeciality",
+              centre_type: centreType,
               is_private: true,
               verified: true,
               active: true,
             }),
           );
         }
-        out.push(existing as FoundCentre);
+        if (!out.some((c) => c.id === existing.id || c.name.toLowerCase() === existing.name.toLowerCase())) {
+          out.push(existing as FoundCentre);
+        }
       } catch (e) {
         this.logger.warn(`Error saving centre candidate: ${(e as Error).message}`);
       }
@@ -4796,11 +4826,12 @@ export class ChatPipelineService {
     return out;
   }
 
-  private async findCentresViaLlm(n: need | null): Promise<FoundCentre[]> {
+  private async findCentresViaLlm(n: need | null, excludeNames: string[] = []): Promise<FoundCentre[]> {
     const place = [n?.locality, n?.city].filter(Boolean).join(", ").trim();
     if (!place || place.length < 3) return [];
     try {
-      const prompt = `Name 3 to 5 real, well-known private hospitals, clinics or diagnostic centres near ${place}, India. Return a valid JSON array of objects with keys: "name" (hospital or clinic name), "locality" (area or road), "type" (one of: multispeciality, clinic, diagnostic). Only return the JSON array, no explanation.`;
+      const avoid = excludeNames.length ? ` Do not include these centres: ${excludeNames.slice(0, 10).join(", ")}.` : "";
+      const prompt = `Name 3 to 5 real, well-known private hospitals, clinics or diagnostic centres near ${place}, India.${avoid} Return a valid JSON array of objects with keys: "name" (hospital or clinic name), "locality" (area or road), "type" (one of: multispeciality, clinic, diagnostic). Only return the JSON array, no explanation.`;
       const draft = await this._Llm.generate(
         [{ role: "user", content: prompt }],
         "You are a healthcare directory service in India. Always return a valid JSON array of private hospitals or clinics.",
@@ -4814,6 +4845,7 @@ export class ChatPipelineService {
       const city = n?.city || "Unknown";
       for (const item of parsed.slice(0, 5)) {
         if (!item?.name) continue;
+        if (excludeNames.some((en) => en.toLowerCase() === String(item.name).toLowerCase())) continue;
         let existing = await centre.findOne({
           where: [{ name: item.name, city }, { name: item.name }],
         });
@@ -4821,7 +4853,7 @@ export class ChatPipelineService {
           existing = await centre.save(
             centre.create({
               name: String(item.name).slice(0, 100),
-              branch: item.locality ? String(item.locality).slice(0, 80) : null,
+              branch: null,
               locality: String(item.locality || n?.locality || "").slice(0, 80),
               city,
               address: String(item.locality || n?.locality || n?.city || ""),
@@ -4982,9 +5014,10 @@ export class ChatPipelineService {
     n: need | null,
     origin: GeoPoint | undefined,
     reason: string,
+    exclude?: string[],
   ) {
     await this.setState(s, [ConversationState.CentreSearch]);
-    const res = await this.centreSuggestions(s, n, origin);
+    const res = await this.centreSuggestions(s, n, origin, exclude);
     const decision = res.shown
       ? ((await this._Triggers?.decide(
           s.customer.id,
@@ -5039,11 +5072,11 @@ export class ChatPipelineService {
    * it and never asks for the location again (client, 17 Nov: "once the location is given in the chat, use it
    * everywhere"). "Near Peelamedu, Coimbatore." + how far, or the list when the distance is known too.
    */
-  private async useKnownArea(m: Inbound, s: Saved, n: need | null): Promise<boolean> {
+  private async useKnownArea(m: Inbound, s: Saved, n: need | null, exclude?: string[]): Promise<boolean> {
     const place = this.placeOf(n);
     if (!n || !place) return false;
     if (n.travel_radius_km) {
-      await this.replyCentreList(m, s, n, undefined, "area known in this chat");
+      await this.replyCentreList(m, s, n, undefined, "area known in this chat", exclude);
       return true;
     }
     if (s.conversation.state !== ConversationState.CentreSearch)
@@ -5163,9 +5196,12 @@ export class ChatPipelineService {
   // "Any hospital near me?" with no location known: ask for it with the one-tap button
   private async handleNearbyAsk(m: Inbound, s: Saved): Promise<boolean> {
     if (m.location || s.conversation.pending_action) return false;
-    if (!asksNearby(m.text, s.conversation.state === ConversationState.CentreSearch)) return false;
+    const isNearby = asksNearby(m.text, s.conversation.state === ConversationState.CentreSearch);
+    const isOther = asksOtherCentres(m.text);
+    if (!isNearby && !isOther) return false;
     const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
-    if (await this.useKnownArea(m, s, n)) return true;
+    const exclude = isOther ? (n?.suggested_centre_ids ?? []) : undefined;
+    if (await this.useKnownArea(m, s, n, exclude)) return true;
     await this.askLocation(m, s, n);
     return true;
   }
@@ -5288,6 +5324,17 @@ ${res.text}` : res.text, m.waMessageId);
     const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
     const ids = n?.suggested_centre_ids ?? [];
     const inOrder = await this.listedCentres(ids);
+
+    // Customer wants other/different centres, more choices, or repeats nearby search
+    if (asksOtherCentres(m.text) || asksNearby(m.text, true)) {
+      const res = await this.centreSuggestions(s, n, undefined, ids);
+      if (res.shown) {
+        await this.setPending(s, "centre_pick");
+        await this.sendAndSave(s.customer.id, res.text, m.waMessageId);
+        return true;
+      }
+    }
+
     // a number, "second one", or the centre's name and branch typed as text (client, 17 Nov: "KMCH
     // Peelamedu" typed after the list showed the list again)
     const digit = m.text.trim().match(/^(?:option|no\.?|number|centre|center)?\s*([1-9])\s*\.?$/i);
