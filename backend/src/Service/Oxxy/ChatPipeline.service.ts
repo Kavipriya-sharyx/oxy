@@ -804,7 +804,8 @@ export class ChatPipelineService {
     return { customer: cust, conversation: conv, message: saved };
   }
 
-  // true when a later inbound message in this conversation already has a reply
+  // true when a later inbound message in this conversation already has a reply,
+  // or when an out-of-order / delayed webhook arrives after newer messages were already answered.
   async isStale(s: Saved): Promise<boolean> {
     const m = s.message;
     if (!m?.id) return false;
@@ -814,14 +815,41 @@ export class ChatPipelineService {
       .where("o.conversation_id = :cid", { cid: m.conversation_id })
       .andWhere("o.direction = 'in'")
       .andWhere("o.id <> :id", { id: m.id })
-      .andWhere(`o.created_on > (SELECT x.created_on FROM "message" x WHERE x.id = :id)`, {
-        id: m.id,
-      })
+      .andWhere(
+        `(o.created_on > (SELECT x.created_on FROM "message" x WHERE x.id = :id)
+          OR (
+            o.wa_timestamp IS NOT NULL
+            AND (SELECT x.wa_timestamp FROM "message" x WHERE x.id = :id) IS NOT NULL
+            AND o.wa_timestamp > (SELECT x.wa_timestamp FROM "message" x WHERE x.id = :id)
+          ))`,
+        { id: m.id },
+      )
       .andWhere(
         `EXISTS (SELECT 1 FROM "message" r WHERE r.direction = 'out' AND r.reply_to_wa_message_id = o.wa_message_id)`,
       )
       .getCount();
-    return newer > 0;
+    if (newer > 0) return true;
+
+    // Delayed webhook delivery: if wa_timestamp is more than 10 minutes old and there has already been
+    // any activity in this conversation since that timestamp, treat it as stale.
+    if (m.wa_timestamp) {
+      const ageMs = Date.now() - new Date(m.wa_timestamp).getTime();
+      if (ageMs > 10 * 60 * 1000) {
+        const anyActivity = await message
+          .createQueryBuilder("a")
+          .where("a.conversation_id = :cid", { cid: m.conversation_id })
+          .andWhere("a.id <> :id", { id: m.id })
+          .andWhere(
+            `(a.created_on > (SELECT x.wa_timestamp FROM "message" x WHERE x.id = :id)
+              OR (a.wa_timestamp IS NOT NULL AND a.wa_timestamp > (SELECT x.wa_timestamp FROM "message" x WHERE x.id = :id)))`,
+            { id: m.id },
+          )
+          .getCount();
+        if (anyActivity > 0) return true;
+      }
+    }
+
+    return false;
   }
 
   private async alreadyReplied(inboundWamid: string): Promise<boolean> {

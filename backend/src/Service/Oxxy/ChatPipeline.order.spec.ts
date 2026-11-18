@@ -63,6 +63,13 @@ describe("strict order (12.10)", () => {
     expect(t.update).toHaveBeenCalledWith("m-old", { message_status: "stale" });
   });
 
+  it("skips delayed webhook message with older wa_timestamp", async () => {
+    const t = setup(1);
+    await t.run("please share the plan details");
+    expect(t.send).not.toHaveBeenCalled();
+    expect(t.update).toHaveBeenCalledWith("m-old", { message_status: "stale" });
+  });
+
   it("still runs the safety reply for an old emergency message", async () => {
     const t = setup(1);
     await t.run("my father has chest pain");
