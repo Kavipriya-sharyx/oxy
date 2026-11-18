@@ -124,7 +124,7 @@ export function callbackQuestion(
   const list = options.map((w, i) => `${i + 1}) ${showWindow(w, l, now)}`).join("\n");
   if (existing) {
     const when = showWindow(existing.window, l, now);
-    const refStr = existing.ref ? ` (${existing.ref})` : "";
+    const refStr = "";
     return say(
       {
         en: `You already have a callback booked for ${when}${refStr}. Would you like to move to another timing?\n\nPlease choose a new timing:\n${list}\nReply 1, 2 or 3, or tell me another time.`,

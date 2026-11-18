@@ -199,4 +199,37 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
     expect(t.out.at(-1)).toContain("Welcome to Oxxy HealthCare!");
     expect(t.conv.pending_action).toBe("flow:start");
   });
+
+  it("client 18 Nov funnel: savings -> who -> when -> decision (ready to buy / talk to advisor)", async () => {
+    const needRow: Record<string, unknown> = { save: async () => undefined };
+    const t = setup([], { needRow, found: () => [], catalog: cat("everyday", 999, 10000) });
+    (t.conv as Record<string, unknown>).state = "DISCOVERY";
+    (t.conv as Record<string, unknown>).pending_action = "flow:savings";
+
+    // Q1: What medical savings are you looking for?
+    await t.run("sav_consult");
+    expect(needRow.healthcare_need).toBe("consult");
+    expect(t.conv.pending_action).toBe("flow:who");
+    expect(t.out.at(-1)).toContain("Who needs the plan?");
+
+    // Q2: Who needs the plan?
+    await t.run("who_family");
+    expect(needRow.beneficiary).toBe("family");
+    expect(t.conv.pending_action).toBe("flow:when");
+    expect(t.out.at(-1)).toContain("When do you expect to use it?");
+
+    // Q3: When do you expect to use it? -> decision
+    await t.run("when_soon");
+    expect(needRow.urgency).toBe("immediate");
+    expect(t.conv.pending_action).toBe("flow:decision");
+    expect(t.out.at(-1)).toContain("How would you like to proceed?");
+
+    // Decision: Ready to buy -> Plan recommendation & tracked checkout link
+    await t.run("flow_ready_to_buy");
+    expect(t.conv.pending_action).toBe("flow:close:0");
+    const lastMsg = t.out.at(-1);
+    expect(lastMsg).toContain("OXXY WEBSITE — PLAN PAYMENT");
+    expect(lastMsg).toContain("PURCHASE CONFIRMED");
+    expect(lastMsg).toContain("https://www.oxxy.in/healthplan?plan_name=oxxy_");
+  });
 });

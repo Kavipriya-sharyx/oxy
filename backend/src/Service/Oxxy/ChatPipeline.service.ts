@@ -1192,7 +1192,7 @@ export class ChatPipelineService {
       }));
     const l = s.customer.language;
     if (open?.callback_from)
-      return `${say(TEAM_HAS_IT_T, l)} (${showWindow({ from: open.callback_from, to: open.callback_to ?? open.callback_from }, l)}, ${caseRef(open.id)})`;
+      return `${say(TEAM_HAS_IT_T, l)} (${showWindow({ from: open.callback_from, to: open.callback_to ?? open.callback_from }, l)})`;
     return say(TEAM_HAS_IT_T, l);
   }
 
@@ -1858,7 +1858,30 @@ export class ChatPipelineService {
           if (when === "soon") n.urgency = "immediate";
           await n.save();
           const ackWhen = await humanAck("when", when);
-          await this.flowPlanCard(s, m.waMessageId, ackWhen);
+          await ask("decision", undefined, ackWhen);
+          return true;
+        }
+        return false;
+      }
+      case "decision": {
+        if (
+          id === "flow_ready_to_buy" ||
+          id === "flow_activate" ||
+          id === "act_yearly" ||
+          id === "act_monthly" ||
+          /\b(ready to buy|ready|buy|buy plan|checkout|recommend|show plan|plan|activate|price)\b/i.test(text)
+        ) {
+          await this.flowPlanCard(s, m.waMessageId, null);
+          return true;
+        }
+        if (id === "flow_advisor" || id === "talk_advisor" || asksAdvisor(text)) {
+          await this.createTaskOnce(
+            TaskType.HumanHandoff,
+            TaskPriority.High,
+            s,
+            "Customer requested advisor assistance: AI voice call, objection handling and follow-up",
+          );
+          await this.sendAndSave(s.customer.id, advisorContactCard(s.customer.language), m.waMessageId);
           return true;
         }
         return false;
@@ -5930,7 +5953,7 @@ ${res.text}` : res.text, m.waMessageId);
           : null,
         linkSent,
         callback: cb?.callback_from
-          ? `${showWindow({ from: cb.callback_from, to: cb.callback_to ?? cb.callback_from }, s.customer.language)} (${caseRef(cb.id)})`
+          ? showWindow({ from: cb.callback_from, to: cb.callback_to ?? cb.callback_from }, s.customer.language)
           : null,
       },
       s.customer.language,

@@ -22,7 +22,7 @@ import { buildPayload, validateMessage } from "./WhatsappPayload";
 import { metaTemplateBody, TEMPLATES } from "@Helper/TemplateDefinitions";
 
 describe("every flow message is one WhatsApp accepts", () => {
-  const steps = ["who", "need", "condition", "age", "city", "insurance", "spend"] as const;
+  const steps = ["savings", "who", "when", "decision", "need", "condition", "age", "city", "insurance", "spend"] as const;
   it.each(steps)("step %s", (st) => expect(() => validateMessage(stepMessage(st))).not.toThrow());
   it("welcome, website, verify, savings, plan, family cards", () => {
     for (const m of [

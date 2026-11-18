@@ -49,7 +49,7 @@ describe("Q&A knowledge base", () => {
 });
 
 describe("the button flow in every language fits WhatsApp's limits", () => {
-  const steps = ["who", "need", "condition", "age", "city", "insurance", "spend"] as const;
+  const steps = ["savings", "who", "when", "decision", "need", "condition", "age", "city", "insurance", "spend"] as const;
   for (const l of ["en", "hi", "hinglish"]) {
     it(`${l}: questions, savings, plan, family, terms`, () => {
       for (const st of steps) expect(() => validateMessage(stepMessage(st, undefined, l))).not.toThrow();

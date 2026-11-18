@@ -23,6 +23,7 @@ export type FlowStep =
   | "savings"
   | "who"
   | "when"
+  | "decision"
   | "need"
   // the calculator card's "Calculate Now", then the yearly spend list (the client's bot)
   | "calc"
@@ -95,19 +96,19 @@ export const contactText = (l?: Lg): string => {
 };
 
 export function advisorContactCard(l?: Lg): OutboundMessage {
-  const phone = process.env.OXXY_SUPPORT_PHONE || "8800855340";
+  const phone = process.env.OXXY_SUPPORT_PHONE || "+91 92665 68181 / 8800855340";
   const mail = process.env.OXXY_SUPPORT_EMAIL || "info@oxxy.in";
   return {
     kind: "buttons",
-    header: { type: "text", text: tr(l, "Oxxy Health Advisor", "Oxxy स्वास्थ्य सलाहकार", "Oxxy Health Advisor") },
+    header: { type: "text", text: tr(l, "Talk to our advisor", "स्वास्थ्य सलाहकार", "Talk to our advisor") },
     body: tr(
       l,
-      `Our health advisors are ready to assist you:\n\n📞 Call/WhatsApp: ${phone}\n✉️ Email: ${mail}\n⏰ Hours: 9 AM – 7 PM (Mon–Sat)\n\nAn advisor has also been notified and will reach out to you shortly for guidance, plan options, and hospital assistance.`,
-      `हमारे स्वास्थ्य सलाहकार आपकी सहायता के लिए तैयार हैं:\n\n📞 कॉल/WhatsApp: ${phone}\n✉️ ईमेल: ${mail}\n⏰ समय: सुबह 9 बजे से शाम 7 बजे (सोम-शनि)\n\nसलाहकार को सूचित कर दिया गया है और वे मार्गदर्शन, प्लान और अस्पताल सहायता के लिए शीघ्र ही आपसे संपर्क करेंगे।`,
-      `Hamare health advisors aapki help ke liye ready hain:\n\n📞 Call/WhatsApp: ${phone}\n✉️ Email: ${mail}\n⏰ Timing: 9 AM – 7 PM (Mon–Sat)\n\nAdvisor ko notify kar diya gaya hai aur woh guidance, plan aur hospital assistance ke liye jaldi hi aapse contact karenge.`,
+      `Our health advisors are ready to assist you:\n\n📞 Call/WhatsApp: ${phone}\n✉️ Email: ${mail}\n⏰ Hours: 9 AM – 7 PM (Mon–Sat)\n\nAn advisor has been notified for an AI voice call, plan guidance, objection handling, and follow-up.`,
+      `हमारे स्वास्थ्य सलाहकार आपकी सहायता के लिए तैयार हैं:\n\n📞 कॉल/WhatsApp: ${phone}\n✉️ ईमेल: ${mail}\n⏰ समय: सुबह 9 बजे से शाम 7 बजे (सोम-शनि)\n\nसलाहकार को AI वॉइस कॉल, प्लान मार्गदर्शन, और सहायता के लिए सूचित कर दिया गया है।`,
+      `Hamare health advisors aapki help ke liye ready hain:\n\n📞 Call/WhatsApp: ${phone}\n✉️ Email: ${mail}\n⏰ Timing: 9 AM – 7 PM (Mon–Sat)\n\nAdvisor ko AI voice call, plan guidance, objection handling aur follow-up ke liye notify kar diya gaya hai.`,
     ),
     buttons: [
-      { id: "flow_menu", title: tr(l, "Main Menu", "मुख्य मेनू", "Main Menu") },
+      { id: "flow_ready_to_buy", title: tr(l, "Ready to buy", "खरीदने के लिए तैयार", "Ready to buy") },
       { id: "flow_start", title: tr(l, "Explore Plans", "प्लान देखें", "Explore Plans") },
     ],
   };
@@ -173,24 +174,29 @@ const list = (
 });
 
 export const SAVINGS_ROWS = (l?: Lg): ListRow[] => [
-  { id: "sav_consult", title: tr(l, "Consultations", "डॉक्टर परामर्श (Consultations)", "Consultations") },
-  { id: "sav_tests", title: tr(l, "Tests", "जाँच व टेस्ट (Tests)", "Tests") },
-  { id: "sav_surgery", title: tr(l, "Surgery", "सर्जरी व उपचार (Surgery)", "Surgery") },
-  { id: "sav_family", title: tr(l, "Family", "पूरा परिवार (Family)", "Family") },
-  { id: "sav_exploring", title: tr(l, "Exploring", "विकल्प देख रहे हैं (Exploring)", "Exploring") },
+  { id: "sav_consult", title: tr(l, "Consultations", "डॉक्टर परामर्श", "Consultations") },
+  { id: "sav_tests", title: tr(l, "Tests", "जाँच व टेस्ट", "Tests") },
+  { id: "sav_surgery", title: tr(l, "Surgery", "सर्जरी व उपचार", "Surgery") },
+  { id: "sav_family", title: tr(l, "Family", "पूरा परिवार", "Family") },
+  { id: "sav_exploring", title: tr(l, "Exploring", "विकल्प देख रहे हैं", "Exploring") },
 ];
 
 export const WHO_ROWS_V2 = (l?: Lg): ListRow[] => [
   { id: "who_self", title: tr(l, "Self", "खुद (Self)", "Self") },
   { id: "who_parents", title: tr(l, "Parents", "माता-पिता (Parents)", "Parents") },
-  { id: "who_family", title: tr(l, "Family", "पूरा परिवार (Family)", "Family") },
-  { id: "who_other", title: tr(l, "Someone else", "कोई और (Someone else)", "Someone else") },
+  { id: "who_family", title: tr(l, "Family", "पूरा परिवार", "Family") },
+  { id: "who_other", title: tr(l, "Someone else", "अन्य (Someone else)", "Someone else") },
 ];
 
 export const WHEN_BUTTONS = (l?: Lg): ReplyButton[] => [
   { id: "when_soon", title: tr(l, "Soon", "जल्द ही", "Soon") },
   { id: "when_month", title: tr(l, "This month", "इस महीने", "This month") },
   { id: "when_future", title: tr(l, "Future protection", "भविष्य सुरक्षा", "Future protection") },
+];
+
+export const DECISION_BUTTONS = (l?: Lg): ReplyButton[] => [
+  { id: "flow_ready_to_buy", title: tr(l, "Ready to buy", "खरीदने के लिए तैयार", "Ready to buy") },
+  { id: "flow_advisor", title: tr(l, "Talk to our advisor", "सलाहकार से बात करें", "Talk to our advisor") },
 ];
 
 export const WHO_ROWS = (l?: Lg): ListRow[] => [
@@ -268,6 +274,20 @@ export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMe
         header: title(l),
         body: p(tr(l, "When do you expect to use it?", "आप इसे कब इस्तेमाल करने की उम्मीद करते हैं?", "When do you expect to use it?")),
         buttons: WHEN_BUTTONS(l),
+      };
+    case "decision":
+      return {
+        kind: "buttons",
+        header: title(l),
+        body: p(
+          tr(
+            l,
+            "How would you like to proceed?",
+            "आप आगे कैसे बढ़ना चाहेंगे?",
+            "Aap aage kaise badhna chahenge?",
+          ),
+        ),
+        buttons: DECISION_BUTTONS(l),
       };
     case "need":
       return list(
@@ -658,6 +678,7 @@ export function planCard(plan: PlanName, price: PlanPrice, f: FlowFacts, l?: Lg)
     ...(price.yearly && price.monthly ? [""] : []),
     ...(price.monthly ? priceBlock(monthlyLabel(l), price.monthly, "monthly", l) : []),
     "",
+    "OXXY WEBSITE — PLAN PAYMENT",
     tr(l, `Official Checkout Link: ${checkoutUrl}`, `आधिकारिक चेकआउट लिंक: ${checkoutUrl}`, `Official Checkout Link: ${checkoutUrl}`),
     tr(l, `Plan details: ${planUrl}`, `प्लान विवरण: ${planUrl}`, `Plan details: ${planUrl}`),
     "",
@@ -676,7 +697,7 @@ export function planCard(plan: PlanName, price: PlanPrice, f: FlowFacts, l?: Lg)
     body: lines.join("\n"),
     buttons: [
       ...activateButtons(l),
-      { id: "flow_advisor", title: tr(l, "Talk to Advisor", "सलाहकार से बात करें", "Talk to Advisor") },
+      { id: "flow_advisor", title: tr(l, "Talk to our advisor", "सलाहकार से बात करें", "Talk to our advisor") },
     ],
   };
 }
