@@ -690,9 +690,9 @@ export function readBookAnswer(text: string): "yes" | "no" | null {
 
 // ---------- acknowledgements (client, 17 Nov: "acknowledge every answer before the next question") ----------
 
-/** The answer said back in one short line, the first line of the next message (never a bubble of its own) */
+/** The answer said back in a short, user-friendly line */
 export function ackLine(
-  kind: "who" | "need" | "calc" | "age" | "city" | "book_yes" | "book_no" | "family" | "billing" | "activate",
+  kind: "who" | "need" | "calc" | "age" | "city" | "spend" | "book_yes" | "book_no" | "family" | "billing" | "activate",
   value: string | number | null,
   l?: Lg,
 ): string {
@@ -717,6 +717,8 @@ export function ackLine(
       return tr(l, `Thank you, noted the age (${v}).`, `धन्यवाद, उम्र नोट कर ली (${v})।`, `Shukriya, age note kar li (${v}).`);
     case "city":
       return tr(l, `Thank you, noted the area: ${v}.`, `धन्यवाद, इलाका नोट कर लिया: ${v}।`, `Shukriya, area note kar liya: ${v}.`);
+    case "spend":
+      return tr(l, `Noted, yearly spend: ${v}.`, `नोट किया, सालाना खर्च: ${v}।`, `Noted, yearly spend: ${v}.`);
     case "book_yes":
       return tr(l, "Sure, let us book it.", "ज़रूर, बुक करते हैं।", "Zaroor, book karte hain.");
     case "book_no":
@@ -728,6 +730,12 @@ export function ackLine(
     case "activate":
       return tr(l, `Great choice: the ${v} plan.`, `बढ़िया: ${v === "monthly" ? "मासिक" : "सालाना"} प्लान।`, `Badhiya: ${v} plan.`);
   }
+}
+
+/** The spend label formatted from SPEND rows or currency */
+export function spendLabel(spend: number): string {
+  const row = SPEND.find(([v]) => v === spend);
+  return row ? row[1] : inr(spend);
 }
 
 /** The acknowledgement on top of the next message (a card keeps its buttons; the body gets the line first) */

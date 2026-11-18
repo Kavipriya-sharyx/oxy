@@ -60,6 +60,7 @@ import {
   ackLine,
   withAck,
   ageLabel,
+  spendLabel,
   medOffer,
   readMedAnswer,
 } from "./GuidedFlow";
@@ -179,6 +180,7 @@ import {
 } from "./RecoveryFlow";
 import {
   asksComparePlans,
+  asksProofOrFeedback,
   asksTrust,
   asksWhyActivate,
   ComparisonRow,
@@ -250,6 +252,7 @@ import { GeoPoint, GoogleMapsService } from "@Service/Maps/GoogleMaps.service";
 import { isNoCentreText, isRepeatNoCentreText, noCentreText, asksWorksAtCentre, WORKS_AT_EVERY_T, WORKS_AT_NAMED_T, NO_INSURANCE_T, INSURANCE_COMPARE_T } from "@Helper/PlanReplies";
 import {
   CALLBACK_OUTSIDE_HOURS_T,
+  CallbackWindow,
   callbackOptions,
   callbackQuestion,
   callbackSavedText,
@@ -1098,29 +1101,44 @@ export class ChatPipelineService {
     taskId: string | undefined,
     text: string,
   ): Promise<string> {
-    // the customer already chose a callback time for this case: say so, never the options again
+    const l = s.customer.language;
     const chosen = taskId ? await task.findOne({ where: { id: taskId } }) : null;
-    if (chosen?.callback_from)
-      return [text, say(TEAM_HAS_IT_T, s.customer.language)].filter(Boolean).join("\n\n");
-    // ONE callback per chat (client, 17 Nov: "Today, 4-6 pm, CB-1A1B5949" and later "Today, 6-7 pm,
-    // CB-000224D2"): a time already chosen for another open case of this chat stands; the new case gets
-    // the same time and the customer the same time and reference
     const earlier = await this.chosenCallback(s);
-    if (earlier && earlier.id !== taskId) {
-      if (taskId)
+    const existing = (chosen?.callback_from ? chosen : null) ?? (earlier?.callback_from ? earlier : null);
+
+    if (existing?.callback_from) {
+      if (taskId && existing.id !== taskId) {
         await quiet(() =>
-          task.update(taskId, { callback_from: earlier.callback_from, callback_to: earlier.callback_to, due_at: earlier.callback_from } as any),
+          task.update(taskId, { callback_from: existing.callback_from, callback_to: existing.callback_to, due_at: existing.callback_from } as any),
         );
-      return [text, await this.teamHasItText(s, earlier)].filter(Boolean).join("\n\n");
+      }
+      const existingWin: CallbackWindow = {
+        from: existing.callback_from,
+        to: existing.callback_to ?? existing.callback_from,
+      };
+      const options = callbackOptions();
+      const targetId = taskId || existing.id;
+      if (options.length && targetId) {
+        await this.setPending(s, `callback_set:${targetId}:${packWindows(options)}`);
+        const q = callbackQuestion(options, l, new Date(), { window: existingWin, ref: caseRef(existing.id) });
+        return [text, q].filter(Boolean).join("\n\n");
+      }
+      return [text, await this.teamHasItText(s, existing)].filter(Boolean).join("\n\n");
     }
+
     // the times were already offered for another case and not answered yet: the same times, the same case
-    const offered = (s.conversation.pending_action ?? "").match(/^callback_time:([^:]+):(.*)$/);
-    if (offered && offered[1] !== taskId && unpackWindows(offered[2]).some((w) => w.from.getTime() > Date.now()))
-      return [text, callbackQuestion(unpackWindows(offered[2]), s.customer.language)].filter(Boolean).join("\n\n");
+    const offered = (s.conversation.pending_action ?? "").match(/^callback_(time|set):([^:]+):(.*)$/);
+    if (offered && unpackWindows(offered[3]).some((w) => w.from.getTime() > Date.now())) {
+      const activeTask = await task.findOne({ where: { id: offered[2] } });
+      const existingWin = activeTask?.callback_from
+        ? { window: { from: activeTask.callback_from, to: activeTask.callback_to ?? activeTask.callback_from }, ref: caseRef(activeTask.id) }
+        : null;
+      return [text, callbackQuestion(unpackWindows(offered[3]), l, new Date(), existingWin)].filter(Boolean).join("\n\n");
+    }
     const options = callbackOptions();
     if (!taskId || !options.length) return text;
     await this.setPending(s, `callback_time:${taskId}:${packWindows(options)}`);
-    return [text, callbackQuestion(options, s.customer.language)].filter(Boolean).join("\n\n");
+    return [text, callbackQuestion(options, l)].filter(Boolean).join("\n\n");
   }
 
   /** "Our team already has your request" (+ the callback time when one was chosen) */
@@ -1187,13 +1205,48 @@ export class ChatPipelineService {
     if (!hit) return false;
     const change = hit[1] === "set";
     const taskId = hit[2];
+    const text = (m.text || "").trim();
+    const lang = s.customer.language;
+
+    if (change && /^(no|nope|keep|same|don't change|dont change|nahi|nahin|vendam|illa)[.!]*$/i.test(text)) {
+      await this.setPending(s, null);
+      const t = await task.findOne({ where: { id: taskId } });
+      const when = t?.callback_from ? showWindow({ from: t.callback_from, to: t.callback_to ?? t.callback_from }, lang) : "";
+      await this.sendAndSave(
+        s.customer.id,
+        say(
+          {
+            en: `Keeping your existing callback${when ? " for " + when : ""}. Reference: ${caseRef(taskId)}.`,
+            hi: `आपकी मौजूदा कॉलबैक${when ? " " + when + " के लिए" : ""} बनी रहेगी। संदर्भ: ${caseRef(taskId)}।`,
+            hinglish: `Aapki existing callback${when ? " " + when + " ke liye" : ""} confirm rahegi. Reference: ${caseRef(taskId)}.`,
+          },
+          lang,
+        ),
+        m.waMessageId,
+      );
+      return true;
+    }
+
     const choice = parseCallbackChoice(m.text, unpackWindows(hit[3]));
     if (change && (!choice || "outside" in choice)) {
+      if (choice && "outside" in choice) {
+        const fresh = callbackOptions();
+        await this.setPending(s, `callback_set:${taskId}:${packWindows(fresh)}`);
+        const t = await task.findOne({ where: { id: taskId } });
+        const existingWin = t?.callback_from
+          ? { window: { from: t.callback_from, to: t.callback_to ?? t.callback_from }, ref: caseRef(taskId) }
+          : null;
+        await this.sendAndSave(
+          s.customer.id,
+          `${say(CALLBACK_OUTSIDE_HOURS_T(teamHours()), lang)}\n\n${callbackQuestion(fresh, lang, new Date(), existingWin)}`,
+          m.waMessageId,
+        );
+        return true;
+      }
       await this.setPending(s, null);
       return false;
     }
     if (!choice) return false;
-    const lang = s.customer.language;
     if ("outside" in choice) {
       const fresh = callbackOptions();
       await this.setPending(s, `callback_time:${taskId}:${packWindows(fresh)}`);
@@ -1207,12 +1260,26 @@ export class ChatPipelineService {
     const w = choice.window;
     const t = await task.findOne({ where: { id: taskId } });
     const row = await this._DataSource.transaction(async (mg) => {
-      if (t)
+      if (t) {
         await mg.update(
           task,
           { id: taskId },
           { callback_from: w.from, callback_to: w.to, due_at: w.from },
         );
+        const others = await quiet(() =>
+          task.find({
+            where: {
+              conversation_id: s.conversation.id,
+              task_status: In([TaskStatus.Open, TaskStatus.InProgress]),
+            } as any,
+          }),
+        );
+        for (const o of others ?? []) {
+          if (o.id !== taskId) {
+            await mg.update(task, { id: o.id }, { callback_from: w.from, callback_to: w.to, due_at: w.from });
+          }
+        }
+      }
       return await this._Outbox.enqueue(mg, CrmAction.SetCallbackWindow, s.customer.id, {
         task_id: taskId,
         case_ref: caseRef(taskId), // the reference the customer was given
@@ -1238,6 +1305,22 @@ export class ChatPipelineService {
         : callbackSavedText(w, caseRef(taskId), lang),
       m.waMessageId,
     );
+    return true;
+  }
+
+  /** Explicit request to reschedule / change callback timing */
+  private async handleRescheduleCallback(m: Inbound, s: Saved): Promise<boolean> {
+    const text = (m.text || "").trim();
+    if (!/\b(change|reschedule|move|different|another)\b.*\b(callback|call|timing|time|slot)\b|\b(callback|call)\b.*\b(change|reschedule|move|different|another)\b/i.test(text)) {
+      return false;
+    }
+    const cb = await this.chosenCallback(s);
+    if (!cb || !cb.callback_from) return false;
+    const existingWin: CallbackWindow = { from: cb.callback_from, to: cb.callback_to ?? cb.callback_from };
+    const options = callbackOptions();
+    await this.setPending(s, `callback_set:${cb.id}:${packWindows(options)}`);
+    const q = callbackQuestion(options, s.customer.language, new Date(), { window: existingWin, ref: caseRef(cb.id) });
+    await this.sendAndSave(s.customer.id, q, m.waMessageId);
     return true;
   }
 
@@ -1511,9 +1594,10 @@ export class ChatPipelineService {
   }
 
   /** A follow-up message of the same turn (the first one carries the reply tag) */
-  private async sendMore(s: Saved, msg: OutboundMessage) {
+  private async sendMore(s: Saved, msg: OutboundMessage | string) {
     try {
-      await this._Wa.send(s.customer.id, msg, "reply");
+      const msgs = typeof msg === "string" ? toBubbles(msg) : [msg];
+      for (const m of msgs) await this._Wa.send(s.customer.id, m, "reply");
     } catch (e) {
       this.logger.warn(`flow message not sent: ${(e as Error).message}`);
     }
@@ -1559,6 +1643,17 @@ export class ChatPipelineService {
       await this.startGuidedFlow(m, s);
       return true;
     }
+    // Customer explicitly asks for testimonials, reviews, feedback, proof, or news articles
+    if (asksProofOrFeedback(text)) {
+      if (/\b(news article\w*|news|media|press)\b/i.test(text)) {
+        await this.sendAndSave(s.customer.id, proofLinkCard("news"), m.waMessageId);
+      } else if (/\b(testimonial\w*|review\w*|feedback|customer stories)\b/i.test(text)) {
+        await this.sendAndSave(s.customer.id, proofLinkCard("stories"), m.waMessageId);
+      } else {
+        await this.sendAndSave(s.customer.id, verifyCard(), m.waMessageId);
+      }
+      return true;
+    }
     // the verify card's buttons (Customer Testimonial / News Articles): the page, the flow step stays
     if (id === "verify_stories" || id === "verify_news") {
       await this.sendAndSave(s.customer.id, proofLinkCard(id === "verify_stories" ? "stories" : "news"), m.waMessageId);
@@ -1588,19 +1683,34 @@ export class ChatPipelineService {
       return true;
     }
     const reply = (msg: string | OutboundMessage) => this.sendAndSave(s.customer.id, msg, m.waMessageId);
-    const ask = async (next: FlowStep, msg?: OutboundMessage) => {
+    const ask = async (next: FlowStep, msg?: OutboundMessage, ack?: string | null) => {
       await this.setPending(s, `flow:${next}`);
-      await reply(msg ?? stepMessage(next, undefined, s.customer.language));
+      const out = msg ?? stepMessage(next, undefined, s.customer.language);
+      if (ack) {
+        await reply(ack);
+        await this.sendMore(s, out);
+      } else {
+        await reply(out);
+      }
     };
-    // After the client's part (service -> verify + calculator -> spend -> savings): our part, each step skipped
-    // when this chat already has it, then the plan. No condition and no insurance question (client, 17 Nov).
+    // Each step answered with a separate acknowledgement before the next question, then on to the plan.
     const goOn = async (first: boolean, skip?: FlowStep, ack?: string | null) => {
       const next = await this.flowNextStep(s, skip);
       if (next === "plan") return this.flowPlanCard(s, first ? m.waMessageId : null, ack);
       await this.setPending(s, `flow:${next}`);
-      const msg = withAck(stepMessage(next, undefined, s.customer.language), ack);
-      if (first) await reply(msg);
-      else await this.sendMore(s, msg);
+      const msg = stepMessage(next, undefined, s.customer.language);
+      if (ack) {
+        if (first) {
+          await reply(ack);
+          await this.sendMore(s, msg);
+        } else {
+          await this.sendMore(s, ack);
+          await this.sendMore(s, msg);
+        }
+      } else {
+        if (first) await reply(msg);
+        else await this.sendMore(s, msg);
+      }
     };
 
     switch (step) {
@@ -1613,13 +1723,14 @@ export class ChatPipelineService {
         await n.save();
         const ackWho = ackLine("who", who, s.customer.language);
         if (consentStatus === "granted") {
-          await ask("need", withAck(stepMessage("need", undefined, s.customer.language), ackWho));
+          await ask("need", undefined, ackWho);
         } else if (consentStatus === "refused") {
-          await ask("age", withAck(stepMessage("age", undefined, s.customer.language), ackWho));
+          await ask("age", undefined, ackWho);
         } else {
           // the health-data notice before the first health question (DPDP); YES -> the service question
           await this.setPending(s, FLOW_AFTER_CONSENT);
-          await reply(`${ackWho}\n\n${fixedReply("health_notice", s.customer.language)}`);
+          await reply(ackWho);
+          await this.sendMore(s, fixedReply("health_notice", s.customer.language));
           await this.saveConsentRow(s.customer.id, cons, (c) => {
             c.notice_sent_at = new Date();
             c.notice_sent_version = NOTICE_VERSION;
@@ -1634,11 +1745,8 @@ export class ChatPipelineService {
         n.healthcare_need = NEED_LABEL[nd];
         if (nd === "surgery") n.need_pattern = "single_expense";
         await n.save();
-        // the client's bot: the verify card, then the calculator card ("Calculate Now" -> the spend list)
-        await this.setPending(s, "flow:calc");
-        await reply(withAck(verifyCard(), ackLine("need", NEED_LABEL[nd], s.customer.language)));
-        await this.sendMore(s, calculatorCard(s.customer.language));
-        await this.recordTrigger(s, "A", "verify card in the button flow");
+        const ack = ackLine("need", NEED_LABEL[nd], s.customer.language);
+        await goOn(true, undefined, ack);
         return true;
       }
       case "calc": {
@@ -1646,7 +1754,7 @@ export class ChatPipelineService {
         const typed = readSpendChoice(text) ?? spendAnswer(text);
         if (typed) return this.flowSpend(s, typed, reply, goOn);
         if (id !== "calc_start" && !/\b(calculat\w*|start|yes|ok|okay|plan|plans|price|save|saving|savings|next)\b/i.test(text)) return false;
-        await ask("spend", withAck(stepMessage("spend", undefined, s.customer.language), ackLine("calc", null, s.customer.language)));
+        await ask("spend", undefined, ackLine("calc", null, s.customer.language));
         return true;
       }
       case "condition": {
@@ -1802,7 +1910,9 @@ export class ChatPipelineService {
               s.customer.language,
             ) + "\n\n";
         }
-        await reply(`${ackLine("activate", billing === BillingCycle.Monthly ? "monthly" : "yearly", s.customer.language)}\n\n${note}${act}`);
+        const ack = ackLine("activate", billing === BillingCycle.Monthly ? "monthly" : "yearly", s.customer.language);
+        await reply(ack);
+        await this.sendMore(s, `${note}${act}`);
         // the terms before the payment: only when the official link is the next step, once per chat
         // (client, 17 Nov: "Terms & Conditions sent without a reason, many times")
         if (s.conversation.pending_action?.startsWith("send_activation_link:")) {
@@ -1818,8 +1928,9 @@ export class ChatPipelineService {
         const k = readFamily(text);
         if (!k) return false;
         const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
+        const ack = ackLine("family", k, s.customer.language);
         // pricing document 13: the billing first, then the breakdown for it
-        await ask(`fambill:${k}` as FlowStep, withAck(familyBillingQuestion(plan, k, s.customer.language), ackLine("family", k, s.customer.language)));
+        await ask(`fambill:${k}` as FlowStep, familyBillingQuestion(plan, k, s.customer.language), ack);
         return true;
       }
       case "book": {
@@ -1827,12 +1938,15 @@ export class ChatPipelineService {
         if (!a) return false;
         if (a === "no") {
           await this.setPending(s, null);
-          await goOn(true, "book", ackLine("book_no", null, s.customer.language)); // answered: never offered twice
+          const ack = ackLine("book_no", null, s.customer.language);
+          await goOn(true, "book", ack); // answered: never offered twice
           return true;
         }
         // the existing booking request: hospital -> date -> time; back to the flow once it is saved
+        const ack = ackLine("book_yes", null, s.customer.language);
+        await reply(ack);
         const parts = await this.startBooking(s, { asked: true, resume: "next" });
-        await reply([ackLine("book_yes", null, s.customer.language), ...parts].join("\n\n"));
+        await this.sendMore(s, parts.join("\n\n"));
         return true;
       }
       case "med": {
@@ -1840,7 +1954,8 @@ export class ChatPipelineService {
         if (!a) return false;
         if (a === "no") {
           await this.setPending(s, null);
-          await goOn(true, "med", ackLine("book_no", null, s.customer.language).replace(/book the appointment/, "check medicine delivery").replace(/अपॉइंटमेंट बाद में कभी भी बुक हो सकता है/, "दवाइयों की डिलीवरी बाद में कभी भी जाँच सकते हैं").replace(/appointment baad mein kabhi bhi book ho sakta hai/, "medicine delivery baad mein kabhi bhi check ho sakti hai"));
+          const ack = ackLine("book_no", null, s.customer.language).replace(/book the appointment/, "check medicine delivery").replace(/अपॉइंटमेंट बाद में कभी भी बुक हो सकता है/, "दवाइयों की डिलीवरी बाद में कभी भी जाँच सकते हैं").replace(/appointment baad mein kabhi bhi book ho sakta hai/, "medicine delivery baad mein kabhi bhi check ho sakti hai");
+          await goOn(true, "med", ack);
           return true;
         }
         if (consentStatus !== "granted") {
@@ -1850,7 +1965,8 @@ export class ChatPipelineService {
           return true;
         }
         await this.setPending(s, "med_name:flow");
-        await reply(say({ en: "Sure.", hi: "ज़रूर।", hinglish: "Zaroor." }, s.customer.language) + "\n\n" + medicineAskText("Oxxy", s.customer.language).replace(/^.*?subject to service availability\.\s*|^.*?सेवा उपलब्धता के अनुसार।\s*|^.*?service availability ke hisaab se\.\s*/u, ""));
+        await reply(say({ en: "Sure.", hi: "ज़रूर।", hinglish: "Zaroor." }, s.customer.language));
+        await this.sendMore(s, medicineAskText("Oxxy", s.customer.language).replace(/^.*?subject to service availability\.\s*|^.*?सेवा उपलब्धता के अनुसार।\s*|^.*?service availability ke hisaab se\.\s*/u, ""));
         return true;
       }
       case "fambill": {
@@ -1858,7 +1974,8 @@ export class ChatPipelineService {
         if (!cycle) return false;
         const k = flowFamily(s.conversation.pending_action) || 1;
         const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
-        await ask(`close:${k}` as FlowStep, withAck(familyCard(plan, await this.flowPrice(plan), k, s.customer.language, cycle), ackLine("billing", cycle, s.customer.language)));
+        const ack = ackLine("billing", cycle, s.customer.language);
+        await ask(`close:${k}` as FlowStep, familyCard(plan, await this.flowPrice(plan), k, s.customer.language, cycle), ack);
         return true;
       }
     }
@@ -1870,12 +1987,14 @@ export class ChatPipelineService {
     s: Saved,
     spend: number,
     reply: (msg: string | OutboundMessage) => Promise<unknown>,
-    goOn: (first: boolean) => Promise<unknown>,
+    goOn: (first: boolean, skip?: FlowStep, ack?: string | null) => Promise<unknown>,
   ): Promise<boolean> {
     const n = await this.needRow(s);
     n.annual_medical_spend = spend as any;
     await n.save();
-    await reply(savingsCard(spend, s.customer.language));
+    const ack = ackLine("spend", spendLabel(spend), s.customer.language);
+    await reply(ack);
+    await this.sendMore(s, savingsCard(spend, s.customer.language));
     await this.recordTrigger(s, "F", "savings card in the button flow");
     await goOn(false);
     return true;
@@ -1884,6 +2003,7 @@ export class ChatPipelineService {
   /** Our part of the button flow, in order, skipping what this chat already has: age, city, appointment, spend */
   private async flowNextStep(s: Saved, skip?: FlowStep): Promise<FlowStep | "plan"> {
     const n = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
+    if (!(Number(n?.annual_medical_spend) > 0) && skip !== "spend") return "spend";
     if (!(Number(s.customer.age) > 0)) return "age";
     if (!n?.city) return "city";
     // a visit (consultation, test, scan, hospital): the appointment is offered once (client, 17 Nov)
@@ -1904,7 +2024,6 @@ export class ChatPipelineService {
       ));
       if (!offered) return "med";
     }
-    if (!(Number(n?.annual_medical_spend) > 0)) return "spend";
     return "plan";
   }
 
@@ -2004,9 +2123,19 @@ export class ChatPipelineService {
     const plan = pickPlan(facts);
     await this.saveRecommendation(s, plan);
     await this.setPending(s, "flow:close:0");
-    const card = withAck(planCard(plan, await this.flowPrice(plan), facts, s.customer.language), ack);
-    if (replyTo) await this.sendAndSave(s.customer.id, card, replyTo);
-    else await this.sendMore(s, card);
+    const card = planCard(plan, await this.flowPrice(plan), facts, s.customer.language);
+    if (ack) {
+      if (replyTo) {
+        await this.sendAndSave(s.customer.id, ack, replyTo);
+        await this.sendMore(s, card);
+      } else {
+        await this.sendMore(s, ack);
+        await this.sendMore(s, card);
+      }
+    } else {
+      if (replyTo) await this.sendAndSave(s.customer.id, card, replyTo);
+      else await this.sendMore(s, card);
+    }
     await this.recordTrigger(s, "E", `plan ${plan} with price and GST`);
   }
 
@@ -2244,7 +2373,7 @@ export class ChatPipelineService {
     // 17 Nov: "Tomorrow, 12-2 pm" was read as the old menu row 2 and the bot asked for the city again).
     if (
       s.conversation.state !== ConversationState.Pause &&
-      (await this.handleCallbackTime(m, s))
+      ((await this.handleCallbackTime(m, s)) || (await this.handleRescheduleCallback(m, s)))
     )
       return;
     // Safety pause, or a person has taken the chat over: the bot stays out of it (one acknowledgement).

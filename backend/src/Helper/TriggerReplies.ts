@@ -27,14 +27,23 @@ const normUrl = (u: string) => u.trim().toLowerCase().replace(/\/+$/, "");
 
 // ---------------------------------------------------------------- Trigger A: trust and legitimacy pack
 
+/** Checks if the user explicitly asks for proof, testimonials, reviews, feedback, or news articles */
+export function asksProofOrFeedback(text: string): boolean {
+  const t = (text || "").toLowerCase();
+  return /\b(testimonial\w*|review\w*|feedback|proof|news article\w*|news coverage|customer stories|rating\w*)\b/i.test(t);
+}
+
 /** Trigger layer 14.1 A. "scam" / "fraud" are complaint keywords (guardrail) and never reach this. */
 export function asksTrust(text: string): boolean {
   const t = (text || "").toLowerCase();
   // "How do I know this is not a scam?", "is this a scam?", "real or fake?" ask for proof (client Q&A Q038)
   if (/\bnot (a )?(scam|fraud|fake)\b|\b(is|are) (this|it|oxxy|you)( a)? (scam|fraud)\b|\b(scam|fraud|fake) or (real|genuine)\b|\b(real|genuine) or (a )?(scam|fraud|fake)\b/.test(t))
     return true;
-  return /\b(genuine|legit|legitimate|fake|prove it|company details|can i trust|should i trust|(?:don't|dont|do not) trust|not sure (?:i can|if i can|we can) trust|trust (you|oxxy|this|it)\s*\?|is (this|oxxy|it|the company) (real|safe|registered)|verify (you|oxxy|this|the company)|asli|nakli|bharosa)\b|असली|नकली|भरोसा/u.test(
-    t,
+  return (
+    asksProofOrFeedback(t) ||
+    /\b(genuine|legit|legitimate|fake|prove it|company details|can i trust|should i trust|(?:don't|dont|do not) trust|not sure (?:i can|if i can|we can) trust|trust (you|oxxy|this|it)\s*\?|is (this|oxxy|it|the company) (real|safe|registered)|verify (you|oxxy|this|the company)|asli|nakli|bharosa)\b|असली|नकली|भरोसा/u.test(
+      t,
+    )
   );
 }
 

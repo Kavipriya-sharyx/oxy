@@ -119,8 +119,21 @@ export function callbackQuestion(
   options: CallbackWindow[],
   l: string | null = "en",
   now: Date = new Date(),
+  existing?: { window: CallbackWindow; ref?: string } | null,
 ): string {
   const list = options.map((w, i) => `${i + 1}) ${showWindow(w, l, now)}`).join("\n");
+  if (existing) {
+    const when = showWindow(existing.window, l, now);
+    const refStr = existing.ref ? ` (${existing.ref})` : "";
+    return say(
+      {
+        en: `You already have a callback booked for ${when}${refStr}. Would you like to move to another timing?\n\nPlease choose a new timing:\n${list}\nReply 1, 2 or 3, or tell me another time.`,
+        hi: `आपकी कॉलबैक पहले से ${when}${refStr} के लिए बुक है। क्या आप दूसरा समय चुनना चाहेंगे?\n\nकृपया नया समय चुनें:\n${list}\n1, 2 या 3 लिखें, या कोई दूसरा समय बताएँ।`,
+        hinglish: `Aapki callback pehle se ${when}${refStr} ke liye book hai. Kya aap doosra time lena chahenge?\n\nKripya naya time chunein:\n${list}\n1, 2 ya 3 likhein, ya koi aur time bataiye.`,
+      },
+      l,
+    );
+  }
   return say(
     {
       // Trigger layer 9 O: "Please choose a convenient time: {{Callback_Options}}"; the last line tells how to answer
