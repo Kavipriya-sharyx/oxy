@@ -248,7 +248,7 @@ export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMe
   switch (step) {
     case "savings":
       return list(
-        p(tr(l, "Q1. What medical savings are you looking for?", "Q1. आप किस तरह की मेडिकल बचत देख रहे हैं?", "Q1. What medical savings are you looking for?")),
+        p(tr(l, "What medical savings are you looking for?", "आप किस तरह की मेडिकल बचत देख रहे हैं?", "What medical savings are you looking for?")),
         tr(l, "Select Option", "विकल्प चुनें", "Select Option"),
         SAVINGS_ROWS(l),
         undefined,
@@ -256,7 +256,7 @@ export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMe
       );
     case "who":
       return list(
-        p(tr(l, "Q2. Who needs the plan?", "Q2. प्लान किसके लिए चाहिए?", "Q2. Who needs the plan?")),
+        p(tr(l, "Who needs the plan?", "प्लान किसके लिए चाहिए?", "Who needs the plan?")),
         tr(l, "Select Member", "सदस्य चुनें", "Select Member"),
         WHO_ROWS_V2(l),
         undefined,
@@ -266,7 +266,7 @@ export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMe
       return {
         kind: "buttons",
         header: title(l),
-        body: p(tr(l, "Q3. When do you expect to use it?", "Q3. आप इसे कब इस्तेमाल करने की उम्मीद करते हैं?", "Q3. When do you expect to use it?")),
+        body: p(tr(l, "When do you expect to use it?", "आप इसे कब इस्तेमाल करने की उम्मीद करते हैं?", "When do you expect to use it?")),
         buttons: WHEN_BUTTONS(l),
       };
     case "need":
