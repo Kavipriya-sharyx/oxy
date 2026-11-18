@@ -1366,8 +1366,10 @@ export class ChatPipelineService {
     const text = (m.text || "").trim();
     if (s.conversation.state === ConversationState.New) return true; // the welcome and the options first
     if (!text || m.location) return true;
-    // YES / NO ("ok", "sari" too, to the notice's own question): the notice, or the answer to it
-    if (parseConsentAnswer(text, status === "awaiting") !== "unclear") return true;
+    // An existing pending action (activation link, guided flow, callback, etc.) must handle the customer's answer
+    if (s.conversation.pending_action) return false;
+    // YES / NO ("ok", "sari" too, to the notice's own question): only when status is awaiting
+    if (status === "awaiting" && parseConsentAnswer(text, true) !== "unclear") return true;
     if (isGreeting(text)) return true; // "hi" again: the notice (the welcome and options came first)
     // health detail is never sent to the LLM before the consent (DPDP): the notice first, the answer after YES
     if (sharesHealthDetail(text)) return true;
@@ -1728,12 +1730,12 @@ export class ChatPipelineService {
     if (id === "flow_start" || id === "flow_website" || id === "flow_contact") {
       if (id === "flow_website") {
         await this.sendAndSave(s.customer.id, websiteCard(), m.waMessageId);
-        await this.sendMore(s, stepMessage("savings", undefined, s.customer.language));
+        await this.sendMore(s, stepMessage("who", undefined, s.customer.language));
       } else if (id === "flow_contact") {
         await this.sendAndSave(s.customer.id, contactText(s.customer.language), m.waMessageId);
-        await this.sendMore(s, stepMessage("savings", undefined, s.customer.language));
-      } else await this.sendAndSave(s.customer.id, stepMessage("savings", undefined, s.customer.language), m.waMessageId);
-      await this.setPending(s, "flow:savings");
+        await this.sendMore(s, stepMessage("who", undefined, s.customer.language));
+      } else await this.sendAndSave(s.customer.id, stepMessage("who", undefined, s.customer.language), m.waMessageId);
+      await this.setPending(s, "flow:who");
       return true;
     }
     const step = flowStep(s.conversation.pending_action);
@@ -1743,8 +1745,8 @@ export class ChatPipelineService {
     const tapped = /^[a-z]+_[a-z0-9]+$/.test(id);
     if (!tapped && !m.location && (/\?\s*$/.test(text) || text.split(/\s+/).length > 8)) return false;
     if (!tapped && isGreeting(text) && step !== "close") {
-      await this.sendAndSave(s.customer.id, stepMessage(step === "start" ? "savings" : step, undefined, s.customer.language), m.waMessageId);
-      if (step === "start") await this.setPending(s, "flow:savings");
+      await this.sendAndSave(s.customer.id, stepMessage(step === "start" ? "who" : step, undefined, s.customer.language), m.waMessageId);
+      if (step === "start") await this.setPending(s, "flow:who");
       return true;
     }
     const reply = (msg: string | OutboundMessage) => this.sendAndSave(s.customer.id, msg, m.waMessageId);
@@ -1822,9 +1824,7 @@ export class ChatPipelineService {
           n.beneficiary = who;
           await n.save();
           const ackWho = await humanAck("who", who);
-          if (n.healthcare_need) {
-            await ask("when", undefined, ackWho);
-          } else if (consentStatus === "granted") {
+          if (consentStatus === "granted") {
             await ask("need", undefined, ackWho);
           } else if (consentStatus === "refused") {
             await ask("age", undefined, ackWho);
@@ -2603,6 +2603,8 @@ export class ChatPipelineService {
       return;
     // client, 17 Nov: the voice-aligned button flow (welcome card, who, service, ... plan and price)
     if (await this.handleGuidedFlow(m, s, consentStatus, cons)) return;
+    // Activation confirmation must run before consent checks
+    if (await this.handleActivationAnswer(m, s)) return;
     // Client, 16 Nov 2026: "the customer can ask any question, the bot should respond". A question (or a
     // row that needs no health detail) before the consent is answered first, with NO health question and
     // nothing health-related stored; the notice follows right after the answer (askConsentLater). The consent

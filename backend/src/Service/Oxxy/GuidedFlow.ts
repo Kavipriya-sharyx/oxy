@@ -262,9 +262,9 @@ export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMe
       );
     case "who":
       return list(
-        p(tr(l, "Who needs the plan?", "प्लान किसके लिए चाहिए?", "Who needs the plan?")),
-        tr(l, "Select Member", "सदस्य चुनें", "Select Member"),
-        WHO_ROWS_V2(l),
+        p(tr(l, "Who Are You Looking For Healthcare Support For?", "आप किसके लिए हेल्थकेयर सहायता ढूँढ रहे हैं?", "Aap kiske liye healthcare support dhoondh rahe hain?")),
+        tr(l, "Family Member", "परिवार का सदस्य", "Family Member"),
+        WHO_ROWS(l),
         undefined,
         title(l),
       );
