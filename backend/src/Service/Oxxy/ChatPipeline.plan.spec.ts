@@ -1790,7 +1790,7 @@ describe("17 Nov client feedback", () => {
       "1. Kovai Medical Center and Hospital, Avinashi Road - Peelamedu | Multispeciality | about 2.3 km\n" +
       "2. PSG Hospitals - Peelamedu | Multispeciality\n" +
       "I found only 2 verified option(s) in that area.\n\n" +
-      "I have included specialist and multispeciality choices where relevant. Reply with 1 or 2, or send the name of another centre you prefer.";
+      "Reply with 1 or 2, or send the name of another centre you prefer.";
     const m = interactiveFor(text);
     expect(m.kind).toBe("list");
     expect(m.body).not.toMatch(/Kovai|PSG/);
@@ -1873,7 +1873,8 @@ describe("17 Nov client feedback, second list", () => {
     ] as never);
     await t.run("my uncle wants something special arranged");
     const text = t.out.join("\n\n");
-    expect(text).toContain("CB-1A1B5949");
+    expect(text).toContain("You already have a callback booked for");
+    expect(text).not.toContain("CB-1A1B5949");
     expect(text).not.toContain("Please choose a convenient time");
   });
 

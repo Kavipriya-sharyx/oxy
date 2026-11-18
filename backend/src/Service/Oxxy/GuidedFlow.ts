@@ -850,32 +850,32 @@ export function ackLine(
   switch (kind) {
     case "savings": {
       const S: Record<string, [string, string, string]> = {
-        consult: ["Got it, doctor consultations savings.", "समझ गए, डॉक्टर परामर्श में बचत।", "Got it, doctor consultation savings."],
-        tests: ["Got it, diagnostic tests and lab savings.", "समझ गए, जाँच और लैब टेस्ट में बचत।", "Got it, diagnostic tests aur lab savings."],
-        surgery: ["Noted, savings on surgery and hospital treatment.", "नोट किया, सर्जरी और अस्पताल के इलाज में बचत।", "Noted, surgery aur hospital treatment par savings."],
-        family: ["Got it, savings for family healthcare.", "समझ गए, पूरे परिवार के स्वास्थ्य खर्च में बचत।", "Got it, family healthcare par savings."],
-        exploring: ["Understood, exploring medical savings with Oxxy.", "समझ गए, Oxxy के साथ मेडिकल बचत के विकल्प देख रहे हैं।", "Understood, Oxxy ke saath medical savings explore kar rahe hain."],
+        consult: ["Great choice, happy to help with doctor consultation savings!", "बहुत बढ़िया, डॉक्टर परामर्श में बचत में खुशी होगी!", "Great choice, doctor consultation savings mein help karte hain!"],
+        tests: ["Sure thing, happy to help you save on tests and diagnostics!", "ज़रूर, जाँच और टेस्ट में बचत में मदद करेंगे!", "Sure thing, tests aur scans par savings mein help karte hain!"],
+        surgery: ["Understood, we are right here to support your surgery and treatment savings!", "समझ गए, सर्जरी और इलाज में बचत में हम पूरी मदद करेंगे!", "Understood, surgery aur treatments par savings mein hum help karenge!"],
+        family: ["Wonderful, taking care of family health is so important!", "बहुत बढ़िया, पूरे परिवार के स्वास्थ्य की देखभाल सबसे ज़रूरी है!", "Wonderful, poori family ki health care sabse zaroori hai!"],
+        exploring: ["Happy to help you explore the best medical savings with Oxxy!", "Oxxy के साथ बेहतरीन मेडिकल बचत विकल्प देखने में खुशी होगी!", "Great, Oxxy ke saath best medical savings explore karte hain!"],
       };
-      const s = S[v] ?? ["Got it, noted your healthcare savings preference.", "नोट कर लिया गया है।", "Got it, noted your preference."];
+      const s = S[v] ?? ["Happy to help with your healthcare savings!", "स्वास्थ्य बचत में आपकी सहायता करके खुशी होगी!", "Aapki healthcare savings mein help karke khushi hogi!"];
       return tr(l, s[0], s[1], s[2]);
     }
     case "when": {
       const T: Record<string, [string, string, string]> = {
-        soon: ["Noted, you're planning to use this soon.", "नोट किया, आप इसे जल्द ही इस्तेमाल करने की योजना बना रहे हैं।", "Noted, aap ise jaldi use karne ki plan kar rahe hain."],
-        month: ["Noted, planning to use this within this month.", "नोट किया, इस महीने में इस्तेमाल करने की योजना है।", "Noted, is mahine use karne ka plan hai."],
-        future: ["Understood, setting up future healthcare protection.", "समझ गए, भविष्य की स्वास्थ्य सुरक्षा की तैयारी।", "Understood, future healthcare protection plan kar rahe hain."],
+        soon: ["Got it, let's get this set up for you right away!", "समझ गए, इसे तुरंत आपके लिए तैयार करते हैं!", "Got it, ise turant aapke liye setup karte hain!"],
+        month: ["Great, planning ahead for this month is a smart step!", "बढ़िया, इस महीने की तैयारी पहले से करना बहुत समझदारी है!", "Great, is mahine ke liye pehle se plan karna smart move hai!"],
+        future: ["Wonderful, securing future healthcare protection gives great peace of mind!", "बहुत बढ़िया, भविष्य की स्वास्थ्य सुरक्षा से बड़ी मन की शांति मिलती है!", "Wonderful, future healthcare protection se great peace of mind milta hai!"],
       };
-      const t = T[v] ?? ["Noted your expected timeline.", "नोट कर लिया गया है।", "Noted your expected timeline."];
+      const t = T[v] ?? ["Got it, noted your preferred timeline!", "समझ गए!", "Got it, timeline note kar li!"];
       return tr(l, t[0], t[1], t[2]);
     }
     case "who": {
       const W: Record<string, [string, string, string]> = {
-        self: ["Got it, this is for you.", "ठीक है, यह आपके लिए है।", "Theek hai, yeh aapke liye hai."],
-        parent: ["Got it, this is for your father or mother.", "ठीक है, यह आपके पिता या माता के लिए है।", "Theek hai, yeh aapke papa ya mummy ke liye hai."],
-        parents: ["Got it, this is for your parents.", "ठीक है, यह आपके माता-पिता के लिए है।", "Theek hai, yeh aapke parents ke liye hai."],
-        family: ["Got it, this is for your entire family.", "ठीक है, यह आपके पूरे परिवार के लिए है।", "Theek hai, yeh aapki poori family ke liye hai."],
-        child: ["Got it, this is for your son or daughter.", "ठीक है, यह आपके बेटे या बेटी के लिए है।", "Theek hai, yeh aapke bete ya beti ke liye hai."],
-        other: ["Got it, this is for someone else.", "ठीक है, यह किसी और के लिए है।", "Theek hai, yeh kisi aur ke liye hai."],
+        self: ["Wonderful, happy to help with your personal care plan!", "बहुत बढ़िया, आपके स्वास्थ्य प्लान में मदद करके खुशी होगी!", "Wonderful, aapke personal care plan mein help karke khushi hogi!"],
+        parent: ["Taking care of parents is so important, happy to assist!", "माता-पिता की सेहत की देखभाल सबसे ज़रूरी है, मदद करके खुशी होगी!", "Parents ki health ka dhyan rakhna sabse important hai, khushi se help karenge!"],
+        parents: ["Taking care of parents is so important, happy to assist!", "माता-पिता की सेहत की देखभाल सबसे ज़रूरी है, मदद करके खुशी होगी!", "Parents ki health ka dhyan rakhna sabse important hai, khushi se help karenge!"],
+        family: ["Taking care of the entire family is wonderful, happy to help!", "पूरे परिवार की देखभाल बहुत अच्छी बात है, मदद करके खुशी होगी!", "Poori family ki care karna great hai, khushi se help karenge!"],
+        child: ["Taking care of your child is precious, happy to help you both!", "बच्चे की सेहत की देखभाल अनमोल है, आप दोनों की मदद में खुशी होगी!", "Bache ki health precious hai, aap dono ki help karke khushi hogi!"],
+        other: ["Sure thing, happy to help you arrange this!", "ज़रूर, इसमें आपकी मदद करके खुशी होगी!", "Sure thing, isme aapki help karke khushi hogi!"],
       };
       const w = W[v] ?? W.self;
       return tr(l, w[0], w[1], w[2]);

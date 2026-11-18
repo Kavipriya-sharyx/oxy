@@ -28,10 +28,9 @@ const FEWER: L = {
   hinglish: "Mujhe us area mein sirf {n} verified option mile.",
 };
 const FOOT: L = {
-  en: "I have included specialist and multispeciality choices where relevant. You can refer to any of these centres. Once your plan is activated, our team will assist with your appointment and booking at the centre.\n\nReply with {range}, or send the name of another centre you prefer.",
-  hi: "जहाँ ज़रूरी था, मैंने स्पेशलिस्ट और मल्टीस्पेशलिटी दोनों विकल्प दिए हैं। आप इनमें से किसी भी केंद्र का चयन कर सकते हैं। प्लान एक्टिवेट होने के बाद हमारी टीम केंद्र में अपॉइंटमेंट और बुकिंग में आपकी पूरी सहायता करेगी।\n\n{range} में से कोई नंबर लिखें, या अपनी पसंद के किसी दूसरे सेंटर का नाम भेजें।",
-  hinglish:
-    "Jahan zaroori tha, maine specialist aur multispeciality dono options diye hain. Aap inmein se kisi bhi centre ko refer kar sakte hain. Plan activate hone ke baad hamari team centre mein appointment aur booking mein assist karegi.\n\n{range} mein se number likhein, ya apni pasand ke kisi doosre centre ka naam bhejein.",
+  en: "Reply with {range}, or send the name of another centre you prefer.",
+  hi: "{range} में से कोई नंबर लिखें, या अपनी पसंद के किसी दूसरे सेंटर का नाम भेजें।",
+  hinglish: "{range} mein se number likhein, ya apni pasand ke kisi doosre centre ka naam bhejein.",
 };
 const KIND: Record<"multi" | "specialist" | "clinic" | "diagnostic", L> = {
   clinic: { en: "Clinic", hi: "क्लिनिक", hinglish: "Clinic" },
