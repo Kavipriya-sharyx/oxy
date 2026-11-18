@@ -55,12 +55,14 @@ export function asksAdvisor(text: string): boolean {
 export function asksOtherCentres(text: string): boolean {
   const t = (text || "").toLowerCase().trim();
   if (!t) return false;
+  // If the user is specifically talking about plans, subscriptions, callbacks or advisors, it is not a centre inquiry
+  if (/\b(plan|plans|subscription|pack|callback|call back|agent|advisor)\b/i.test(t)) return false;
   return (
     /\b(other|another|different|more|next|change|new|doosra|dusra|aur|koi aur|kisi aur|vera|matroru)\b.*\b(centres?|centers?|hospitals?|clinics?|options?|places?)\b/i.test(t) ||
     /\b(centres?|centers?|hospitals?|clinics?|options?)\b.*\b(other|another|different|more|next|new)\b/i.test(t) ||
     /^\s*(other|another|more|next|different|near ?by other|aur dikhao|koi aur|kuch aur|aur centre|aur option|vera centre|vera options?|kandupidi)\s*$/i.test(t) ||
-    /\b(need|want|show|give|suggest)\b.*\b(other|another|different|more)\b/i.test(t) ||
-    /\b(some other|any other|some more|any more|near ?by other)\b/i.test(t)
+    /\b(need|want|show|give|suggest)\b.*\b(other|another|different|more)\b.*\b(centres?|centers?|hospitals?|clinics?|options?|places?)\b/i.test(t) ||
+    /^\s*(some other|any other|some more|any more|near ?by other)\s*$/i.test(t)
   );
 }
 
@@ -71,7 +73,6 @@ export function asksTrust(text: string): boolean {
   if (/\bnot (a )?(scam|fraud|fake)\b|\b(is|are) (this|it|oxxy|you)( a)? (scam|fraud)\b|\b(scam|fraud|fake) or (real|genuine)\b|\b(real|genuine) or (a )?(scam|fraud|fake)\b/.test(t))
     return true;
   return (
-    asksProofOrFeedback(t) ||
     /\b(genuine|legit|legitimate|fake|prove it|company details|can i trust|should i trust|(?:don't|dont|do not) trust|not sure (?:i can|if i can|we can) trust|trust (you|oxxy|this|it)\s*\?|is (this|oxxy|it|the company) (real|safe|registered)|verify (you|oxxy|this|the company)|asli|nakli|bharosa)\b|असली|नकली|भरोसा/u.test(
       t,
     )

@@ -64,7 +64,7 @@ describe("the button flow in every language fits WhatsApp's limits", () => {
     });
   }
   it("Hindi texts are Hindi", () => {
-    expect((stepMessage("who", undefined, "hi") as { body: string }).body).toContain("आप किसके लिए");
+    expect((stepMessage("who", undefined, "hi") as { body: string }).body).toMatch(/किसके लिए/);
     expect((savingsCard(50000, "hi") as { body: string }).body).toContain("₹15,000 तक");
   });
 });

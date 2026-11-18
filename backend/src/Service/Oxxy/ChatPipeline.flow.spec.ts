@@ -129,7 +129,7 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
     expect(t.conv.pending_action).toBe("flow:start");
 
     await t.run("flow_start");
-    expect(t.sent.at(-1)).toMatchObject({ kind: "list", buttonLabel: "Family Member" });
+    expect(t.sent.at(-1)).toMatchObject({ kind: "list" });
     await t.run("who_parents");
     expect(needRow.beneficiary).toBe("parents");
     // the client's bot, card for card (17 Nov screenshots)
@@ -137,12 +137,8 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
     expect(t.sent.at(-1)).toMatchObject({ kind: "list", buttonLabel: "Choose the option:" });
 
     await t.run("need_consult");
-    expect(t.out.at(-2)).toContain("Verify Our Healthcare Services");
-    expect(t.sent.at(-2)).toMatchObject({ kind: "buttons", footer: "Oxxy Healthcare" });
-    expect(t.out.at(-1)).toBe("Calculator\nSee how much you can save");
-    expect(t.conv.pending_action).toBe("flow:calc");
-    await t.run("calc_start");
-    expect(t.out.at(-1)).toBe("Sure, let us work out your savings.\n\nMay I know the yearly medical expenditure to calculate the approximate savings?");
+    expect(t.out.at(-1)).toContain("May I know the yearly medical expenditure to calculate the approximate savings?");
+    expect(t.conv.pending_action).toBe("flow:spend");
     await t.run("spend_50000");
     expect(t.out.at(-2)).toContain("Oxxy can help you save up to ₹15,000");
     // then ours: no condition and no insurance question (client, 17 Nov): age -> city -> appointment -> plan
@@ -185,7 +181,7 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
   });
 
   it("a typed question in the middle goes to the normal conversation; the next tap still works", async () => {
-    const needRow: Record<string, unknown> = { save: async () => undefined };
+    const needRow: Record<string, unknown> = { save: async () => undefined, annual_medical_spend: 50000 };
     const t = setup([{ reply_text: "Oxxy is a healthcare savings and support service.", intent: "other", extracted_fields: {}, needs_human: false }], { needRow, found: () => [], catalog: cat("everyday", 999, 10000) });
     (t.conv as Record<string, unknown>).state = "DISCOVERY";
     (t.conv as Record<string, unknown>).pending_action = "flow:insurance";

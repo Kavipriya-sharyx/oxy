@@ -1654,8 +1654,9 @@ export class ChatPipelineService {
       await this.startGuidedFlow(m, s);
       return true;
     }
-    // Customer explicitly asks for testimonials, reviews, feedback, proof, or news articles
-    if (asksProofOrFeedback(text)) {
+    // Customer explicitly asks for testimonials, reviews, feedback, proof, or news articles while in the guided flow
+    const inFlow = !!s.conversation.pending_action?.startsWith("flow:");
+    if (inFlow && asksProofOrFeedback(text)) {
       if (/\b(news article\w*|news|media|press)\b/i.test(text)) {
         await this.sendAndSave(s.customer.id, proofLinkCard("news"), m.waMessageId);
       } else if (/\b(testimonial\w*|review\w*|feedback|customer stories)\b/i.test(text)) {
