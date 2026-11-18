@@ -184,28 +184,21 @@ export const AGE_ROWS = (l?: Lg): ListRow[] => [
   { id: "age_78", title: tr(l, "76 – 80", "76 – 80", "76 – 80") },
   { id: "age_85", title: tr(l, "Above 80", "80 से ज़्यादा", "80 se zyada") },
 ];
-// The client's ranges, words and descriptions (their bot, 17 Nov). The id is the LOWER end (Voice manual 20: "use
-// the lower end for a conservative illustration"); below 5,000 counts as 4,000.
-const SPEND: [number, string, string][] = [
-  [4000, "Below 5000", "Is your yearly medical expenditure below 5000"],
-  [10000, "10,000-20,000", "Is your yearly medical expenditure around 10,000 to 20,000"],
-  [20000, "20,000-30,000", "Is your yearly medical expenditure around 20,000 to 30,000"],
-  [30000, "30,000-50,000", "Is your yearly medical expenditure around 30,000-50,000"],
-  [50000, "50,000-1,00,000", "Is your yearly medical expenditure around 50,000-1,00,000"],
-  [100000, "1,00,000-5,00,000", "Is your yearly medical expenditure around 1,00,000-5,00,000"],
-  [500000, "5,00,000-10,00,000", "Is your yearly medical expenditure around 5,00,000-10,00,000"],
-  [1000000, "Above 10,00,000", "Is your yearly medical expenditure above 10,00,000"],
+// The client's ranges (Voice manual 20: "use the lower end for a conservative illustration"); below 5,000 counts as 4,000.
+const SPEND: [number, string][] = [
+  [4000, "Below 5000"],
+  [10000, "10,000-20,000"],
+  [20000, "20,000-30,000"],
+  [30000, "30,000-50,000"],
+  [50000, "50,000-1,00,000"],
+  [100000, "1,00,000-5,00,000"],
+  [500000, "5,00,000-10,00,000"],
+  [1000000, "Above 10,00,000"],
 ];
 export const SPEND_ROWS = (l?: Lg): ListRow[] =>
-  SPEND.map(([v, title, desc]) => ({
+  SPEND.map(([v, title]) => ({
     id: `spend_${v}`,
     title,
-    description: tr(
-      l,
-      desc,
-      `क्या आपका सालाना मेडिकल खर्च ${v === 4000 ? "5000 से कम" : v === 1000000 ? "10,00,000 से ज़्यादा" : "लगभग " + title} है`,
-      `Kya aapka saalana medical kharch ${v === 4000 ? "5000 se kam" : v === 1000000 ? "10,00,000 se zyada" : "lagbhag " + title} hai`,
-    ),
   }));
 
 export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMessage {

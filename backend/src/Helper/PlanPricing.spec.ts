@@ -103,7 +103,7 @@ describe("the client's bot cards (17 Nov screenshots) fit WhatsApp's limits", ()
     const spend = stepMessage("spend") as { body: string; rows: { title: string; description?: string }[] };
     expect(spend.body).toBe("May I know the yearly medical expenditure to calculate the approximate savings?");
     expect(spend.rows.map((r) => r.title)).toEqual(["Below 5000", "10,000-20,000", "20,000-30,000", "30,000-50,000", "50,000-1,00,000", "1,00,000-5,00,000", "5,00,000-10,00,000", "Above 10,00,000"]);
-    expect(spend.rows[1].description).toBe("Is your yearly medical expenditure around 10,000 to 20,000");
+    expect(spend.rows[1].description).toBeUndefined();
     expect(verifyCard()).toMatchObject({ kind: "buttons", footer: "Oxxy Healthcare", buttons: [{ title: "Customer Testimonial" }, { title: "News Articles" }] });
   });
 });
