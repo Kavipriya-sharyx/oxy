@@ -40,7 +40,7 @@ describe("every flow message is one WhatsApp accepts", () => {
     const p = buildPayload("919800000001", welcomeCard()) as any;
     expect(p.interactive.header).toEqual({ type: "image", image: { link: "https://www.oxxy.in/logo.png" } });
     expect(p.interactive.body.text).toContain("Welcome to Oxxy HealthCare!");
-    expect(p.interactive.action.buttons.map((b: any) => b.reply.title)).toEqual(["Get Started", "Visit Our Website", "Contact Us"]);
+    expect(p.interactive.action.buttons.map((b: any) => b.reply.title)).toEqual(["Get Started", "Talk to our advisor", "Visit Our Website"]);
     delete process.env.OXXY_WELCOME_IMAGE_URL;
   });
   it("the link button goes out as cta_url", () => {

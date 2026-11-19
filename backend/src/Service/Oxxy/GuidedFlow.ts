@@ -71,8 +71,8 @@ export function welcomeCard(): OutboundMessage {
     body: WELCOME_CARD_TEXT,
     buttons: [
       { id: "flow_start", title: "Get Started" },
+      { id: "flow_advisor", title: "Talk to our advisor" },
       { id: "flow_website", title: "Visit Our Website" },
-      { id: "flow_contact", title: "Contact Us" },
     ],
   };
 }
