@@ -36,7 +36,9 @@ import {
   PlanName,
   PlanPrice,
   pickPlan,
+  pickFunnelPlan,
   planCard,
+  funnelCheckoutCard,
   readAgeChoice,
   readCondition,
   readFamily,
@@ -1727,6 +1729,12 @@ export class ChatPipelineService {
     }
     // the welcome card's buttons work at any time
     if (id === "flow_start" || id === "flow_website" || id === "flow_contact") {
+      const n = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
+      if (n) {
+        n.healthcare_need = null as any;
+        n.beneficiary = null as any;
+        await quiet(() => n.save());
+      }
       if (id === "flow_website") {
         await this.sendAndSave(s.customer.id, websiteCard(), m.waMessageId);
         await this.sendMore(s, stepMessage("who", undefined, s.customer.language));
@@ -1789,15 +1797,24 @@ export class ChatPipelineService {
           if (sav === "surgery") n.need_pattern = "single_expense";
           await n.save();
           const ackSav = await humanAck("savings", sav);
-          await ask("who", undefined, ackSav);
+          await ask("who", stepMessage("who_v2", undefined, s.customer.language), ackSav);
           return true;
         }
+        return false;
+      }
+      case "start":
+      case "who": {
         const who = readWho(text);
         if (who) {
           const n = await this.needRow(s);
           n.beneficiary = who;
           await n.save();
           const ackWho = await humanAck("who", who);
+          const isFunnel = n.healthcare_need && ["consult", "tests", "surgery", "family", "exploring"].includes(String(n.healthcare_need));
+          if (isFunnel) {
+            await ask("when", undefined, ackWho);
+            return true;
+          }
           if (consentStatus === "granted") {
             await ask("need", undefined, ackWho);
           } else if (consentStatus === "refused") {
@@ -1811,43 +1828,6 @@ export class ChatPipelineService {
               c.notice_sent_version = NOTICE_VERSION;
             });
           }
-          return true;
-        }
-        return false;
-      }
-      case "start":
-      case "who": {
-        const who = readWho(text);
-        if (who) {
-          const n = await this.needRow(s);
-          n.beneficiary = who;
-          await n.save();
-          const ackWho = await humanAck("who", who);
-          if (n.healthcare_need) {
-            await ask("when", undefined, ackWho);
-          } else if (consentStatus === "granted") {
-            await ask("need", undefined, ackWho);
-          } else if (consentStatus === "refused") {
-            await ask("age", undefined, ackWho);
-          } else {
-            await this.setPending(s, FLOW_AFTER_CONSENT);
-            await reply(ackWho);
-            await this.sendMore(s, fixedReply("health_notice", s.customer.language));
-            await this.saveConsentRow(s.customer.id, cons, (c) => {
-              c.notice_sent_at = new Date();
-              c.notice_sent_version = NOTICE_VERSION;
-            });
-          }
-          return true;
-        }
-        const sav = readSavingsNeed(text);
-        if (sav) {
-          const n = await this.needRow(s);
-          n.healthcare_need = sav;
-          if (sav === "surgery") n.need_pattern = "single_expense";
-          await n.save();
-          const ackSav = await humanAck("savings", sav);
-          await ask("who", undefined, ackSav);
           return true;
         }
         return false;
@@ -2329,10 +2309,13 @@ export class ChatPipelineService {
   /** The one plan with price + GST and the activate / family buttons (Trigger E) */
   private async flowPlanCard(s: Saved, replyTo: string | null, ack?: string | null) {
     const facts = await this.flowFacts(s);
-    const plan = pickPlan(facts);
+    const isFunnel = !!facts.when;
+    const plan = isFunnel ? pickFunnelPlan(facts) : pickPlan(facts);
     await this.saveRecommendation(s, plan);
     await this.setPending(s, "flow:close:0");
-    const card = planCard(plan, await this.flowPrice(plan), facts, s.customer.language);
+    const card = isFunnel
+      ? funnelCheckoutCard(plan, await this.flowPrice(plan), facts, s.customer.language)
+      : planCard(plan, await this.flowPrice(plan), facts, s.customer.language);
     if (ack) {
       if (replyTo) {
         await this.sendAndSave(s.customer.id, ack, replyTo);
@@ -5173,23 +5156,12 @@ export class ChatPipelineService {
   }
 
   private async humanAck(
-    kind: "who" | "need" | "calc" | "age" | "city" | "spend" | "book_yes" | "book_no" | "family" | "billing" | "activate",
+    kind: "who" | "need" | "savings" | "when" | "calc" | "age" | "city" | "spend" | "book_yes" | "book_no" | "family" | "billing" | "activate",
     value: string | number | null,
     s: Saved,
     userText?: string,
   ): Promise<string> {
-    const fallback = ackLine(kind, value, s.customer.language);
-    if (!this._Llm || typeof (this._Llm as any).generateHumanAck !== "function") return fallback;
-    const vStr = value == null ? "" : String(value);
-    try {
-      const generated = await (this._Llm as any).generateHumanAck(kind, vStr, s.customer.language, userText);
-      if (generated && generated.length > 5 && generated.length < 150 && !generated.includes("?")) {
-        return generated;
-      }
-    } catch (e) {
-      this.logger.debug(`generateHumanAck error: ${(e as Error).message}`);
-    }
-    return fallback;
+    return ackLine(kind as any, value, s.customer.language);
   }
 
   // "Send location" button + the same question in words. The answer is a pin (handleLocationShare) or a

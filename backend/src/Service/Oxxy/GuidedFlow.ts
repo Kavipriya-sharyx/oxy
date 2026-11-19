@@ -22,6 +22,7 @@ export type FlowStep =
   | "start"
   | "savings"
   | "who"
+  | "who_v2"
   | "when"
   | "decision"
   | "need"
@@ -261,6 +262,21 @@ export function stepMessage(step: FlowStep, prefix?: string, l?: Lg): OutboundMe
         title(l),
       );
     case "who":
+      return list(
+        p(
+          tr(
+            l,
+            "Who Are You Looking For Healthcare Support For?",
+            "आप किसके लिए स्वास्थ्य सहायता देख रहे हैं?",
+            "Aap kiske liye healthcare support dekh rahe hain?",
+          ),
+        ),
+        tr(l, "Family Member", "परिवार का सदस्य", "Family Member"),
+        WHO_ROWS(l),
+        undefined,
+        title(l),
+      );
+    case "who_v2":
       return list(
         p(tr(l, "Who needs the plan?", "प्लान किसके लिए चाहिए?", "Who needs the plan?")),
         tr(l, "Select Member", "सदस्य चुनें", "Select Member"),
@@ -511,6 +527,32 @@ export interface FlowFacts {
 }
 
 export function pickPlan(f: FlowFacts): PlanName {
+  const age = Number(f.age) || 0;
+  const spend = Number(f.spend) || 0;
+  const elderlyParent = (f.who === "parent" || f.who === "parents") && age >= 60;
+  // Infinity: above the other plans' ages, elderly parents, a major condition, a planned surgery or treatment,
+  // pregnancy / IVF, or a high yearly spend (Voice manual 10 "Natural Infinity preference")
+  if (
+    age > 80 ||
+    elderlyParent ||
+    ["heart", "kidney", "cancer"].includes(String(f.condition)) ||
+    f.need === "surgery" ||
+    f.need === "pregnancy" ||
+    spend >= 200000
+  )
+    return "infinity";
+  // another pre-existing condition: Thrive supports new and pre-existing needs (Voice manual 21)
+  if (f.condition && f.condition !== "none") return age > 80 ? "infinity" : "thrive";
+  // hospital care: Vital covers OPD and IPD
+  if (f.need === "hospital" || f.need === "all") return age <= 75 ? "vital" : age <= 80 ? "thrive" : "infinity";
+  // routine OPD: Everyday for a small spend (Voice manual 10 "When not to push Infinity")
+  if (age <= 70 && spend < 100000) return "everyday";
+  if (age <= 75) return "vital";
+  if (age <= 80) return "thrive";
+  return "infinity";
+}
+
+export function pickFunnelPlan(f: FlowFacts): PlanName {
   const who = f.who;
   const need = f.need;
   const age = Number(f.age) || 0;
@@ -519,7 +561,6 @@ export function pickPlan(f: FlowFacts): PlanName {
   const elderlyParent = isParent && age >= 60;
   const isSurgery = f.savings === "surgery" || need === "surgery";
 
-  // Infinity: above other plans' ages, elderly parents, major condition, surgery, pregnancy, high spend, or parents + soon
   if (
     age > 80 ||
     elderlyParent ||
@@ -537,16 +578,7 @@ export function pickPlan(f: FlowFacts): PlanName {
   if (age <= 70 && (f.savings === "consult" || f.savings === "tests" || f.savings === "exploring") && f.when === "future") {
     return "everyday";
   }
-
-  // another pre-existing condition: Thrive supports new and pre-existing needs (Voice manual 21)
-  if (f.condition && f.condition !== "none") return age > 80 ? "infinity" : "thrive";
-  // hospital care: Vital covers OPD and IPD
-  if (need === "hospital" || need === "all") return age <= 75 ? "vital" : age <= 80 ? "thrive" : "infinity";
-  // routine OPD: Everyday for a small spend (Voice manual 10 "When not to push Infinity")
-  if (age <= 70 && spend < 100000) return "everyday";
-  if (age <= 75) return "vital";
-  if (age <= 80) return "thrive";
-  return "infinity";
+  return pickPlan(f);
 }
 
 export const PLAN_TITLE: Record<PlanName, string> = {
@@ -661,8 +693,39 @@ const activateButtons = (l: Lg) => [
   { id: "act_monthly", title: tr(l, "Activate Monthly", "मासिक एक्टिवेट करें", "Monthly Activate") },
 ];
 
-/** The plan with its price and GST (pricing document 9), and the next step as buttons */
+/** The plan with its price and GST (pricing document 9), and the next step as buttons (canonical flow) */
 export function planCard(plan: PlanName, price: PlanPrice, f: FlowFacts, l?: Lg): OutboundMessage {
+  const planUrl = PLAN_DETAILS_URL[plan] || `https://www.oxxy.in/oxxy-${plan}`;
+  const lines = [
+    valueBridge(f, l),
+    tr(
+      l,
+      `Based on what you shared, the Oxxy ${PLAN_TITLE[plan]} plan fits best because ${planWhy(plan, l)}.`,
+      `आपने जो बताया उसके आधार पर Oxxy ${PLAN_TITLE[plan]} प्लान सबसे उपयुक्त है, क्योंकि ${planWhy(plan, l)}।`,
+      `Aapne jo bataya uske hisaab se Oxxy ${PLAN_TITLE[plan]} plan sabse sahi hai, kyunki ${planWhy(plan, l)}.`,
+    ),
+    "",
+    ...(price.yearly ? priceBlock(yearlyLabel(l), price.yearly, "yearly", l) : []),
+    ...(price.yearly && price.monthly ? [""] : []),
+    ...(price.monthly ? priceBlock(monthlyLabel(l), price.monthly, "monthly", l) : []),
+    "",
+    tr(l, `Plan details: ${planUrl}`, `प्लान विवरण: ${planUrl}`, `Plan details: ${planUrl}`),
+    "",
+    tr(l, "Would you like to activate your Oxxy care plan?", "क्या आप अपना Oxxy केयर प्लान एक्टिवेट करना चाहेंगे?", "Kya aap apna Oxxy care plan activate karna chahenge?"),
+  ];
+  return {
+    kind: "buttons",
+    header: { type: "text", text: `Oxxy ${PLAN_TITLE[plan]} ${tr(l, "plan", "प्लान", "plan")}` },
+    body: lines.join("\n"),
+    buttons: [
+      ...activateButtons(l),
+      { id: "flow_family", title: tr(l, "Add Family Member", "परिवार जोड़ें", "Family jodein") },
+    ],
+  };
+}
+
+/** Client fast funnel card: Recommend plan + show website checkout + purchase confirmed */
+export function funnelCheckoutCard(plan: PlanName, price: PlanPrice, f: FlowFacts, l?: Lg): OutboundMessage {
   const checkoutUrl = PLAN_ACTIVATION_URL[plan] || `https://www.oxxy.in/healthplan?plan_name=oxxy_${plan}`;
   const planUrl = PLAN_DETAILS_URL[plan] || `https://www.oxxy.in/oxxy-${plan}`;
   const lines = [

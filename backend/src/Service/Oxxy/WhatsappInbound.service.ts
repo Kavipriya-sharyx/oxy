@@ -81,6 +81,21 @@ export class WhatsappInboundService implements OnModuleInit {
       this.logger.log(`${msg.id} skipped (duplicate)`);
       return;
     }
+
+    // Meta Cloud API retry guard: discard stale or out-of-order webhooks (e.g. Meta delayed delivery from > 5 mins ago)
+    const msgTimeMs = msg.timestamp ? Number(msg.timestamp) * 1000 : Date.now();
+    const ageMs = Date.now() - msgTimeMs;
+    const isStale = ageMs > 5 * 60 * 1000;
+    const isOutOfOrder =
+      saved.conversation.last_customer_message_at &&
+      msgTimeMs < saved.conversation.last_customer_message_at.getTime() - 30_000;
+
+    if (isStale || isOutOfOrder) {
+      this.logger.warn(
+        `${msg.id} skipped from reply queue: ${isStale ? `stale (${Math.round(ageMs / 1000)}s old)` : "out of order"}`,
+      );
+      return;
+    }
     await this._Queue.enqueue(
       {
         messageId: saved.message.id,
