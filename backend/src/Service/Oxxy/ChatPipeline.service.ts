@@ -1366,7 +1366,11 @@ export class ChatPipelineService {
   /** The consent step runs now (else the message is answered first and the notice follows it) */
   private consentStepNow(status: "none" | "awaiting", m: Inbound, s: Saved): boolean {
     const text = (m.text || "").trim();
-    if (s.conversation.state === ConversationState.New) return true; // the welcome and the options first
+    if (s.conversation.state === ConversationState.New) {
+      if (m.type === "request_welcome" || isGreeting(text) || !text) return true;
+      if (looksLikeQuestion(text)) return false;
+      return true;
+    }
     if (!text || m.location) return true;
     // YES / NO ("ok", "sari" too, to the notice's own question): the notice, or the answer to it
     if (parseConsentAnswer(text, status === "awaiting") !== "unclear") return true;
@@ -1750,7 +1754,7 @@ export class ChatPipelineService {
     // a tap sends an id ("who_self"); typed words are read only when short and not a question, so "can you help
     // me find a hospital?" goes to the normal conversation (the step stays for the next tap)
     const tapped = /^[a-z]+_[a-z0-9]+$/.test(id);
-    if (!tapped && !m.location && (/\?\s*$/.test(text) || text.split(/\s+/).length > 8)) return false;
+    if (!tapped && !m.location && (looksLikeQuestion(text) || /\?\s*$/.test(text) || text.split(/\s+/).length > 8 || step === "start")) return false;
     if (!tapped && isGreeting(text) && step !== "close") {
       await this.sendAndSave(s.customer.id, stepMessage(step === "start" ? "who" : step, undefined, s.customer.language), m.waMessageId);
       if (step === "start") await this.setPending(s, "flow:who");
@@ -2629,8 +2633,11 @@ export class ChatPipelineService {
         return;
       }
       if (s.conversation.state === ConversationState.New) {
-        await this.startGuidedFlow(m, s);
-        return;
+        if (m.type === "request_welcome" || isGreeting(m.text) || !(m.text || "").trim()) {
+          await this.startGuidedFlow(m, s);
+          return;
+        }
+        await this.setState(s, [ConversationState.Discovery]);
       }
     }
 
@@ -2737,8 +2744,18 @@ export class ChatPipelineService {
         if (draft.needs_human && !draft.reply_text) break;
         // refused customer: a reply that asks about health is never sent (checked here, not by prompt)
         if (healthBlocked && asksHealthQuestion(draft.reply_text)) {
-          feedback = "do not ask any health question";
-          continue;
+          if (consentStatus !== "refused") {
+            const stripped = withoutLastQuestion(draft.reply_text).trim();
+            if (stripped && !asksHealthQuestion(stripped)) {
+              draft.reply_text = stripped;
+            } else {
+              feedback = "do not ask any health question";
+              continue;
+            }
+          } else {
+            feedback = "do not ask any health question";
+            continue;
+          }
         }
         // promises the bot cannot keep (seen 16 Nov): a booking "noted" before it is saved, a payment taken
         // in the chat, the names of medicines
