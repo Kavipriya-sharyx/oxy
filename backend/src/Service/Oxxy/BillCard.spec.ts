@@ -1,0 +1,65 @@
+import {
+  billCard,
+  billDiscount,
+  billImageHeader,
+  billResultCard,
+  billCompareCard,
+  pickedPlanCard,
+  plansListCard,
+  readBillAmount,
+  readPlanPick,
+} from "./BillCard";
+import { validateMessage } from "./WhatsappPayload";
+
+describe("bill card helpers (client sequence 1)", () => {
+  afterEach(() => {
+    delete process.env.OXXY_BILL_IMAGE_URL;
+    delete process.env.OXXY_WELCOME_IMAGE_URL;
+  });
+
+  it("every card is a message WhatsApp accepts, in every language", () => {
+    process.env.OXXY_BILL_IMAGE_URL = "https://oxxy.example.in/oxxy-bill-card.jpg";
+    for (const l of ["en", "hi", "hinglish"]) {
+      for (const m of [
+        billCard(l),
+        billResultCard(150000, l),
+        billCompareCard(l),
+        plansListCard({ everyday: 10000, vital: 20000, thrive: 30000, infinity: 40000 }, l),
+        pickedPlanCard("infinity", { yearly: 40000, monthly: 3999 }, l),
+      ])
+        expect(() => validateMessage(m)).not.toThrow();
+    }
+  });
+
+  it("the picture: OXXY_BILL_IMAGE_URL, else next to the welcome image, else none", () => {
+    expect(billImageHeader()).toBeUndefined();
+    process.env.OXXY_WELCOME_IMAGE_URL = "https://oxxy.sharyx.ai/logo.png";
+    expect(billImageHeader()).toEqual({
+      type: "image",
+      link: "https://oxxy.sharyx.ai/oxxy-bill-card.jpg",
+    });
+    process.env.OXXY_BILL_IMAGE_URL = "https://cdn.example.in/card.jpg";
+    expect(billImageHeader()).toEqual({ type: "image", link: "https://cdn.example.in/card.jpg" });
+  });
+
+  it("reads bill amounts", () => {
+    expect(readBillAmount("10000")).toBe(10000);
+    expect(readBillAmount("₹25,000")).toBe(25000);
+    expect(readBillAmount("1.5 lakh")).toBe(150000);
+    expect(readBillAmount("50k")).toBe(50000);
+    expect(readBillAmount("20000 per month")).toBe(20000); // one bill, never x12
+    expect(readBillAmount("hmm")).toBeNull();
+    expect(readBillAmount("60")).toBeNull();
+  });
+
+  it("30% of the bill, whole rupees", () => {
+    expect(billDiscount(10000)).toEqual({ discount: 3000, pay: 7000 });
+    expect(billDiscount(12345)).toEqual({ discount: 3703, pay: 8642 });
+  });
+
+  it("reads a plan pick (row id or typed name)", () => {
+    expect(readPlanPick("plan_thrive")).toBe("thrive");
+    expect(readPlanPick("Oxxy Infinity")).toBe("infinity");
+    expect(readPlanPick("tell me about the price of medicines today please")).toBeNull();
+  });
+});

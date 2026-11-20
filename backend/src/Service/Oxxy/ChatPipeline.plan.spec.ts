@@ -1379,12 +1379,16 @@ describe("nearby centres (location + Google Maps)", () => {
     expect(t.out.at(-1)).toContain("May I do your booking at ABC Hospital?");
   });
 
-  it("no verified centre near the pin: Google's places go to the TEAM as a task, never to the customer", async () => {
+  // client, 18 Nov: show nearby places; review fix, 20 Nov: shown as NOT verified, never saved, never numbered
+  it("no verified centre near the pin: Google's places are shown marked unverified (no pick list) and the TEAM gets a task", async () => {
     const maps = fakeMaps();
     const t = setup([], { pending: "centre_location", needRow: { locality: "Peelamedu", city: "Coimbatore", save: async () => undefined }, found: () => [], maps });
     await t.run("", spot);
-    expect(t.out.join("\n")).toContain("I do not have a verified centre in Peelamedu, Coimbatore yet");
-    expect(t.out.join("\n")).not.toContain("PSG Hospitals");
+    const said = t.out.join("\n");
+    expect(said).toContain("not yet verified by Oxxy");
+    expect(said).toMatch(/^- PSG Hospitals/m);
+    expect(said).not.toMatch(/^1\. PSG/m);
+    expect(t.conv.pending_action).not.toBe("centre_pick");
     const gap = t.saved.find((x) => x.type === "directory_verification");
     expect(String(gap?.summary)).toContain("Not verified, from Google Maps, to check before adding to the directory: PSG Hospitals (Peelamedu, Coimbatore)");
   });

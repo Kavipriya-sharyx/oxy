@@ -33,14 +33,27 @@ const draft = (reply_text: string, extra: Record<string, unknown> = {}) => ({
 
 function setup(
   drafts: unknown[],
-  opts: { needRow: object; found: (q: Record<string, unknown>) => unknown[]; maps?: unknown; catalog?: Record<string, unknown>[] },
+  opts: {
+    needRow: object;
+    found: (q: Record<string, unknown>) => unknown[];
+    maps?: unknown;
+    catalog?: Record<string, unknown>[];
+  },
 ) {
-  const conv = { id: "v1", state: S.New, selected_product: null as string | null, recommended_plan: null as string | null, pending_action: null as string | null };
+  const conv = {
+    id: "v1",
+    state: S.New,
+    selected_product: null as string | null,
+    recommended_plan: null as string | null,
+    pending_action: null as string | null,
+  };
   const out: string[] = [];
   const sent: Record<string, unknown>[] = [];
   let replied = false;
   const send = jest.fn(async (...a: unknown[]) => {
-    out.push(String((a[1] as { body: string; log?: string }).log ?? (a[1] as { body: string }).body));
+    out.push(
+      String((a[1] as { body: string; log?: string }).log ?? (a[1] as { body: string }).body),
+    );
     sent.push(a[1] as Record<string, unknown>);
     replied = true;
     return "wamid.OUT";
@@ -52,7 +65,11 @@ function setup(
     conv.state = to as S;
     return conv;
   });
-  const mg = { save: jest.fn(async (v: object) => ({ ...v, id: "new-id" })), create: (_c: unknown, v: unknown) => v, update: jest.fn() };
+  const mg = {
+    save: jest.fn(async (v: object) => ({ ...v, id: "new-id" })),
+    create: (_c: unknown, v: unknown) => v,
+    update: jest.fn(),
+  };
   stub(message, "findOne", async (o: unknown) => {
     const w = (o as { where?: { reply_to_wa_message_id?: string; type?: string } })?.where;
     if (w?.type === "location_request") return { id: "pin-asked" }; // the pin question was asked before
@@ -61,7 +78,12 @@ function setup(
   stub(message, "find", async () => []);
   stub(conversation, "findOne", async () => conv);
   stub(conversation, "update", async () => undefined);
-  stub(consent, "findOne", async () => ({ opt_out_at: null, health_data_consent: true, notice_version: NOTICE_VERSION, consent_timestamp: new Date() }));
+  stub(consent, "findOne", async () => ({
+    opt_out_at: null,
+    health_data_consent: true,
+    notice_version: NOTICE_VERSION,
+    consent_timestamp: new Date(),
+  }));
   stub(task, "findOne", async () => null);
   stub(task, "find", async () => []);
   stub(task, "update", async () => undefined);
@@ -69,7 +91,9 @@ function setup(
   stub(activation, "findOne", async () => null);
   stub(plan_catalog, "find", async (o: unknown) => {
     const w = ((o as { where?: Record<string, unknown> })?.where ?? {}) as Record<string, unknown>;
-    return (opts.catalog ?? []).filter((r) => (!w.plan || r.plan === w.plan) && (!w.product || r.product === w.product));
+    return (opts.catalog ?? []).filter(
+      (r) => (!w.plan || r.plan === w.plan) && (!w.product || r.product === w.product),
+    );
   });
   stub(plan_catalog, "findOne", async (o: unknown) => {
     const w = ((o as { where?: Record<string, unknown> })?.where ?? {}) as Record<string, unknown>;
@@ -102,7 +126,13 @@ function setup(
     opts.maps as never,
   );
   const s = {
-    customer: { id: "c1", language: "en", active_product: null, age: null as number | null, save: async () => undefined },
+    customer: {
+      id: "c1",
+      language: "en",
+      active_product: null,
+      age: null as number | null,
+      save: async () => undefined,
+    },
     conversation: conv,
   } as never;
   const run = (text: string) => {
@@ -115,17 +145,43 @@ function setup(
 afterEach(() => jest.restoreAllMocks());
 
 const cat = (plan: string, monthly: number, yearly: number) => [
-  { id: `${plan}-m`, product: "oxxy", plan, billing: "monthly", price: monthly, status: true, version: 1, renewal_terms: "Renews monthly until cancelled", activation_time: "5 to 10 working days", activation_link: `https://pay.oxxy.in/${plan}-m` },
-  { id: `${plan}-y`, product: "oxxy", plan, billing: "yearly", price: yearly, status: true, version: 1, renewal_terms: "Valid for one year", activation_time: "5 to 10 working days", activation_link: `https://pay.oxxy.in/${plan}-y` },
+  {
+    id: `${plan}-m`,
+    product: "oxxy",
+    plan,
+    billing: "monthly",
+    price: monthly,
+    status: true,
+    version: 1,
+    renewal_terms: "Renews monthly until cancelled",
+    activation_time: "5 to 10 working days",
+    activation_link: `https://pay.oxxy.in/${plan}-m`,
+  },
+  {
+    id: `${plan}-y`,
+    product: "oxxy",
+    plan,
+    billing: "yearly",
+    price: yearly,
+    status: true,
+    version: 1,
+    renewal_terms: "Valid for one year",
+    activation_time: "5 to 10 working days",
+    activation_link: `https://pay.oxxy.in/${plan}-y`,
+  },
 ];
 
 describe("17 Nov: welcome card, then the voice-call questions with buttons, then one plan with GST", () => {
   it("hi -> welcome -> who -> service -> verify + calculator -> spend -> age -> city -> appointment -> plan -> family -> activate", async () => {
     const needRow: Record<string, unknown> = { save: async () => undefined };
-    const t = setup([], { needRow, found: () => [], catalog: [...cat("infinity", 3999, 40000), ...cat("everyday", 999, 10000)] });
+    const t = setup([], {
+      needRow,
+      found: () => [],
+      catalog: [...cat("infinity", 3999, 40000), ...cat("everyday", 999, 10000)],
+    });
     await t.run("hi");
     expect(t.sent[0]).toMatchObject({ kind: "buttons" });
-    expect(t.out[0]).toContain("Welcome to Oxxy HealthCare!");
+    expect(t.out[0]).toContain("Reduce Your Medical Bill Now"); // the first card since 20 Nov (sequence 1)
     expect(t.conv.pending_action).toBe("flow:start");
 
     await t.run("flow_start");
@@ -140,7 +196,9 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
     expect(t.conv.pending_action).toBe("flow:calc");
     expect(t.out.at(-1)).toContain("See how much you can save");
     await t.run("calc_start");
-    expect(t.out.at(-1)).toContain("May I know the yearly medical expenditure to calculate the approximate savings?");
+    expect(t.out.at(-1)).toContain(
+      "May I know the yearly medical expenditure to calculate the approximate savings?",
+    );
     expect(t.conv.pending_action).toBe("flow:spend");
     await t.run("spend_50000");
     expect(t.out.at(-2)).toContain("Oxxy can help you save up to ₹15,000");
@@ -158,8 +216,12 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
     const plan = t.out.at(-1)!;
     expect(plan).toContain("Since this is for your parents");
     expect(plan).toContain("Oxxy Infinity plan fits best");
-    expect(plan).toContain("Yearly\nPlan cost: ₹40,000\n+ GST (18%): ₹7,200\n= Final payable: ₹47,200 a year");
-    expect(plan).toContain("Monthly\nPlan cost: ₹3,999\n+ GST (18%): ₹720\n= Final payable: ₹4,719 a month");
+    expect(plan).toContain(
+      "Yearly\nPlan cost: ₹40,000\n+ GST (18%): ₹7,200\n= Final payable: ₹47,200 a year",
+    );
+    expect(plan).toContain(
+      "Monthly\nPlan cost: ₹3,999\n+ GST (18%): ₹720\n= Final payable: ₹4,719 a month",
+    );
     expect(t.conv.recommended_plan).toBe("infinity");
 
     await t.run("flow_family");
@@ -184,8 +246,21 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
   });
 
   it("a typed question in the middle goes to the normal conversation; the next tap still works", async () => {
-    const needRow: Record<string, unknown> = { save: async () => undefined, annual_medical_spend: 50000 };
-    const t = setup([{ reply_text: "Oxxy is a healthcare savings and support service.", intent: "other", extracted_fields: {}, needs_human: false }], { needRow, found: () => [], catalog: cat("everyday", 999, 10000) });
+    const needRow: Record<string, unknown> = {
+      save: async () => undefined,
+      annual_medical_spend: 50000,
+    };
+    const t = setup(
+      [
+        {
+          reply_text: "Oxxy is a healthcare savings and support service.",
+          intent: "other",
+          extracted_fields: {},
+          needs_human: false,
+        },
+      ],
+      { needRow, found: () => [], catalog: cat("everyday", 999, 10000) },
+    );
     (t.conv as Record<string, unknown>).state = "DISCOVERY";
     (t.conv as Record<string, unknown>).pending_action = "flow:insurance";
     await t.run("what exactly is oxxy?");
@@ -199,7 +274,7 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
     const t = setup([], { needRow: { save: async () => undefined }, found: () => [] });
     (t.conv as Record<string, unknown>).state = "DISCOVERY";
     await t.run("Main Menu");
-    expect(t.out.at(-1)).toContain("Welcome to Oxxy HealthCare!");
+    expect(t.out.at(-1)).toContain("Reduce Your Medical Bill Now");
     expect(t.conv.pending_action).toBe("flow:start");
   });
 

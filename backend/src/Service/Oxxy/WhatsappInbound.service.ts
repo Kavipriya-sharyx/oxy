@@ -82,27 +82,23 @@ export class WhatsappInboundService implements OnModuleInit {
       return;
     }
 
-    // Meta Cloud API retry guard: discard stale or out-of-order webhooks (e.g. Meta delayed delivery from > 5 mins ago)
-    const msgTimeMs = msg.timestamp ? Number(msg.timestamp) * 1000 : Date.now();
-    const ageMs = Date.now() - msgTimeMs;
-    const isStale = ageMs > 5 * 60 * 1000;
-    const isOutOfOrder =
-      saved.conversation.last_customer_message_at &&
-      msgTimeMs < saved.conversation.last_customer_message_at.getTime() - 30_000;
-
-    if (isStale || isOutOfOrder) {
-      this.logger.warn(
-        `${msg.id} skipped from reply queue: ${isStale ? `stale (${Math.round(ageMs / 1000)}s old)` : "out of order"}`,
-      );
-      return;
-    }
+    // Every new message is queued, however late it arrives (a phone back online, Meta re-sending after a server
+    // outage): dropping it here left real customers without any answer. Repeats are stopped above by the
+    // wa_message_id; a message overtaken by a newer one that was already answered is marked "stale" by the
+    // pipeline (ChatPipeline.isStale) and shown in the console as "not answered (late)".
     await this._Queue.enqueue(
       {
         messageId: saved.message.id,
         conversationId: saved.conversation.id,
         customerId: saved.customer.id,
-        ...(Number.isFinite(Number(msg.location?.latitude)) && Number.isFinite(Number(msg.location?.longitude))
-          ? { location: { latitude: Number(msg.location!.latitude), longitude: Number(msg.location!.longitude) } }
+        ...(Number.isFinite(Number(msg.location?.latitude)) &&
+        Number.isFinite(Number(msg.location?.longitude))
+          ? {
+              location: {
+                latitude: Number(msg.location!.latitude),
+                longitude: Number(msg.location!.longitude),
+              },
+            }
           : {}),
       },
       msg.id,

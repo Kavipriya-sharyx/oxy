@@ -30,8 +30,7 @@ const FEWER: L = {
 const FOOT: L = {
   en: "Reply with {range}, or send the name of another centre you prefer.",
   hi: "{range} में से कोई नंबर लिखें, या अपनी पसंद के किसी दूसरे सेंटर का नाम भेजें।",
-  hinglish:
-    "{range} mein se number likhein, ya apni pasand ke kisi doosre centre ka naam bhejein.",
+  hinglish: "{range} mein se number likhein, ya apni pasand ke kisi doosre centre ka naam bhejein.",
 };
 const KIND: Record<"multi" | "specialist" | "clinic" | "diagnostic", L> = {
   clinic: { en: "Clinic", hi: "क्लिनिक", hinglish: "Clinic" },
@@ -39,7 +38,11 @@ const KIND: Record<"multi" | "specialist" | "clinic" | "diagnostic", L> = {
   multi: { en: "Multispeciality", hi: "मल्टीस्पेशलिटी", hinglish: "Multispeciality" },
   specialist: { en: "Specialist", hi: "स्पेशलिस्ट", hinglish: "Specialist" },
 };
-const RELEVANT: L = { en: "Relevant for {s}", hi: "{s} के लिए उपयुक्त", hinglish: "{s} ke liye relevant" };
+const RELEVANT: L = {
+  en: "Relevant for {s}",
+  hi: "{s} के लिए उपयुक्त",
+  hinglish: "{s} ke liye relevant",
+};
 
 const UNDER_KM: L = { en: "under 1 km", hi: "1 km से कम", hinglish: "1 km se kam" };
 const ABOUT_KM: L = { en: "about {km} km", hi: "लगभग {km} km", hinglish: "lagbhag {km} km" };
@@ -49,7 +52,8 @@ const ABOUT_KM: L = { en: "about {km} km", hi: "लगभग {km} km", hinglish:
 export const LOCATION_ASK_T: L = {
   en: "Please share the patient's location with the button below, or type the locality and city. I can suggest up to five suitable private healthcare centres.",
   hi: "कृपया नीचे दिए बटन से मरीज़ की लोकेशन भेजें, या इलाका और शहर लिखें। मैं पाँच तक उपयुक्त निजी स्वास्थ्य केंद्र सुझा सकता हूँ।",
-  hinglish: "Kripya neeche diye button se patient ki location bhejein, ya locality aur city likhein. Main paanch tak suitable private healthcare centres suggest kar sakta hoon.",
+  hinglish:
+    "Kripya neeche diye button se patient ki location bhejein, ya locality aur city likhein. Main paanch tak suitable private healthcare centres suggest kar sakta hoon.",
 };
 
 // The area is already known ("Peelamedu, Coimbatore"): the pin is asked once for the NEAREST centres, and
@@ -57,7 +61,8 @@ export const LOCATION_ASK_T: L = {
 export const LOCATION_NEAREST_T: L = {
   en: "To show the centres nearest to the patient, please share the patient's location with the button below. Or reply NO and I will search in {place}.",
   hi: "मरीज़ के सबसे नज़दीकी केंद्र दिखाने के लिए, कृपया नीचे दिए बटन से मरीज़ की लोकेशन भेजें। या NO लिखें, तो मैं {place} में खोजूँगा।",
-  hinglish: "Patient ke sabse nazdeeki centres dikhane ke liye, kripya neeche diye button se patient ki location bhejein. Ya NO likhein, to main {place} mein search karunga.",
+  hinglish:
+    "Patient ke sabse nazdeeki centres dikhane ke liye, kripya neeche diye button se patient ki location bhejein. Ya NO likhein, to main {place} mein search karunga.",
 };
 
 /** The location question: with the known area ("... or reply NO and I will search in Peelamedu, Coimbatore") or without */
@@ -71,18 +76,25 @@ export function declinesLocation(text: string): boolean {
   const t = (text || "").toLowerCase().replace(/[’`]/g, "'").trim();
   return (
     /^(no|nope|nah|na|nahi|nahin|skip|not now|later|n|vendam|venda)\b/.test(t) ||
-    /\b(can'?t|cannot|can not|don'?t|do not|not able|unable|won'?t|nahi)\b[^.?!]*\b(share|send|location|bhej)\w*/.test(t) ||
-    /\b(search|look|use|show|find)\b[^.?!]*\b(same|that|this|there|above)\b|\bsame (area|place|location|city)\b/.test(t) ||
+    /\b(can'?t|cannot|can not|don'?t|do not|not able|unable|won'?t|nahi)\b[^.?!]*\b(share|send|location|bhej)\w*/.test(
+      t,
+    ) ||
+    /\b(search|look|use|show|find)\b[^.?!]*\b(same|that|this|there|above)\b|\bsame (area|place|location|city)\b/.test(
+      t,
+    ) ||
     /^नहीं|मत /.test(t)
   );
 }
 
 /** "yes", "ok", "sure" and nothing else: they mean to share it, the button is shown again */
 export const agreesToShare = (text: string) =>
-  /^(yes|ya|yeah|yep|ok|okay|sure|fine|haan|han|ha|ji|k|theek hai|sari|seri|हाँ|ठीक है)[\s.!]*$/i.test((text || "").trim());
+  /^(yes|ya|yeah|yep|ok|okay|sure|fine|haan|han|ha|ji|k|theek hai|sari|seri|हाँ|ठीक है)[\s.!]*$/i.test(
+    (text || "").trim(),
+  );
 
 /** "10 km", "5", "20kms" and nothing else */
-export const onlyRadius = (text: string) => /^\s*(up ?to\s+)?\d{1,3}\s*(km|kms|k\.?m\.?|kilomet\w*)?\s*\.?\s*$/i.test(text || "");
+export const onlyRadius = (text: string) =>
+  /^\s*(up ?to\s+)?\d{1,3}\s*(km|kms|k\.?m\.?|kilomet\w*)?\s*\.?\s*$/i.test(text || "");
 
 const NEAR_RE =
   /\b(near ?by|near (me|my|us|our)|nearest|closest|close to (me|my|us)|around (me|here)|my (current |live )?location|current location|live location|paas (mein|me|ke|wala|wale)|nazdeek\w*|aas ?paas|pakkath\w*|pakkam)\b|पास|नज़दीक|आसपास/i;
@@ -97,10 +109,12 @@ export function asksNearby(text: string, inCentreSearch = false): boolean {
 
 // Words that are never an area name ("near me", "in the morning", "in my area")
 const NOT_A_PLACE = new Set(
-  ("me my us our here there this that the a an any home house location area areas city town place places " +
+  (
+    "me my us our here there this that the a an any home house location area areas city town place places " +
     "hospital hospitals clinic clinics centre centres center centers doctor doctors india km kms radius " +
     "morning evening afternoon night today tomorrow week month year time pain need plan plans case future " +
-    "general detail details mind which what where your you it them future vicinity locality side it's").split(" "),
+    "general detail details mind which what where your you it them future vicinity locality side it's"
+  ).split(" "),
 );
 const PLACE_WORD = /^[a-z][a-z.'-]{1,24}$/;
 const tidyPlace = (s: string) =>
@@ -136,14 +150,21 @@ export function namedPlace(text: string): { locality: string; city: string | nul
     // the rest of the clause: up to a full stop or the next part of the sentence
     const rest = t
       .slice(m.index + m[0].length)
-      .split(/[.?!;:\n]|\b(?:preferably|within|for|and|please|with|to|which|that|so|who|where|having|under|upto|up to|radius|from)\b|\d/i)[0];
-    const parts = rest.split(/\s*,\s*|\s+(?:of|in)\s+/i).map((x) => x.trim()).filter(Boolean);
+      .split(
+        /[.?!;:\n]|\b(?:preferably|within|for|and|please|with|to|which|that|so|who|where|having|under|upto|up to|radius|from)\b|\d/i,
+      )[0];
+    const parts = rest
+      .split(/\s*,\s*|\s+(?:of|in)\s+/i)
+      .map((x) => x.trim())
+      .filter(Boolean);
     if (!parts.length) continue;
     const locality = placeWords(parts[0]);
     if (!locality) continue;
     const city = parts[1] ? placeWords(parts[1]) : null;
     if (word === "in" || word === "at") {
-      const nearCentreWord = PLACE_RE.test(before) || /\b(dermatolog\w*|specialist|dentist|cardiolog\w*)\b/i.test(before);
+      const nearCentreWord =
+        PLACE_RE.test(before) ||
+        /\b(dermatolog\w*|specialist|dentist|cardiolog\w*)\b/i.test(before);
       const saysArea = /\b(area|locality|side)\b/i.test(parts[0]);
       if (!nearCentreWord && !saysArea && !city) continue;
     }
@@ -161,8 +182,13 @@ const STATES =
  * `cities` = cities known to have centres (a part that matches one is the city). State names are dropped.
  * null = it does not look like an area (a question, digits, more than six words).
  */
-export function typedArea(text: string, cities: string[] = []): { locality: string | null; city: string | null } | null {
-  const t = String(text || "").trim().replace(/[.!]+$/, "");
+export function typedArea(
+  text: string,
+  cities: string[] = [],
+): { locality: string | null; city: string | null } | null {
+  const t = String(text || "")
+    .trim()
+    .replace(/[.!]+$/, "");
   if (!t || /[?\d]/.test(t) || t.split(/\s+/).length > 6) return null;
   const parts = t
     .split(/\s*,\s*|\s+-\s+/)
@@ -173,7 +199,8 @@ export function typedArea(text: string, cities: string[] = []): { locality: stri
   // "Peelamedu Coimbatore" with no comma: the known city at the end is split off
   if (parts.length === 1) {
     const w = parts[0].split(/\s+/);
-    if (w.length > 1 && known(w[w.length - 1])) parts.splice(0, 1, w.slice(0, -1).join(" "), w[w.length - 1]);
+    if (w.length > 1 && known(w[w.length - 1]))
+      parts.splice(0, 1, w.slice(0, -1).join(" "), w[w.length - 1]);
   }
   const words = parts.map(placeWords);
   if (words.some((w) => !w)) return null;
@@ -184,7 +211,9 @@ export function typedArea(text: string, cities: string[] = []): { locality: stri
     return { city: known(ws[cityIdx]), locality: others[0] ?? null };
   }
   // "Peelamedu, Coimbatore": the area first, the city last
-  return ws.length === 1 ? { locality: null, city: ws[0] } : { locality: ws[0], city: ws[ws.length - 1] };
+  return ws.length === 1
+    ? { locality: null, city: ws[0] }
+    : { locality: ws[0], city: ws[ws.length - 1] };
 }
 
 export const RADIUS_Q: L = {
@@ -202,7 +231,11 @@ export function parseRadius(text: string): number | null {
     return v >= 1 && v <= 200 ? v : null;
   }
   if (/\b(near|nearby|close|paas|nazdeek)\b|पास|नज़दीक/u.test(t)) return 5;
-  if (/\b(any|anywhere|doesn'?t matter|does not matter|no limit|whole city|koi bhi|kahin bhi)\b|कहीं भी|कोई भी/u.test(t))
+  if (
+    /\b(any|anywhere|doesn'?t matter|does not matter|no limit|whole city|koi bhi|kahin bhi)\b|कहीं भी|कोई भी/u.test(
+      t,
+    )
+  )
     return 25;
   return null;
 }
@@ -213,7 +246,8 @@ export function parseRadius(text: string): number | null {
 const NEAREST_HEAD: L = {
   en: "There is no verified centre within {km} km of {place}. These are the nearest verified options:",
   hi: "{place} से {km} km के अंदर कोई सत्यापित केंद्र नहीं है। ये सबसे नज़दीकी सत्यापित विकल्प हैं:",
-  hinglish: "{place} se {km} km ke andar koi verified centre nahi hai. Yeh sabse nazdeeki verified options hain:",
+  hinglish:
+    "{place} se {km} km ke andar koi verified centre nahi hai. Yeh sabse nazdeeki verified options hain:",
 };
 export function nearestListText(
   list: CentreCard[],
@@ -224,8 +258,42 @@ export function nearestListText(
 ): string {
   const head = say(NEAREST_HEAD, l)
     .replace("{km}", String(km))
-    .replace("{place}", place || say({ en: "the patient's area", hi: "मरीज़ के इलाके", hinglish: "patient ke area" }, l));
+    .replace(
+      "{place}",
+      place ||
+        say({ en: "the patient's area", hi: "मरीज़ के इलाके", hinglish: "patient ke area" }, l),
+    );
   return centreListText(list, specialisation, l, head);
+}
+
+/**
+ * Places Google Maps lists near the customer that are NOT in the verified directory (client, 18 Nov: "show up to 5
+ * nearby hospitals"). Shown as information only: never numbered (so never a pick), never saved as a directory
+ * centre, never called verified, no discount claim (Playbook 10.1). The team checks them through the gap task.
+ */
+const UNVERIFIED_HEAD: L = {
+  en: "Other hospitals and clinics nearby (from Google Maps, not yet verified by Oxxy; our team can check whether Oxxy savings apply there):",
+  hi: "आस-पास के दूसरे अस्पताल और क्लिनिक (Google Maps से, Oxxy ने अभी सत्यापित नहीं किए; हमारी टीम देख सकती है कि वहाँ Oxxy की बचत लागू होती है या नहीं):",
+  hinglish:
+    "Aas-paas ke dusre hospitals aur clinics (Google Maps se, Oxxy ne abhi verify nahi kiye; hamari team check kar sakti hai ki wahan Oxxy savings lagu hoti hain ya nahi):",
+};
+const UNVERIFIED_ONLY_FOOT: L = {
+  en: "Reply with the name of the one you prefer and our team will check it before any booking.",
+  hi: "जो आपको पसंद हो उसका नाम लिखें, बुकिंग से पहले हमारी टीम उसे जाँच लेगी।",
+  hinglish:
+    "Jo aapko pasand ho uska naam likhein, booking se pehle hamari team use check kar legi.",
+};
+export function unverifiedNearbyText(
+  places: { name: string; address?: string | null }[],
+  l?: string | null,
+  alone = false,
+): string {
+  if (!places.length) return "";
+  const lines = places.map((p) => {
+    const addr = String(p.address ?? "").trim();
+    return `- ${p.name}${addr ? ` (${addr.length > 60 ? `${addr.slice(0, 59)}…` : addr})` : ""}`;
+  });
+  return `${say(UNVERIFIED_HEAD, l)}\n${lines.join("\n")}${alone ? `\n\n${say(UNVERIFIED_ONLY_FOOT, l)}` : ""}`;
 }
 
 export function centreListText(
@@ -236,7 +304,9 @@ export function centreListText(
 ): string {
   const cards = list.map((c, i) => {
     // the type label only when the directory says so ("multi_speciality", "Multi-specialty" and the like count)
-    const type = String(c.centre_type ?? "").toLowerCase().replace(/[^a-z]/g, "");
+    const type = String(c.centre_type ?? "")
+      .toLowerCase()
+      .replace(/[^a-z]/g, "");
     const kind = /^multi/.test(type)
       ? say(KIND.multi, l)
       : /^(speciali[sz]|specialty|speciality)/.test(type)
@@ -245,18 +315,26 @@ export function centreListText(
           ? say(KIND.clinic, l)
           : /^diagnos/.test(type)
             ? say(KIND.diagnostic, l)
-        : null;
-    const parts = [`${i + 1}. ${c.name}${c.branch ? `, ${c.branch}` : ""} - ${c.locality || c.city || ""}`, ...(kind ? [kind] : [])];
+            : null;
+    const parts = [
+      `${i + 1}. ${c.name}${c.branch ? `, ${c.branch}` : ""} - ${c.locality || c.city || ""}`,
+      ...(kind ? [kind] : []),
+    ];
     if (c.distance_km != null && Number.isFinite(c.distance_km) && c.distance_km < 500) {
-      const km = c.distance_km < 10 ? Math.round(c.distance_km * 10) / 10 : Math.round(c.distance_km);
+      const km =
+        c.distance_km < 10 ? Math.round(c.distance_km * 10) / 10 : Math.round(c.distance_km);
       // right next to the customer: "under 1 km", never "about 0 km"
-      parts.push((km < 1 ? say(UNDER_KM, l) : say(ABOUT_KM, l).replace("{km}", String(km))) + (c.minutes ? `, ${c.minutes} min` : ""));
+      parts.push(
+        (km < 1 ? say(UNDER_KM, l) : say(ABOUT_KM, l).replace("{km}", String(km))) +
+          (c.minutes ? `, ${c.minutes} min` : ""),
+      );
     }
     if (specialisation) parts.push(say(RELEVANT, l).replace("{s}", specialisation));
     return parts.join(" | ");
   });
   const head = headText ?? say(specialisation ? HEAD : HEAD_AREA, l);
-  const fewer = !headText && list.length < 5 ? `\n${say(FEWER, l).replace("{n}", String(list.length))}` : "";
+  const fewer =
+    !headText && list.length < 5 ? `\n${say(FEWER, l).replace("{n}", String(list.length))}` : "";
   const range = list.length <= 1 ? "1" : list.length === 2 ? "1 or 2" : `1-${list.length}`;
   return `${head}\n${cards.join("\n")}${fewer}\n\n${say(FOOT, l).replace("{range}", range)}`;
 }
@@ -266,14 +344,17 @@ export function centreListText(
 export const REBOOK_DECLINED_T = {
   en: "No problem. If you need another booking request later, just message me here.",
   hi: "कोई बात नहीं। अगर बाद में आपको नया बुकिंग अनुरोध चाहिए, तो बस यहाँ मैसेज करें।",
-  hinglish: "Koi baat nahi. Agar baad mein aapko naya booking request chahiye, to bas yahan message karein.",
+  hinglish:
+    "Koi baat nahi. Agar baad mein aapko naya booking request chahiye, to bas yahan message karein.",
 };
 
 // Words that every centre name shares: they never pick one centre on their own
 const GENERIC = new Set(
-  ("hospital hospitals clinic clinics centre center centres centers medical multi speciality specialty " +
+  (
+    "hospital hospitals clinic clinics centre center centres centers medical multi speciality specialty " +
     "multispeciality multispecialty super health healthcare care diagnostic diagnostics lab labs the and " +
-    "pvt ltd private limited institute research foundation trust road main branch near").split(" "),
+    "pvt ltd private limited institute research foundation trust road main branch near"
+  ).split(" "),
 );
 const words = (s: string | null | undefined) =>
   String(s ?? "")
@@ -282,9 +363,22 @@ const words = (s: string | null | undefined) =>
     .split(/\s+/)
     .filter((w) => w.length >= 3 && !GENERIC.has(w));
 const flat = (s: string | null | undefined) =>
-  String(s ?? "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  String(s ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 const ORDINAL: Record<string, number> = {
-  first: 1, "1st": 1, second: 2, "2nd": 2, third: 3, "3rd": 3, fourth: 4, "4th": 4, fifth: 5, "5th": 5,
+  first: 1,
+  "1st": 1,
+  second: 2,
+  "2nd": 2,
+  third: 3,
+  "3rd": 3,
+  fourth: 4,
+  "4th": 4,
+  fifth: 5,
+  "5th": 5,
 };
 
 /**
@@ -314,7 +408,9 @@ export function pickFromList(
     if (!hit) return 0; // the place alone never picks a centre: it may be a new area
     const place = [...words(c.branch), ...words(c.locality)].filter((w) => said.has(w)).length;
     // the whole branch or area as typed ("T Nagar": its one-letter word is not in the word list)
-    const phrase = [c.branch, c.locality].filter((x) => !!x && flat(x).length >= 3 && ` ${flat(t)} `.includes(` ${flat(x)} `)).length;
+    const phrase = [c.branch, c.locality].filter(
+      (x) => !!x && flat(x).length >= 3 && ` ${flat(t)} `.includes(` ${flat(x)} `),
+    ).length;
     return hit * 10 + place + phrase * 5;
   });
   const best = Math.max(...scores);

@@ -31,7 +31,8 @@ export function healthConsentStatus(
 ): HealthConsentStatus {
   if (!c) return "none";
   // consent only counts when it is true, saved with a timestamp, and made for THIS notice version
-  if (c.health_data_consent === true && c.consent_timestamp && c.notice_version === version) return "granted";
+  if (c.health_data_consent === true && c.consent_timestamp && c.notice_version === version)
+    return "granted";
   if (c.health_refused_at && c.health_refused_version === version) return "refused";
   if (c.notice_sent_at && c.notice_sent_version === version) return "awaiting";
   return "none";
@@ -55,7 +56,8 @@ export function parseConsentAnswer(text: string, toNotice = false): "yes" | "no"
 }
 
 const TERMS = HEALTH_QUESTION_TERMS.map((t) => t.toLowerCase());
-const ASK = /^\s*(please\s+)?(tell|share|describe|let me know|inform|batao|bataiye|बताइए|बताएं|बताओ)/i;
+const ASK =
+  /^\s*(please\s+)?(tell|share|describe|let me know|inform|batao|bataiye|बताइए|बताएं|बताओ)/i;
 
 // True when the text asks the customer for health information (a question sentence, or "please tell me ..."
 // sentence, containing a health term). Over-flags on purpose: a flagged reply is never sent.
@@ -88,7 +90,7 @@ export function sharesHealthDetail(text: string): boolean {
 
 /** "hi", "hello again", "good morning", "vanakkam": a greeting, nothing else */
 export function isGreeting(text: string): boolean {
-  return /^(hi+|hello+|hey+|hlo|helo|hai|hy|good (morning|afternoon|evening)|namaste|namaskar|vanakkam|hola)( (there|again|oxxy|team|sir|madam|ji))*\s*[!.]*$/i.test(
+  return /^(hi+|hello+|hey+|hlo|helo|hai|hy|good (morning|afternoon|evening)|namaste|namaskar|vanakkam|hola|नमस्ते|नमस्कार|हैलो|हेलो|வணக்கம்)( (there|again|oxxy|team|sir|madam|ji))*\s*[!.]*$/i.test(
     (text || "").trim(),
   );
 }
@@ -96,5 +98,10 @@ export function isGreeting(text: string): boolean {
 /** A question ("what is this?", "how much is it", "where is your office") rather than a statement */
 export function looksLikeQuestion(text: string): boolean {
   const t = (text || "").trim().toLowerCase();
-  return /\?\s*$/.test(t) || /^(what|how|why|where|when|who|which|can|could|is|are|do|does|will|would|should|kya|kaise|kab|kahan|kaun|kitna|kitne)\b/.test(t);
+  return (
+    /\?\s*$/.test(t) ||
+    /^(what|how|why|where|when|who|which|can|could|is|are|do|does|will|would|should|kya|kaise|kab|kahan|kaun|kitna|kitne)\b/.test(
+      t,
+    )
+  );
 }

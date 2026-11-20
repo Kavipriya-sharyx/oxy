@@ -3,7 +3,7 @@ import { GuardrailService } from "./Guardrail.service";
 import { assertTransition } from "./ConversationStateMachine";
 import { ConversationState as S } from "@Helper/Enum/ConversationState";
 import { fixedReply, NOTICE_VERSION } from "@Helper/FixedReplies";
-import { WELCOME_CARD_TEXT } from "@Helper/TemplateDefinitions";
+import { BILL_CARD_TEXT } from "./BillCard";
 import { WELCOME } from "@Helper/OpeningMenu";
 import { message } from "@Database/Table/Oxxy/message";
 import { consent } from "@Database/Table/Oxxy/consent";
@@ -44,7 +44,11 @@ const emptyConsent = (): ConsentRow => ({
   notice_sent_version: null,
 });
 
-const draft = (reply_text: string, extracted_fields: Record<string, unknown> = {}, intent = "other") => ({
+const draft = (
+  reply_text: string,
+  extracted_fields: Record<string, unknown> = {},
+  intent = "other",
+) => ({
   reply_text,
   intent,
   extracted_fields,
@@ -52,17 +56,31 @@ const draft = (reply_text: string, extracted_fields: Record<string, unknown> = {
 });
 
 function setup(
-  opts: { cons?: Partial<ConsentRow>; saveFails?: boolean; language?: string; claude?: Fn; state?: S } = {},
+  opts: {
+    cons?: Partial<ConsentRow>;
+    saveFails?: boolean;
+    language?: string;
+    claude?: Fn;
+    state?: S;
+  } = {},
 ) {
   const cons: ConsentRow = { ...emptyConsent(), ...opts.cons };
   // default: the customer already saw the welcome + opening list (Playbook 4.2 comes before the notice)
-  const conv = { id: "v1", state: opts.state ?? S.IntentMenu, pending_action: null as string | null };
+  const conv = {
+    id: "v1",
+    state: opts.state ?? S.IntentMenu,
+    pending_action: null as string | null,
+  };
   const out: Record<string, unknown>[] = [];
   const customerSaved: Record<string, unknown>[] = [];
   const needSaves: Record<string, unknown>[] = [];
 
   const send = jest.fn(async (...a: unknown[]) => {
-    out.push({ direction: "out", reply_to_wa_message_id: a[3], text: (a[1] as { body: string }).body });
+    out.push({
+      direction: "out",
+      reply_to_wa_message_id: a[3],
+      text: (a[1] as { body: string }).body,
+    });
     return "wamid.OUT";
   });
   const generate = jest.fn(opts.claude ?? (async () => draft("Hello! How can I help?")));
@@ -126,10 +144,10 @@ const texts = (t: { out: Record<string, unknown>[] }) => t.out.map((o) => o.text
 afterEach(() => jest.restoreAllMocks());
 
 describe("DPDP health-data consent gate", () => {
-  it("0. a brand-new chat gets the client's welcome card first (17 Nov), no notice and no health question", async () => {
+  it("0. a brand-new chat gets the client's first card (bill card, 20 Nov), no notice and no health question", async () => {
     const t = setup({ state: S.New });
     await t.run("hi");
-    expect(texts(t)).toEqual([WELCOME_CARD_TEXT]);
+    expect(texts(t)).toEqual([BILL_CARD_TEXT("en")]); // the bill card since 20 Nov (sequence 1)
     expect(t.conv.pending_action).toBe("flow:start");
     expect(t.conv.state).toBe(S.IntentMenu);
     expect(t.cons.notice_sent_at).toBeNull();
@@ -155,7 +173,12 @@ describe("DPDP health-data consent gate", () => {
     const t = setup({ state: S.IntentMenu });
     let row: Record<string, unknown> | null = null;
     stub(centre, "find", async () => [{ city: "Coimbatore" }]);
-    stub(need, "create", (v: unknown) => ({ ...(v as object), save: async function (this: Record<string, unknown>) { row = this; } }));
+    stub(need, "create", (v: unknown) => ({
+      ...(v as object),
+      save: async function (this: Record<string, unknown>) {
+        row = this;
+      },
+    }));
     stub(need, "findOne", async () => row);
     await t.run("menu_centre");
     await t.run("Tamilnadu, coimbatore, neelambur");
@@ -178,7 +201,9 @@ describe("DPDP health-data consent gate", () => {
   });
 
   it("0d. a general question before consent is answered (no health question), then the notice", async () => {
-    const t = setup({ claude: async () => draft("Oxxy is a healthcare savings and support partner.") });
+    const t = setup({
+      claude: async () => draft("Oxxy is a healthcare savings and support partner."),
+    });
     await t.run("where is your office located?");
     expect(t.generate).toHaveBeenCalledTimes(1);
     expect(texts(t)[0]).toBe("Oxxy is a healthcare savings and support partner.");
@@ -288,12 +313,15 @@ describe("DPDP health-data consent gate", () => {
     expect(JSON.parse(t.generate.mock.calls[0][1] as string).health_questions_allowed).toBe(false);
   });
 
-  it.each(["ok", "Okay", "sari", "seri", "aama", "சரி"])("8b. %s to the notice (\"Is that okay?\") is a YES (Tanglish / Tamil too)", async (word) => {
-    const t = setup();
-    await t.run("hi");
-    await t.run(word);
-    expect(t.cons.health_data_consent).toBe(true);
-  });
+  it.each(["ok", "Okay", "sari", "seri", "aama", "சரி"])(
+    '8b. %s to the notice ("Is that okay?") is a YES (Tanglish / Tamil too)',
+    async (word) => {
+      const t = setup();
+      await t.run("hi");
+      await t.run(word);
+      expect(t.cons.health_data_consent).toBe(true);
+    },
+  );
 
   it("8c. illa / vendam is a NO", async () => {
     const t = setup();
@@ -316,7 +344,11 @@ describe("DPDP health-data consent gate", () => {
 
   it("9. a changed notice version needs fresh consent: old consent is not valid", async () => {
     const t = setup({
-      cons: { health_data_consent: true, notice_version: "dpdp-health-v0", consent_timestamp: new Date() },
+      cons: {
+        health_data_consent: true,
+        notice_version: "dpdp-health-v0",
+        consent_timestamp: new Date(),
+      },
     });
     await t.run("I need help for my knee");
     expect(texts(t)).toEqual([fixedReply("health_notice", "en")]);
@@ -327,14 +359,20 @@ describe("DPDP health-data consent gate", () => {
   });
 
   it("9b. a refusal made under an old version is asked again", async () => {
-    const t = setup({ cons: { health_refused_at: new Date(), health_refused_version: "dpdp-health-v0" } });
+    const t = setup({
+      cons: { health_refused_at: new Date(), health_refused_version: "dpdp-health-v0" },
+    });
     await t.run("hello");
     expect(texts(t)).toEqual([fixedReply("health_notice", "en")]);
   });
 
   it("10. existing valid consent (current version) lets the conversation reach Claude", async () => {
     const t = setup({
-      cons: { health_data_consent: true, notice_version: NOTICE_VERSION, consent_timestamp: new Date() },
+      cons: {
+        health_data_consent: true,
+        notice_version: NOTICE_VERSION,
+        consent_timestamp: new Date(),
+      },
       state: S.Discovery, // past the opening list
     });
     await t.run("hi");
@@ -346,12 +384,16 @@ describe("DPDP health-data consent gate", () => {
     const t = setup({
       cons: { health_refused_at: new Date(), health_refused_version: NOTICE_VERSION },
       claude: async () =>
-        draft("Great, let me help with plans.", {
-          health_data_consent: true,
-          healthcare_need: "knee surgery",
-          annual_medical_spend: 90000,
-          city: "Pune",
-        }, "recommend"),
+        draft(
+          "Great, let me help with plans.",
+          {
+            health_data_consent: true,
+            healthcare_need: "knee surgery",
+            annual_medical_spend: 90000,
+            city: "Pune",
+          },
+          "recommend",
+        ),
     });
     const created: Record<string, unknown>[] = [];
     jest.spyOn(need, "create").mockImplementation(((v: object) => {
@@ -398,7 +440,9 @@ describe("DPDP health-data consent gate", () => {
   });
 
   it("a refusing customer can still ask for a human", async () => {
-    const t = setup({ cons: { health_refused_at: new Date(), health_refused_version: NOTICE_VERSION } });
+    const t = setup({
+      cons: { health_refused_at: new Date(), health_refused_version: NOTICE_VERSION },
+    });
     t.conv.state = S.Discovery;
     jest.spyOn(task, "findOne").mockResolvedValue(null as never);
     await t.run("I want to talk to a human");

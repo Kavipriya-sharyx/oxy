@@ -1,6 +1,12 @@
 import { Injectable, Logger, Optional } from "@nestjs/common";
 import { freshCallContext } from "@Helper/CallContext";
-import { faqAnswer, matchFaq, withoutClosingQuestion, faqNeedsPerson, FOUNDER_FAQ } from "@Helper/FaqReplies";
+import {
+  faqAnswer,
+  matchFaq,
+  withoutClosingQuestion,
+  faqNeedsPerson,
+  FOUNDER_FAQ,
+} from "@Helper/FaqReplies";
 import {
   asksNearby,
   centreListText,
@@ -51,7 +57,6 @@ import {
   termsCard,
   verifyCard,
   websiteCard,
-  welcomeCard,
   PLAN_DETAILS_URL,
   familyBillingQuestion,
   readFamilyBilling,
@@ -72,7 +77,21 @@ import {
   readMedAnswer,
 } from "./GuidedFlow";
 import { detectRescueSignal, readRescue, rescueLine } from "@Helper/RescueReplies";
-import { REBOOK_DECLINED_T } from "@Helper/CentreReplies";
+import { REBOOK_DECLINED_T, unverifiedNearbyText } from "@Helper/CentreReplies";
+import {
+  BILL_AMOUNT,
+  BILL_IDS,
+  BILL_PLAN,
+  billAmountAgain,
+  billAmountAsk,
+  billCard,
+  billCompareCard,
+  billResultCard,
+  pickedPlanCard,
+  plansListCard,
+  readBillAmount,
+  readPlanPick,
+} from "./BillCard";
 import { oneQuestion } from "@Helper/OneQuestion";
 import { singleExpenseSignal } from "@Helper/NeedSignals";
 import { knownSpecialisation, normaliseSpecialisation } from "./CentreSearch.service";
@@ -260,7 +279,16 @@ import { ConversationRepository, RESTARTED_FRESH } from "./ConversationRepositor
 import { isPlaceholder, planProblems, planReady } from "@Helper/GoLive";
 import { hasQuestion, statedYearlySpend, tidyDraft } from "@Helper/ReplyTidy";
 import { GeoPoint, GoogleMapsService, PlaceCandidate } from "@Service/Maps/GoogleMaps.service";
-import { isNoCentreText, isRepeatNoCentreText, noCentreText, asksWorksAtCentre, WORKS_AT_EVERY_T, WORKS_AT_NAMED_T, NO_INSURANCE_T, INSURANCE_COMPARE_T } from "@Helper/PlanReplies";
+import {
+  isNoCentreText,
+  isRepeatNoCentreText,
+  noCentreText,
+  asksWorksAtCentre,
+  WORKS_AT_EVERY_T,
+  WORKS_AT_NAMED_T,
+  NO_INSURANCE_T,
+  INSURANCE_COMPARE_T,
+} from "@Helper/PlanReplies";
 import {
   CALLBACK_OUTSIDE_HOURS_T,
   CallbackWindow,
@@ -316,7 +344,8 @@ export const CALLBACK_REASON_T: L = {
 export const NOT_SURE_HERE_T: L = {
   en: "Sorry, I could not answer that here. Our team can explain it on the call after your request.",
   hi: "क्षमा करें, मैं इसका जवाब यहाँ नहीं दे सका। आपकी रिक्वेस्ट के बाद कॉल पर हमारी टीम इसे समझा देगी।",
-  hinglish: "Sorry, main iska jawab yahan nahi de saka. Aapki request ke baad call par hamari team ise samjha degi.",
+  hinglish:
+    "Sorry, main iska jawab yahan nahi de saka. Aapki request ke baad call par hamari team ise samjha degi.",
 };
 // Before the health-data consent: after answering a question, the short reminder (the full notice was sent)
 export const CONSENT_REMINDER_T: L = {
@@ -329,7 +358,8 @@ export const CONSENT_REMINDER_T: L = {
 export const CENTRE_CITIES_T: L = {
   en: "Verified centres are available now in: {cities}. Send one of these cities to see the options there.",
   hi: "सत्यापित केंद्र अभी इन शहरों में उपलब्ध हैं: {cities}। विकल्प देखने के लिए इनमें से किसी शहर का नाम भेजें।",
-  hinglish: "Verified centres abhi in shehron mein available hain: {cities}. Options dekhne ke liye inmein se koi city bhejein.",
+  hinglish:
+    "Verified centres abhi in shehron mein available hain: {cities}. Options dekhne ke liye inmein se koi city bhejein.",
 };
 /** What a draft must never say (null = fine): checked in code, the prompt alone was not enough */
 export function draftProblem(text: string, bookingOpen: boolean): string | null {
@@ -354,23 +384,54 @@ export function draftProblem(text: string, bookingOpen: boolean): string | null 
 /** The draft's question asks for something the customer already answered (null = fine) */
 export function asksKnownAgain(
   text: string,
-  n: { beneficiary?: string | null; healthcare_need?: string | null; city?: string | null; locality?: string | null; annual_medical_spend?: number | string | null } | null,
+  n: {
+    beneficiary?: string | null;
+    healthcare_need?: string | null;
+    city?: string | null;
+    locality?: string | null;
+    annual_medical_spend?: number | string | null;
+  } | null,
 ): string | null {
   if (!n) return null;
   const q = lastQuestionOf(text).toLowerCase();
   if (!q) return null;
-  if (n.beneficiary && /\b(you|yourself)\b[^?]{0,30}\bor\b[^?]{0,30}\bfamily\b|\bwho is (this|it|the care) for\b/.test(q))
+  if (
+    n.beneficiary &&
+    /\b(you|yourself)\b[^?]{0,30}\bor\b[^?]{0,30}\bfamily\b|\bwho is (this|it|the care) for\b/.test(
+      q,
+    )
+  )
     return `already known: the care is for "${n.beneficiary}". Do not ask it again; ask the next missing thing`;
-  if (n.healthcare_need && /\bwhat( specific| kind of| type of)? (consultation|test|medicine|treatment|surgery|expense)/.test(q))
+  if (
+    n.healthcare_need &&
+    /\bwhat( specific| kind of| type of)? (consultation|test|medicine|treatment|surgery|expense)/.test(
+      q,
+    )
+  )
     return "already known: the need. Do not ask it again; ask the next missing thing";
-  if (n.city && n.locality && /\b(which|what) city\b|\bwhere do(es)? (you|the patient) live\b|\bcity and locality\b/.test(q))
+  if (
+    n.city &&
+    n.locality &&
+    /\b(which|what) city\b|\bwhere do(es)? (you|the patient) live\b|\bcity and locality\b/.test(q)
+  )
     return `already known: ${n.locality}, ${n.city}. Do not ask it again`;
   // the city alone is known (the button flow: "Coimbatore"): only the area may be asked, never the city again
-  if (n.city && !n.locality && /\b(which|what) city\b|\bcity and (locality|area)\b|\bwhere do(es)? (you|the patient) live\b/.test(q))
+  if (
+    n.city &&
+    !n.locality &&
+    /\b(which|what) city\b|\bcity and (locality|area)\b|\bwhere do(es)? (you|the patient) live\b/.test(
+      q,
+    )
+  )
     return `already known: the city is ${n.city}. Do not ask the city again; if needed ask only the area or locality in ${n.city}`;
   // any wording of the spend question ("What are your monthly medical expenses?" too: client, 17 Nov, the
   // expenses were asked again after the age)
-  if (n.annual_medical_spend && (/\bhow much\b[^?]*\bspend/.test(q) || asksSpend(q) || /\b(medical|healthcare|health) (expenses?|expenditure|spend|bills?)\b[^?]*\?/.test(q)))
+  if (
+    n.annual_medical_spend &&
+    (/\bhow much\b[^?]*\bspend/.test(q) ||
+      asksSpend(q) ||
+      /\b(medical|healthcare|health) (expenses?|expenditure|spend|bills?)\b[^?]*\?/.test(q))
+  )
     return "already known: the yearly spend. Do not ask it again";
   return null;
 }
@@ -381,14 +442,26 @@ export function asksKnownAgain(
  * (client, 17 Nov: "price plan activation still asking multiple times after it finished the conversation").
  * Fine when the customer's own message asks about the plan, the price, the link or paying.
  */
-export function repitchProblem(draft: string, settled: string | null, customerText: string): string | null {
+export function repitchProblem(
+  draft: string,
+  settled: string | null,
+  customerText: string,
+): string | null {
   if (!settled) return null;
-  if (/\b(activat\w*|link|pay\w*|price|cost|fees?|plan|subscri\w*|buy|purchase|kitna|evlo|evvalavu|rate)\b/i.test(customerText || ""))
+  if (
+    /\b(activat\w*|link|pay\w*|price|cost|fees?|plan|subscri\w*|buy|purchase|kitna|evlo|evvalavu|rate)\b/i.test(
+      customerText || "",
+    )
+  )
     return null;
   const q = lastQuestionOf(draft || "").toLowerCase();
   const pitch =
-    /\b(activat\w*|activation link|secure link|official link|plan details|the price|subscribe|sign up|purchase|buy|proceed with (the )?(plan|payment))\b/.test(q) ||
-    /\b(you can|you may|shall i|should i|i can) (now )?(activate|send (you )?the (official |secure )?(activation )?link)\b/i.test(draft || "");
+    /\b(activat\w*|activation link|secure link|official link|plan details|the price|subscribe|sign up|purchase|buy|proceed with (the )?(plan|payment))\b/.test(
+      q,
+    ) ||
+    /\b(you can|you may|shall i|should i|i can) (now )?(activate|send (you )?the (official |secure )?(activation )?link)\b/i.test(
+      draft || "",
+    );
   return pitch
     ? `do not offer the activation, the plan or its price again (${settled}); answer only what the customer wrote`
     : null;
@@ -411,16 +484,23 @@ async function quiet<T>(f: () => Promise<T>): Promise<T | null> {
 
 /** "Thanks", "ok thank you", "bye", "that's all", "nandri", "dhanyavaad": the customer is ending the chat */
 export function isClosingMessage(text: string): boolean {
-  const t = (text || "").toLowerCase().replace(/[^a-z\s']/g, " ").replace(/\s+/g, " ").trim();
+  const t = (text || "")
+    .toLowerCase()
+    .replace(/[^a-z\s']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!t || /\?/.test(text || "") || t.split(" ").length > 7) return false;
-  return /^(ok(ay)?|k|fine|sure|great|super|good|alright|got it|noted|sari|seri|theek hai|accha)?\s*(thanks?|thank you( so much| very much)?|thanku|thankyou|thx|ty|tq|bye|goodbye|good bye|that'?s all|thats it|that is all|nothing else|no more questions?|nandri|romba nandri|dhanyavaad|dhanyavad|shukriya)\b/.test(t);
+  return /^(ok(ay)?|k|fine|sure|great|super|good|alright|got it|noted|sari|seri|theek hai|accha)?\s*(thanks?|thank you( so much| very much)?|thanku|thankyou|thx|ty|tq|bye|goodbye|good bye|that'?s all|thats it|that is all|nothing else|no more questions?|nandri|romba nandri|dhanyavaad|dhanyavad|shukriya)\b/.test(
+    t,
+  );
 }
 export const SUMMARY_HEAD_T: L = {
   en: "Thank you. Here is a summary of our chat:",
   hi: "धन्यवाद। हमारी बातचीत का सारांश:",
   hinglish: "Thank you. Hamari baat ka summary:",
 };
-const SUMMARY_HEAD_RE = /Here is a summary of our chat|हमारी बातचीत का सारांश|Hamari baat ka summary/;
+const SUMMARY_HEAD_RE =
+  /Here is a summary of our chat|हमारी बातचीत का सारांश|Hamari baat ka summary/;
 
 // The spend / age questions asked because the customer wants to activate: once the plan is picked, the
 // activation step follows in the same reply (never "Would you like the plan details?" again)
@@ -438,21 +518,37 @@ export function withoutLastQuestion(text: string): string {
 /** The bot's question asks the patient's age */
 export function asksAge(text: string): boolean {
   const t = (text || "").trim();
-  const q = t.split(/(?<=[.!?।])\s+|\n+/).filter((x) => /\?\s*$/.test(x)).pop() ?? "";
-  return /\b(patient'?s?|your|their|his|her|mother'?s?|father'?s?|the) age\b|\bhow old\b|\bage of the\b/i.test(q);
+  const q =
+    t
+      .split(/(?<=[.!?।])\s+|\n+/)
+      .filter((x) => /\?\s*$/.test(x))
+      .pop() ?? "";
+  return /\b(patient'?s?|your|their|his|her|mother'?s?|father'?s?|the) age\b|\bhow old\b|\bage of the\b/i.test(
+    q,
+  );
 }
 
 // Media the bot cannot read (it never downloads files or sends them to the LLM)
-const MEDIA_TYPES = new Set(["audio", "voice", "image", "document", "video", "sticker", "reaction"]);
+const MEDIA_TYPES = new Set([
+  "audio",
+  "voice",
+  "image",
+  "document",
+  "video",
+  "sticker",
+  "reaction",
+]);
 export const MEDIA_VOICE_T: L = {
   en: "Sorry, I cannot listen to voice notes yet. Please type your question in a few words and I will reply right away.",
   hi: "माफ़ कीजिए, मैं अभी वॉइस नोट नहीं सुन सकता। कृपया अपना सवाल कुछ शब्दों में लिखें, मैं तुरंत जवाब दूँगा।",
-  hinglish: "Sorry, main abhi voice note nahi sun sakta. Kripya apna sawaal kuch shabdon mein likhein, main turant jawab dunga.",
+  hinglish:
+    "Sorry, main abhi voice note nahi sun sakta. Kripya apna sawaal kuch shabdon mein likhein, main turant jawab dunga.",
 };
 export const MEDIA_FILE_T: L = {
   en: "Thank you, I have received your file. I cannot open files here, so our team will look at it. Please also type your question in a few words and I will help right away.",
   hi: "धन्यवाद, आपकी फ़ाइल मिल गई। मैं यहाँ फ़ाइलें नहीं खोल सकता, हमारी टीम इसे देखेगी। कृपया अपना सवाल भी कुछ शब्दों में लिखें, मैं तुरंत मदद करूँगा।",
-  hinglish: "Dhanyavaad, aapki file mil gayi. Main yahan files nahi khol sakta, hamari team ise dekhegi. Kripya apna sawaal bhi kuch shabdon mein likhein, main turant madad karunga.",
+  hinglish:
+    "Dhanyavaad, aapki file mil gayi. Main yahan files nahi khol sakta, hamari team ise dekhegi. Kripya apna sawaal bhi kuch shabdon mein likhein, main turant madad karunga.",
 };
 // Booking request, side answers
 export const CENTRE_CHANGED_T: L = {
@@ -466,9 +562,10 @@ export const DATE_NOTED_T: L = {
   hinglish: "{date} note kar liya.",
 };
 export const DOCTOR_NOT_SURE_T: L = {
-  en: "No problem. I will mark the request \"not sure, please advise\": the centre will suggest the right doctor.",
-  hi: "कोई बात नहीं। मैं अनुरोध में \"पता नहीं, कृपया सलाह दें\" लिख दूँगा: केंद्र सही डॉक्टर बताएगा।",
-  hinglish: "Koi baat nahi. Main request mein \"not sure, please advise\" likh dunga: centre sahi doctor batayega.",
+  en: 'No problem. I will mark the request "not sure, please advise": the centre will suggest the right doctor.',
+  hi: 'कोई बात नहीं। मैं अनुरोध में "पता नहीं, कृपया सलाह दें" लिख दूँगा: केंद्र सही डॉक्टर बताएगा।',
+  hinglish:
+    'Koi baat nahi. Main request mein "not sure, please advise" likh dunga: centre sahi doctor batayega.',
 };
 export const NOT_SURE_SPECIALISATION = "Not sure - please advise";
 /** "I don't know which doctor", "you tell me", "not sure", "any doctor" */
@@ -481,13 +578,15 @@ export function knowsNotWhichDoctor(text: string): boolean {
 export const RADIUS_DEFAULT_T: L = {
   en: "Here are verified options within about 10 km. Tell me if the patient can travel further.",
   hi: "लगभग 10 km के अंदर के सत्यापित विकल्प ये हैं। अगर मरीज़ और दूर जा सकते हैं तो बताइए।",
-  hinglish: "Lagbhag 10 km ke andar ke verified options ye hain. Agar patient aur door ja sakte hain to bataiye.",
+  hinglish:
+    "Lagbhag 10 km ke andar ke verified options ye hain. Agar patient aur door ja sakte hain to bataiye.",
 };
 // The area typed while the health notice waits for YES / NO (client, 17 Nov). English wording approved by the client on 17 Nov
 export const CONSENT_AREA_NOTED_T: L = {
   en: "Thank you, I have noted {place}. Before I look for centres there, please reply YES or NO to the note above about health details.",
   hi: "धन्यवाद, मैंने {place} नोट कर लिया है। वहाँ केंद्र खोजने से पहले, कृपया स्वास्थ्य जानकारी वाले ऊपर के नोट पर YES या NO लिखें।",
-  hinglish: "Dhanyavaad, maine {place} note kar liya hai. Wahan centres dhoondhne se pehle, kripya health details wale upar ke note par YES ya NO likhein.",
+  hinglish:
+    "Dhanyavaad, maine {place} note kar liya hai. Wahan centres dhoondhne se pehle, kripya health details wale upar ke note par YES ya NO likhein.",
 };
 // YES to the notice in the middle of a chat: the conversation goes on, no second welcome. English wording approved by the client on 17 Nov
 export const CONSENT_GO_ON_T: L = {
@@ -499,7 +598,8 @@ export const CONSENT_GO_ON_T: L = {
 export const TEAM_HAS_IT_T: L = {
   en: "Our team already has your request and will call you as arranged.",
   hi: "हमारी टीम के पास आपकी रिक्वेस्ट पहले से है और वे तय समय पर आपको कॉल करेंगे।",
-  hinglish: "Hamari team ke paas aapki request pehle se hai aur woh tay samay par aapko call karenge.",
+  hinglish:
+    "Hamari team ke paas aapki request pehle se hai aur woh tay samay par aapko call karenge.",
 };
 // need columns handed to the LLM as "already known" (the free-text condition is never sent)
 const KNOWN_NEED_FIELDS = [
@@ -635,7 +735,9 @@ export function paymentReplyKind(text: string): "done" | "failed" | "not_now" | 
     ) ||
     // "I have done the payment", "payment is successful", "made the payment" (never "not paid yet")
     (!/\b(not|haven't|have not|didn't|did not|nahi|nahin|yet to)\b/.test(t) &&
-      /\b(i have (done|made|completed) (the )?payment|(i )?(did|made|completed) (the )?payment|payment (is |has been |was )?(done|completed|successful|success|made|paid)|paid (the )?(amount|money|fees?)|amount paid)\b/.test(t))
+      /\b(i have (done|made|completed) (the )?payment|(i )?(did|made|completed) (the )?payment|payment (is |has been |was )?(done|completed|successful|success|made|paid)|paid (the )?(amount|money|fees?)|amount paid)\b/.test(
+        t,
+      ))
   )
     return "done";
   if (
@@ -830,28 +932,10 @@ export class ChatPipelineService {
         `EXISTS (SELECT 1 FROM "message" r WHERE r.direction = 'out' AND r.reply_to_wa_message_id = o.wa_message_id)`,
       )
       .getCount();
-    if (newer > 0) return true;
-
-    // Delayed webhook delivery: if wa_timestamp is more than 10 minutes old and there has already been
-    // any activity in this conversation since that timestamp, treat it as stale.
-    if (m.wa_timestamp) {
-      const ageMs = Date.now() - new Date(m.wa_timestamp).getTime();
-      if (ageMs > 10 * 60 * 1000) {
-        const anyActivity = await message
-          .createQueryBuilder("a")
-          .where("a.conversation_id = :cid", { cid: m.conversation_id })
-          .andWhere("a.id <> :id", { id: m.id })
-          .andWhere(
-            `(a.created_on > (SELECT x.wa_timestamp FROM "message" x WHERE x.id = :id)
-              OR (a.wa_timestamp IS NOT NULL AND a.wa_timestamp > (SELECT x.wa_timestamp FROM "message" x WHERE x.id = :id)))`,
-            { id: m.id },
-          )
-          .getCount();
-        if (anyActivity > 0) return true;
-      }
-    }
-
-    return false;
+    // Age alone never makes a message stale: a late message with no newer answered one still gets its reply
+    // (the 18 Nov "older than 10 minutes and any activity since" rule also skipped real customers whose
+    // message arrived after a bot follow-up).
+    return newer > 0;
   }
 
   private async alreadyReplied(inboundWamid: string): Promise<boolean> {
@@ -1143,12 +1227,17 @@ export class ChatPipelineService {
     const l = s.customer.language;
     const chosen = taskId ? await task.findOne({ where: { id: taskId } }) : null;
     const earlier = await this.chosenCallback(s);
-    const existing = (chosen?.callback_from ? chosen : null) ?? (earlier?.callback_from ? earlier : null);
+    const existing =
+      (chosen?.callback_from ? chosen : null) ?? (earlier?.callback_from ? earlier : null);
 
     if (existing?.callback_from) {
       if (taskId && existing.id !== taskId) {
         await quiet(() =>
-          task.update(taskId, { callback_from: existing.callback_from, callback_to: existing.callback_to, due_at: existing.callback_from } as any),
+          task.update(taskId, {
+            callback_from: existing.callback_from,
+            callback_to: existing.callback_to,
+            due_at: existing.callback_from,
+          } as any),
         );
       }
       const existingWin: CallbackWindow = {
@@ -1159,20 +1248,33 @@ export class ChatPipelineService {
       const targetId = taskId || existing.id;
       if (options.length && targetId) {
         await this.setPending(s, `callback_set:${targetId}:${packWindows(options)}`);
-        const q = callbackQuestion(options, l, new Date(), { window: existingWin, ref: caseRef(existing.id) });
+        const q = callbackQuestion(options, l, new Date(), {
+          window: existingWin,
+          ref: caseRef(existing.id),
+        });
         return [text, q].filter(Boolean).join("\n\n");
       }
       return [text, await this.teamHasItText(s, existing)].filter(Boolean).join("\n\n");
     }
 
     // the times were already offered for another case and not answered yet: the same times, the same case
-    const offered = (s.conversation.pending_action ?? "").match(/^callback_(time|set):([^:]+):(.*)$/);
+    const offered = (s.conversation.pending_action ?? "").match(
+      /^callback_(time|set):([^:]+):(.*)$/,
+    );
     if (offered && unpackWindows(offered[3]).some((w) => w.from.getTime() > Date.now())) {
       const activeTask = await task.findOne({ where: { id: offered[2] } });
       const existingWin = activeTask?.callback_from
-        ? { window: { from: activeTask.callback_from, to: activeTask.callback_to ?? activeTask.callback_from }, ref: caseRef(activeTask.id) }
+        ? {
+            window: {
+              from: activeTask.callback_from,
+              to: activeTask.callback_to ?? activeTask.callback_from,
+            },
+            ref: caseRef(activeTask.id),
+          }
         : null;
-      return [text, callbackQuestion(unpackWindows(offered[3]), l, new Date(), existingWin)].filter(Boolean).join("\n\n");
+      return [text, callbackQuestion(unpackWindows(offered[3]), l, new Date(), existingWin)]
+        .filter(Boolean)
+        .join("\n\n");
     }
     const options = callbackOptions();
     if (!taskId || !options.length) return text;
@@ -1201,7 +1303,8 @@ export class ChatPipelineService {
   /** Why the activation must not be offered again in this chat (null = it may be) */
   private async activationSettled(s: Saved): Promise<string | null> {
     if (s.customer.active_product) return "the customer already has an active plan";
-    if (s.conversation.outcome === "activation_declined") return "the customer declined the activation";
+    if (s.conversation.outcome === "activation_declined")
+      return "the customer declined the activation";
     if (["family", "think", "busy"].includes(String(s.conversation.objection)))
       return "the customer will decide later (family / think / busy)";
     const sent = await quiet(() =>
@@ -1247,10 +1350,15 @@ export class ChatPipelineService {
     const text = (m.text || "").trim();
     const lang = s.customer.language;
 
-    if (change && /^(no|nope|keep|same|don't change|dont change|nahi|nahin|vendam|illa)[.!]*$/i.test(text)) {
+    if (
+      change &&
+      /^(no|nope|keep|same|don't change|dont change|nahi|nahin|vendam|illa)[.!]*$/i.test(text)
+    ) {
       await this.setPending(s, null);
       const t = await task.findOne({ where: { id: taskId } });
-      const when = t?.callback_from ? showWindow({ from: t.callback_from, to: t.callback_to ?? t.callback_from }, lang) : "";
+      const when = t?.callback_from
+        ? showWindow({ from: t.callback_from, to: t.callback_to ?? t.callback_from }, lang)
+        : "";
       await this.sendAndSave(
         s.customer.id,
         say(
@@ -1273,7 +1381,10 @@ export class ChatPipelineService {
         await this.setPending(s, `callback_set:${taskId}:${packWindows(fresh)}`);
         const t = await task.findOne({ where: { id: taskId } });
         const existingWin = t?.callback_from
-          ? { window: { from: t.callback_from, to: t.callback_to ?? t.callback_from }, ref: caseRef(taskId) }
+          ? {
+              window: { from: t.callback_from, to: t.callback_to ?? t.callback_from },
+              ref: caseRef(taskId),
+            }
           : null;
         await this.sendAndSave(
           s.customer.id,
@@ -1315,7 +1426,11 @@ export class ChatPipelineService {
         );
         for (const o of others ?? []) {
           if (o.id !== taskId) {
-            await mg.update(task, { id: o.id }, { callback_from: w.from, callback_to: w.to, due_at: w.from });
+            await mg.update(
+              task,
+              { id: o.id },
+              { callback_from: w.from, callback_to: w.to, due_at: w.from },
+            );
           }
         }
       }
@@ -1350,15 +1465,25 @@ export class ChatPipelineService {
   /** Explicit request to reschedule / change callback timing */
   private async handleRescheduleCallback(m: Inbound, s: Saved): Promise<boolean> {
     const text = (m.text || "").trim();
-    if (!/\b(change|reschedule|move|different|another)\b.*\b(callback|call|timing|time|slot)\b|\b(callback|call)\b.*\b(change|reschedule|move|different|another)\b/i.test(text)) {
+    if (
+      !/\b(change|reschedule|move|different|another)\b.*\b(callback|call|timing|time|slot)\b|\b(callback|call)\b.*\b(change|reschedule|move|different|another)\b/i.test(
+        text,
+      )
+    ) {
       return false;
     }
     const cb = await this.chosenCallback(s);
     if (!cb || !cb.callback_from) return false;
-    const existingWin: CallbackWindow = { from: cb.callback_from, to: cb.callback_to ?? cb.callback_from };
+    const existingWin: CallbackWindow = {
+      from: cb.callback_from,
+      to: cb.callback_to ?? cb.callback_from,
+    };
     const options = callbackOptions();
     await this.setPending(s, `callback_set:${cb.id}:${packWindows(options)}`);
-    const q = callbackQuestion(options, s.customer.language, new Date(), { window: existingWin, ref: caseRef(cb.id) });
+    const q = callbackQuestion(options, s.customer.language, new Date(), {
+      window: existingWin,
+      ref: caseRef(cb.id),
+    });
     await this.sendAndSave(s.customer.id, q, m.waMessageId);
     return true;
   }
@@ -1399,7 +1524,8 @@ export class ChatPipelineService {
       });
       if (!reply) return; // nothing was answered: nothing to follow
       const conv = s.conversation; // kept current by setState in this turn
-      if (conv.state === ConversationState.Pause || conv.state === ConversationState.OptedOut) return;
+      if (conv.state === ConversationState.Pause || conv.state === ConversationState.OptedOut)
+        return;
       if (conv.taken_over_by_id) return;
       const l = s.customer.language;
       if (status === "none") {
@@ -1411,7 +1537,8 @@ export class ChatPipelineService {
           c.notice_sent_version = NOTICE_VERSION;
         });
       } else if (!/\?\s*$|reply (yes|1)/i.test(String(reply.body ?? "").trim())) {
-        for (const b of toBubbles(say(CONSENT_REMINDER_T, l))) await this._Wa.send(s.customer.id, b, "reply");
+        for (const b of toBubbles(say(CONSENT_REMINDER_T, l)))
+          await this._Wa.send(s.customer.id, b, "reply");
       }
     } catch (e) {
       this.logger.warn(`consent notice after the answer not sent: ${(e as Error).message}`);
@@ -1482,7 +1609,11 @@ export class ChatPipelineService {
       const talkedBefore =
         !picked &&
         (await Promise.resolve()
-          .then(() => message.count({ where: { conversation_id: s.conversation.id, direction: "out" } as any }))
+          .then(() =>
+            message.count({
+              where: { conversation_id: s.conversation.id, direction: "out" } as any,
+            }),
+          )
           .catch(() => 0)) > 2;
       if (picked && typed?.city) {
         // the area typed while the notice waited is used: how far, then the list (no location question)
@@ -1528,7 +1659,11 @@ export class ChatPipelineService {
       if (s.conversation.pending_action === FLOW_AFTER_CONSENT) {
         // no health questions: the flow goes on with the age, then the spend and the plan
         await this.setPending(s, "flow:age");
-        await this.sendAndSave(customerId, stepMessage("age", fixedReply("health_consent_no", lang), lang), m.waMessageId);
+        await this.sendAndSave(
+          customerId,
+          stepMessage("age", fixedReply("health_consent_no", lang), lang),
+          m.waMessageId,
+        );
         return;
       }
       if (this.rowAfterConsent(s)) await this.setPending(s, null);
@@ -1536,10 +1671,15 @@ export class ChatPipelineService {
     } else {
       // "Find or book a centre" was picked and the area typed instead of YES / NO: the area is kept (it is
       // not a health detail) and the YES / NO asked once more, never "Sorry, I did not understand"
-      const area = this.rowAfterConsent(s)?.id === "menu_centre" ? await this.areaBeforeConsent(m.text, s) : null;
+      const area =
+        this.rowAfterConsent(s)?.id === "menu_centre"
+          ? await this.areaBeforeConsent(m.text, s)
+          : null;
       await this.sendAndSave(
         customerId,
-        area ? say(CONSENT_AREA_NOTED_T, lang).replace("{place}", area) : fixedReply("health_consent_unclear", lang),
+        area
+          ? say(CONSENT_AREA_NOTED_T, lang).replace("{place}", area)
+          : fixedReply("health_consent_unclear", lang),
         m.waMessageId,
       );
     }
@@ -1553,7 +1693,9 @@ export class ChatPipelineService {
     let { locality, city } = a;
     const knownCity = !!city && cities.some((c) => c.toLowerCase() === city!.toLowerCase());
     if (this._Maps?.enabled) {
-      const geo = await this._Maps.geocode([locality, city].filter(Boolean).join(", ")).catch(() => null);
+      const geo = await this._Maps
+        .geocode([locality, city].filter(Boolean).join(", "))
+        .catch(() => null);
       if (!geo && !knownCity && !locality) return null;
       if (geo?.city) city = geo.city;
       if (locality && geo?.locality) locality = geo.locality;
@@ -1600,7 +1742,8 @@ export class ChatPipelineService {
       let options = unpackWindows(cb[2]);
       if (!options.length || options[0].from.getTime() < Date.now()) {
         options = callbackOptions();
-        if (options.length) await this.setPending(s, `callback_time:${cb[1]}:${packWindows(options)}`);
+        if (options.length)
+          await this.setPending(s, `callback_time:${cb[1]}:${packWindows(options)}`);
       }
       const first = asksWhyDate(m.text) ? dateRuleText(l, undefined, false) : say(STILL_HERE_T, l);
       await this.sendAndSave(
@@ -1628,12 +1771,72 @@ export class ChatPipelineService {
 
   // ---- The voice-aligned button flow (client, 17 Nov; Service/Oxxy/GuidedFlow.ts) ----
 
-  /** The client's welcome card; the answer is read by handleGuidedFlow (Trigger W) */
+  /**
+   * The first card of a chat and "Main Menu": the client's "Reduce Your Medical Bill Now" card (sequence 1,
+   * 20 Nov; Service/Oxxy/BillCard.ts). Its buttons are read by handleBillCard (Trigger W). The 17 Nov welcome
+   * card (welcomeCard) is no longer sent; its button ids still work for chats that already have it.
+   */
   private async startGuidedFlow(m: Inbound, s: Saved) {
-    await this.sendAndSave(s.customer.id, welcomeCard(), m.waMessageId);
+    await this.sendAndSave(s.customer.id, billCard(s.customer.language), m.waMessageId);
     await this.setPending(s, "flow:start");
-    if (s.conversation.state === ConversationState.New) await this.setState(s, [ConversationState.IntentMenu]);
-    await this.recordTrigger(s, "W", "welcome card");
+    if (s.conversation.state === ConversationState.New)
+      await this.setState(s, [ConversationState.IntentMenu]);
+    await this.recordTrigger(s, "W", "reduce your medical bill card");
+  }
+
+  /**
+   * The bill card's answers: Calculate discount -> the bill amount -> the estimate; Learn More -> insurance vs
+   * Oxxy; Activate Oxxy -> the four plans -> the picked plan with price + GST (then the flow's close step does
+   * the activation). Code only, no LLM. false = not for this card (the normal conversation answers).
+   */
+  private async handleBillCard(m: Inbound, s: Saved): Promise<boolean> {
+    const text = (m.text || "").trim();
+    const id = text.toLowerCase();
+    const l = s.customer.language;
+    const pending = s.conversation.pending_action;
+    const reply = (msg: string | OutboundMessage) =>
+      this.sendAndSave(s.customer.id, msg, m.waMessageId);
+
+    if (id === BILL_IDS.calc || /^calculate( my| your)? discount$/i.test(text)) {
+      await this.setPending(s, BILL_AMOUNT);
+      await reply(billAmountAsk(l));
+      return true;
+    }
+    if (id === BILL_IDS.learn || id === "learn more") {
+      await reply(billCompareCard(l));
+      await this.recordTrigger(s, "B", "regular health insurance vs Oxxy (bill card)");
+      return true;
+    }
+    if (id === BILL_IDS.activate || id === "activate oxxy") {
+      const prices: Partial<Record<PlanName, number | null>> = {};
+      for (const p of ["everyday", "vital", "thrive", "infinity"] as PlanName[])
+        prices[p] = (await this.flowPrice(p)).yearly;
+      await this.setPending(s, BILL_PLAN);
+      await reply(plansListCard(prices, l));
+      return true;
+    }
+    const plan = id.startsWith("plan_") || pending === BILL_PLAN ? readPlanPick(text) : null;
+    if (plan) {
+      await this.saveRecommendation(s, plan);
+      await this.setPending(s, "flow:close:0");
+      await reply(pickedPlanCard(plan, await this.flowPrice(plan), l));
+      await this.recordTrigger(s, "E", `plan ${plan} picked from the bill card list`);
+      return true;
+    }
+    if (pending === BILL_AMOUNT) {
+      const amount = readBillAmount(text);
+      if (amount) {
+        await this.setPending(s, null);
+        await reply(billResultCard(amount, l));
+        await this.recordTrigger(s, "F", `bill discount estimate for ${amount}`);
+        return true;
+      }
+      // a question or a sentence is answered normally; a short non-amount asks once more
+      if (looksLikeQuestion(text) || text.split(/\s+/).length > 6 || m.location) return false;
+      await reply(billAmountAgain(l));
+      return true;
+    }
+    return false;
   }
 
   /** A follow-up message of the same turn (the first one carries the reply tag) */
@@ -1654,7 +1857,9 @@ export class ChatPipelineService {
       need: readNeed(String(n?.healthcare_need ?? "")),
       savings: readSavingsNeed(String(n?.healthcare_need ?? "")),
       when: n?.urgency === "immediate" ? "soon" : "future",
-      condition: n?.pre_existing ? readCondition(String((n as any)?.condition_if_voluntary ?? "other")) : "none",
+      condition: n?.pre_existing
+        ? readCondition(String((n as any)?.condition_if_voluntary ?? "other"))
+        : "none",
       age: Number(s.customer.age) || null,
       spend: n?.annual_medical_spend != null ? Number(n.annual_medical_spend) : null,
       insurance: (n?.insurance_status as Insurance) ?? null,
@@ -1688,6 +1893,7 @@ export class ChatPipelineService {
       await this.startGuidedFlow(m, s);
       return true;
     }
+    if (await this.handleBillCard(m, s)) return true;
     // Customer explicitly asks for testimonials, reviews, feedback, proof, or news articles while in the guided flow
     const inFlow = !!s.conversation.pending_action?.startsWith("flow:");
     if (inFlow && asksProofOrFeedback(text)) {
@@ -1727,7 +1933,11 @@ export class ChatPipelineService {
     }
     // the verify card's buttons (Customer Testimonial / News Articles): the page, the flow step stays
     if (id === "verify_stories" || id === "verify_news") {
-      await this.sendAndSave(s.customer.id, proofLinkCard(id === "verify_stories" ? "stories" : "news"), m.waMessageId);
+      await this.sendAndSave(
+        s.customer.id,
+        proofLinkCard(id === "verify_stories" ? "stories" : "news"),
+        m.waMessageId,
+      );
       await this.sendMore(s, termsCard(s.customer.language));
       return true;
     }
@@ -1745,7 +1955,12 @@ export class ChatPipelineService {
       } else if (id === "flow_contact") {
         await this.sendAndSave(s.customer.id, contactText(s.customer.language), m.waMessageId);
         await this.sendMore(s, stepMessage("who", undefined, s.customer.language));
-      } else await this.sendAndSave(s.customer.id, stepMessage("who", undefined, s.customer.language), m.waMessageId);
+      } else
+        await this.sendAndSave(
+          s.customer.id,
+          stepMessage("who", undefined, s.customer.language),
+          m.waMessageId,
+        );
       await this.setPending(s, "flow:who");
       return true;
     }
@@ -1754,13 +1969,26 @@ export class ChatPipelineService {
     // a tap sends an id ("who_self"); typed words are read only when short and not a question, so "can you help
     // me find a hospital?" goes to the normal conversation (the step stays for the next tap)
     const tapped = /^[a-z]+_[a-z0-9]+$/.test(id);
-    if (!tapped && !m.location && (looksLikeQuestion(text) || /\?\s*$/.test(text) || text.split(/\s+/).length > 8 || step === "start")) return false;
+    if (
+      !tapped &&
+      !m.location &&
+      (looksLikeQuestion(text) ||
+        /\?\s*$/.test(text) ||
+        text.split(/\s+/).length > 8 ||
+        step === "start")
+    )
+      return false;
     if (!tapped && isGreeting(text) && step !== "close") {
-      await this.sendAndSave(s.customer.id, stepMessage(step === "start" ? "who" : step, undefined, s.customer.language), m.waMessageId);
+      await this.sendAndSave(
+        s.customer.id,
+        stepMessage(step === "start" ? "who" : step, undefined, s.customer.language),
+        m.waMessageId,
+      );
       if (step === "start") await this.setPending(s, "flow:who");
       return true;
     }
-    const reply = (msg: string | OutboundMessage) => this.sendAndSave(s.customer.id, msg, m.waMessageId);
+    const reply = (msg: string | OutboundMessage) =>
+      this.sendAndSave(s.customer.id, msg, m.waMessageId);
     const humanAck = (k: any, v: any) => this.humanAck(k, v, s, text);
     const ask = async (next: FlowStep, msg?: OutboundMessage, ack?: string | null) => {
       await this.setPending(s, `flow:${next}`);
@@ -1814,7 +2042,11 @@ export class ChatPipelineService {
           n.beneficiary = who;
           await n.save();
           const ackWho = await humanAck("who", who);
-          const isFunnel = n.healthcare_need && ["consult", "tests", "surgery", "family", "exploring"].includes(String(n.healthcare_need));
+          const isFunnel =
+            n.healthcare_need &&
+            ["consult", "tests", "surgery", "family", "exploring"].includes(
+              String(n.healthcare_need),
+            );
           if (isFunnel) {
             await ask("when", undefined, ackWho);
             return true;
@@ -1854,7 +2086,9 @@ export class ChatPipelineService {
           id === "flow_activate" ||
           id === "act_yearly" ||
           id === "act_monthly" ||
-          /\b(ready to buy|ready|buy|buy plan|checkout|recommend|show plan|plan|activate|price)\b/i.test(text)
+          /\b(ready to buy|ready|buy|buy plan|checkout|recommend|show plan|plan|activate|price)\b/i.test(
+            text,
+          )
         ) {
           await this.flowPlanCard(s, m.waMessageId, null);
           return true;
@@ -1866,7 +2100,11 @@ export class ChatPipelineService {
             s,
             "Customer requested advisor assistance: AI voice call, objection handling and follow-up",
           );
-          await this.sendAndSave(s.customer.id, advisorContactCard(s.customer.language), m.waMessageId);
+          await this.sendAndSave(
+            s.customer.id,
+            advisorContactCard(s.customer.language),
+            m.waMessageId,
+          );
           return true;
         }
         return false;
@@ -1889,7 +2127,13 @@ export class ChatPipelineService {
         // "Calculate Now" (or the amount typed at once, or "I want plan"): the spend list
         const typed = readSpendChoice(text) ?? spendAnswer(text);
         if (typed) return this.flowSpend(s, typed, reply, goOn);
-        if (id !== "calc_start" && !/\b(calculat\w*|start|yes|ok|okay|plan|plans|price|save|saving|savings|next)\b/i.test(text)) return false;
+        if (
+          id !== "calc_start" &&
+          !/\b(calculat\w*|start|yes|ok|okay|plan|plans|price|save|saving|savings|next)\b/i.test(
+            text,
+          )
+        )
+          return false;
         await ask("spend", undefined, await humanAck("calc", null));
         return true;
       }
@@ -1909,14 +2153,20 @@ export class ChatPipelineService {
         s.customer.age = age as any;
         await s.customer.save();
         // the area given earlier in this chat (typed, a pin) is used: no city question again
-        await goOn(true, undefined, await humanAck("age", ageLabel(text, age, s.customer.language)));
+        await goOn(
+          true,
+          undefined,
+          await humanAck("age", ageLabel(text, age, s.customer.language)),
+        );
         return true;
       }
       case "city": {
         if (m.location) {
           // the pin -> its area and city (kept as the typed area would be; the pin itself is not stored), so the
           // centre search later never asks for the location again (client, 17 Nov)
-          const at = await quiet(() => this._Maps?.reverseGeocode(m.location!) ?? Promise.resolve(null));
+          const at = await quiet(
+            () => this._Maps?.reverseGeocode(m.location!) ?? Promise.resolve(null),
+          );
           if (!at?.city) {
             // the pin could not be read as an area (map lookup failed): said once, the area typed instead
             // (end-to-end test, 18 Nov: the same question came back with no word on why)
@@ -1928,7 +2178,8 @@ export class ChatPipelineService {
                   {
                     en: "Thank you for the location. I could not read the area from it, so please type the area and city.",
                     hi: "लोकेशन के लिए धन्यवाद। उससे इलाका नहीं पढ़ा जा सका, कृपया इलाका और शहर लिखें।",
-                    hinglish: "Location ke liye shukriya. Usse area read nahi ho paya, kripya area aur city likhein.",
+                    hinglish:
+                      "Location ke liye shukriya. Usse area read nahi ho paya, kripya area aur city likhein.",
                   },
                   s.customer.language,
                 ),
@@ -1949,7 +2200,11 @@ export class ChatPipelineService {
             stepMessage(
               "city",
               say(
-                { en: "Please type the area and city first.", hi: "कृपया पहले इलाका और शहर लिखें।", hinglish: "Kripya pehle area aur city likhein." },
+                {
+                  en: "Please type the area and city first.",
+                  hi: "कृपया पहले इलाका और शहर लिखें।",
+                  hinglish: "Kripya pehle area aur city likhein.",
+                },
                 s.customer.language,
               ),
               s.customer.language,
@@ -1967,7 +2222,8 @@ export class ChatPipelineService {
                 {
                   en: "I could not read that here (a live location cannot be shared with this chat). Please tap “Send location” and choose “Send your current location”, or type the area and city.",
                   hi: "यह यहाँ नहीं पढ़ा जा सका (लाइव लोकेशन इस चैट में नहीं आती)। कृपया “Send location” दबाकर “Send your current location” चुनें, या इलाका और शहर लिखें।",
-                  hinglish: "Yeh yahan read nahi ho paya (live location is chat mein nahi aati). Kripya “Send location” dabakar “Send your current location” chunein, ya area aur city likhein.",
+                  hinglish:
+                    "Yeh yahan read nahi ho paya (live location is chat mein nahi aati). Kripya “Send location” dabakar “Send your current location” chunein, ya area aur city likhein.",
                 },
                 s.customer.language,
               ),
@@ -1996,7 +2252,9 @@ export class ChatPipelineService {
           n.locality = (locality ?? null) as any;
           await n.save();
         }
-        const placed = this.placeOf(await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } })));
+        const placed = this.placeOf(
+          await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } })),
+        );
         // no insurance question (client, 17 Nov); the appointment offer for a visit
         await goOn(true, undefined, placed ? await humanAck("city", placed) : null);
         return true;
@@ -2024,7 +2282,9 @@ export class ChatPipelineService {
         const billing =
           id === "act_monthly" || /\bmonth/i.test(text)
             ? BillingCycle.Monthly
-            : id === "act_yearly" || id === "flow_activate" || /\b(year|annual|activate|ready to buy|buy plan|yes)\b/i.test(text)
+            : id === "act_yearly" ||
+                id === "flow_activate" ||
+                /\b(year|annual|activate|ready to buy|buy plan|yes)\b/i.test(text)
               ? BillingCycle.Yearly
               : null;
         if (!billing) return false;
@@ -2059,7 +2319,10 @@ export class ChatPipelineService {
               s.customer.language,
             ) + "\n\n";
         }
-        const ack = await humanAck("activate", billing === BillingCycle.Monthly ? "monthly" : "yearly");
+        const ack = await humanAck(
+          "activate",
+          billing === BillingCycle.Monthly ? "monthly" : "yearly",
+        );
         await reply(ack);
         await this.sendMore(s, `${note}${act}`);
         // the terms before the payment: only when the official link is the next step, once per chat
@@ -2067,7 +2330,13 @@ export class ChatPipelineService {
         if (s.conversation.pending_action?.startsWith("send_activation_link:")) {
           const terms = termsCard(s.customer.language) as { body: string };
           const sent = await quiet(() =>
-            message.findOne({ where: { conversation_id: s.conversation.id, direction: "out", body: terms.body } as any }),
+            message.findOne({
+              where: {
+                conversation_id: s.conversation.id,
+                direction: "out",
+                body: terms.body,
+              } as any,
+            }),
           );
           if (!sent) await this.sendMore(s, termsCard(s.customer.language));
         }
@@ -2079,7 +2348,11 @@ export class ChatPipelineService {
         const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
         const ack = await humanAck("family", k);
         // pricing document 13: the billing first, then the breakdown for it
-        await ask(`fambill:${k}` as FlowStep, familyBillingQuestion(plan, k, s.customer.language), ack);
+        await ask(
+          `fambill:${k}` as FlowStep,
+          familyBillingQuestion(plan, k, s.customer.language),
+          ack,
+        );
         return true;
       }
       case "book": {
@@ -2103,7 +2376,16 @@ export class ChatPipelineService {
         if (!a) return false;
         if (a === "no") {
           await this.setPending(s, null);
-          const ack = (await humanAck("book_no", null)).replace(/book the appointment/, "check medicine delivery").replace(/अपॉइंटमेंट बाद में कभी भी बुक हो सकता है/, "दवाइयों की डिलीवरी बाद में कभी भी जाँच सकते हैं").replace(/appointment baad mein kabhi bhi book ho sakta hai/, "medicine delivery baad mein kabhi bhi check ho sakti hai");
+          const ack = (await humanAck("book_no", null))
+            .replace(/book the appointment/, "check medicine delivery")
+            .replace(
+              /अपॉइंटमेंट बाद में कभी भी बुक हो सकता है/,
+              "दवाइयों की डिलीवरी बाद में कभी भी जाँच सकते हैं",
+            )
+            .replace(
+              /appointment baad mein kabhi bhi book ho sakta hai/,
+              "medicine delivery baad mein kabhi bhi check ho sakti hai",
+            );
           await goOn(true, "med", ack);
           return true;
         }
@@ -2115,7 +2397,13 @@ export class ChatPipelineService {
         }
         await this.setPending(s, "med_name:flow");
         await reply(say({ en: "Sure.", hi: "ज़रूर।", hinglish: "Zaroor." }, s.customer.language));
-        await this.sendMore(s, medicineAskText("Oxxy", s.customer.language).replace(/^.*?subject to service availability\.\s*|^.*?सेवा उपलब्धता के अनुसार।\s*|^.*?service availability ke hisaab se\.\s*/u, ""));
+        await this.sendMore(
+          s,
+          medicineAskText("Oxxy", s.customer.language).replace(
+            /^.*?subject to service availability\.\s*|^.*?सेवा उपलब्धता के अनुसार।\s*|^.*?service availability ke hisaab se\.\s*/u,
+            "",
+          ),
+        );
         return true;
       }
       case "fambill": {
@@ -2124,7 +2412,11 @@ export class ChatPipelineService {
         const k = flowFamily(s.conversation.pending_action) || 1;
         const plan = (s.conversation.recommended_plan ?? "infinity") as PlanName;
         const ack = await humanAck("billing", cycle);
-        await ask(`close:${k}` as FlowStep, familyCard(plan, await this.flowPrice(plan), k, s.customer.language, cycle), ack);
+        await ask(
+          `close:${k}` as FlowStep,
+          familyCard(plan, await this.flowPrice(plan), k, s.customer.language, cycle),
+          ack,
+        );
         return true;
       }
     }
@@ -2158,10 +2450,18 @@ export class ChatPipelineService {
     // a visit (consultation, test, scan, hospital): the appointment is offered once (client, 17 Nov)
     const nd = readNeed(String(n?.healthcare_need ?? ""));
     if (nd && BOOKABLE_NEEDS.has(nd) && skip !== "book") {
-      const booked = !!(await quiet(() => booking_request.findOne({ where: { conversation_id: s.conversation.id } as any })));
+      const booked = !!(await quiet(() =>
+        booking_request.findOne({ where: { conversation_id: s.conversation.id } as any }),
+      ));
       const offer = (bookOffer(s.customer.language) as { body: string }).body;
       const offered = !!(await quiet(() =>
-        message.findOne({ where: { conversation_id: s.conversation.id, direction: "out", body: Like(`%${offer}%`) } as any }),
+        message.findOne({
+          where: {
+            conversation_id: s.conversation.id,
+            direction: "out",
+            body: Like(`%${offer}%`),
+          } as any,
+        }),
       ));
       if (!booked && !offered) return "book";
     }
@@ -2169,7 +2469,13 @@ export class ChatPipelineService {
     if (nd === "medicines" && skip !== "med") {
       const offer = (medOffer(s.customer.language) as { body: string }).body;
       const offered = !!(await quiet(() =>
-        message.findOne({ where: { conversation_id: s.conversation.id, direction: "out", body: Like(`%${offer}%`) } as any }),
+        message.findOne({
+          where: {
+            conversation_id: s.conversation.id,
+            direction: "out",
+            body: Like(`%${offer}%`),
+          } as any,
+        }),
       ));
       if (!offered) return "med";
     }
@@ -2179,11 +2485,23 @@ export class ChatPipelineService {
   /** Medicines without health consent: the known area goes to the team, else the area question */
   private async resumeFlowAfterMedicineArea(s: Saved, m: Inbound) {
     const n = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
-    if (n?.city) return void (await this.handleMedicineStep({ ...m, text: String(n.city) } as Inbound, s));
-    await this.sendAndSave(s.customer.id, {
-      kind: "location_request",
-      body: say({ en: "Which city and area should the medicines be delivered to?", hi: "दवाइयाँ किस शहर और इलाके में पहुँचानी हैं?", hinglish: "Dawaiyan kis city aur area mein deliver karni hain?" }, s.customer.language),
-    }, m.waMessageId);
+    if (n?.city)
+      return void (await this.handleMedicineStep({ ...m, text: String(n.city) } as Inbound, s));
+    await this.sendAndSave(
+      s.customer.id,
+      {
+        kind: "location_request",
+        body: say(
+          {
+            en: "Which city and area should the medicines be delivered to?",
+            hi: "दवाइयाँ किस शहर और इलाके में पहुँचानी हैं?",
+            hinglish: "Dawaiyan kis city aur area mein deliver karni hain?",
+          },
+          s.customer.language,
+        ),
+      },
+      m.waMessageId,
+    );
   }
 
   /** After a side step that began in the button flow (booking, medicines): the flow's next step or the plan */
@@ -2199,7 +2517,9 @@ export class ChatPipelineService {
   private async handlePlanLinkOrDetails(m: Inbound, s: Saved): Promise<boolean> {
     const text = (m.text || "").toLowerCase().trim();
     const isLinkAsk = /\b(link|url|website|page|activation link|plan link)\b/i.test(text);
-    const isPlanDetails = /\b(details?|benefits?|features?|about)\b/i.test(text) && /\b(plan|plans|everyday|vital|thrive|infinity)\b/i.test(text);
+    const isPlanDetails =
+      /\b(details?|benefits?|features?|about)\b/i.test(text) &&
+      /\b(plan|plans|everyday|vital|thrive|infinity)\b/i.test(text);
     if (!isLinkAsk && !isPlanDetails) return false;
 
     let matchedPlan: PlanName | null = null;
@@ -2256,7 +2576,14 @@ export class ChatPipelineService {
     const n = await this.needRow(s);
     let names = city ? city[2] || null : null;
     if (named) {
-      if (!text || /\?\s*$/.test(text) || NON_TEXT_RE.test(text) || text.length > 200 || /^[a-z]+_[a-z0-9_]+$/.test(text)) return false;
+      if (
+        !text ||
+        /\?\s*$/.test(text) ||
+        NON_TEXT_RE.test(text) ||
+        text.length > 200 ||
+        /^[a-z]+_[a-z0-9_]+$/.test(text)
+      )
+        return false;
       names = text.replace(/\s+/g, " ").slice(0, 160);
       if (!n.city) {
         await this.setPending(s, `med_city:${fromFlow ? 1 : 0}:${names}`);
@@ -2279,13 +2606,16 @@ export class ChatPipelineService {
       }
     } else {
       if (m.location) {
-        const at = await quiet(() => this._Maps?.reverseGeocode(m.location!) ?? Promise.resolve(null));
+        const at = await quiet(
+          () => this._Maps?.reverseGeocode(m.location!) ?? Promise.resolve(null),
+        );
         if (at?.city) {
           n.city = at.city.slice(0, 80);
           n.locality = (at.locality ?? null) as any;
         }
       } else {
-        if (!text || /\?\s*$/.test(text) || NON_TEXT_RE.test(text) || text.split(/\s+/).length > 6) return false;
+        if (!text || /\?\s*$/.test(text) || NON_TEXT_RE.test(text) || text.split(/\s+/).length > 6)
+          return false;
         const area = typedArea(text, await this.centreCities()) ?? namedPlace(text);
         n.city = (area?.city ?? text).slice(0, 80);
         n.locality = (area?.locality ?? null) as any;
@@ -2306,7 +2636,8 @@ export class ChatPipelineService {
     await this.sendAndSave(s.customer.id, medicineNotedText(names, place, l), m.waMessageId);
     if (fromFlow) await this.resumeFlow(s, "med");
     // asked after the plan card: its Activate / family buttons keep working
-    else if (s.conversation.recommended_plan && !s.customer.active_product) await this.setPending(s, "flow:close:0");
+    else if (s.conversation.recommended_plan && !s.customer.active_product)
+      await this.setPending(s, "flow:close:0");
     return true;
   }
 
@@ -2549,7 +2880,8 @@ export class ChatPipelineService {
     // Only for a new chat: WhatsApp also sends it when the customer opens the chat again (on the phone after
     // WhatsApp Web, client, 17 Nov), and the welcome card then reset the flow in the middle of the booking.
     if (m.type === "request_welcome") {
-      if (s.conversation.state === ConversationState.New && !s.conversation.pending_action) await this.startGuidedFlow(m, s);
+      if (s.conversation.state === ConversationState.New && !s.conversation.pending_action)
+        await this.startGuidedFlow(m, s);
       return;
     }
 
@@ -2669,18 +3001,29 @@ export class ChatPipelineService {
       await this.sendAndSave(s.customer.id, say(FOUNDER_FAQ, s.customer.language), m.waMessageId);
       return;
     }
-    if (!isBookingPending(s.conversation.pending_action) && (await this.handlePlanLinkOrDetails(m, s))) return;
+    if (
+      !isBookingPending(s.conversation.pending_action) &&
+      (await this.handlePlanLinkOrDetails(m, s))
+    )
+      return;
 
     // The customer asked (almost exactly) one of the client's approved questions: the LLM answers from it
     // (knowledgeFor puts it first) instead of a fixed reply picked by one keyword. Not for a waiting step
     // (pending_action), and not for the insurance answers (the validator keeps insurance talk to Trigger B).
     // a button-flow step waiting (flow:*: e.g. the plan card's flow:close:0) does not block it; a booking, a gate or a
     // callback time does (AI end-to-end test, 18 Nov: after the plan card no approved answer was used)
-    const freeToAnswer = !s.conversation.pending_action || s.conversation.pending_action.startsWith("flow:");
+    const freeToAnswer =
+      !s.conversation.pending_action || s.conversation.pending_action.startsWith("flow:");
     let kbQuestion =
-      freeToAnswer && !/insurance|\bbima\b|बीमा|इंश्योरेंस/i.test(m.text) ? closeKbQuestion(m.text) : null;
+      freeToAnswer && !/insurance|\bbima\b|बीमा|इंश्योरेंस/i.test(m.text)
+        ? closeKbQuestion(m.text)
+        : null;
     // only when its approved answer can go out (it passes the reply rules); else the fixed reply answers as before
-    if (kbQuestion && !(await this._Validator.validate(kbQuestion.a).catch(() => ({ ok: false }))).ok) kbQuestion = null;
+    if (
+      kbQuestion &&
+      !(await this._Validator.validate(kbQuestion.a).catch(() => ({ ok: false }))).ok
+    )
+      kbQuestion = null;
     if (!kbQuestion) {
       if (await this.handleCentreSaving(m, s)) return;
       if (await this.handleFaq(m, s, healthBlocked)) return;
@@ -2936,7 +3279,8 @@ export class ChatPipelineService {
     // recommendation next to it is what made the customer read the same plan twice)
     // (and the city / travel-distance question or the no-centre answer: the LLM wrote empty "1. 2. 3." lists there)
     // an activation step after a QUESTION keeps the draft's answer (its own question is cut by tidyDraft)
-    const answerKept = shown.has("KEEP_ANSWER") && !["G", "D", "AGE", "ASK"].some((k) => shown.has(k));
+    const answerKept =
+      shown.has("KEEP_ANSWER") && !["G", "D", "AGE", "ASK"].some((k) => shown.has(k));
     if (!answerKept && ["G", "D", "E", "AGE", "ASK"].some((k) => shown.has(k))) replaceReply = true;
     // a centre step (location, radius, list, no centre): the system's text is the whole reply. A list of
     // hospitals the LLM wrote by itself must never ride along with it.
@@ -2980,7 +3324,12 @@ export class ChatPipelineService {
             [...history].reverse().find((t) => t.role === "assistant")?.content ?? null,
         });
     const finalText = [draftText, ...systemParts].filter((x): x is string => !!x).join("\n\n");
-    if (!s.conversation.pending_action && !s.customer.active_product && asksSpend(finalText) && !healthBlocked)
+    if (
+      !s.conversation.pending_action &&
+      !s.customer.active_product &&
+      asksSpend(finalText) &&
+      !healthBlocked
+    )
       await this.setPending(s, "plan_spend");
     // the LLM asked the age itself with the spend already known: the answer is read by handlePlanAge, which
     // picks ONE plan by value (client, 17 Nov: after the age it asked the expenses again)
@@ -3185,7 +3534,12 @@ export class ChatPipelineService {
     const c = s.customer;
     const conv = s.conversation;
     const spend = Number(n.annual_medical_spend);
-    const pick = await this._ValueCheck.recommend(spend, c.age ?? null, n.healthcare_need, ProductType.Oxxy);
+    const pick = await this._ValueCheck.recommend(
+      spend,
+      c.age ?? null,
+      n.healthcare_need,
+      ProductType.Oxxy,
+    );
     if (!pick) return null;
     if (pick.status === "ask_age") return { askAge: true, text: say(ASK_AGE_T, c.language) };
     const prices = await this._ValueCheck.prices(ProductType.Oxxy, pick.plan);
@@ -3410,7 +3764,9 @@ export class ChatPipelineService {
       if (conv.selected_product) known.selected_product = conv.selected_product;
       if (conv.recommended_plan) known.recommended_plan = conv.recommended_plan;
       // pricing document (17 Nov): cost, GST 18%, final payable, and the 30% for each additional family member
-      const rows = await quiet(() => plan_catalog.find({ where: { product: ProductType.Oxxy, status: true } }));
+      const rows = await quiet(() =>
+        plan_catalog.find({ where: { product: ProductType.Oxxy, status: true } }),
+      );
       if (rows?.length)
         out.plan_prices = rows.map((r) => {
           const f = firstPlan(Number(r.price), Number(r.gst_rate) || undefined);
@@ -3549,7 +3905,10 @@ export class ChatPipelineService {
     if (moved) {
       Object.assign(needData, moved);
       // asking about centres in the new area: the search runs there in this turn
-      if (r.intent !== "book" && (conv.state === ConversationState.CentreSearch || asksNearby(m.text, true)))
+      if (
+        r.intent !== "book" &&
+        (conv.state === ConversationState.CentreSearch || asksNearby(m.text, true))
+      )
         r.intent = "find_centre";
     }
     // another city with no locality: the old locality belonged to the old city ("Delhi" after "Neelambur")
@@ -3628,7 +3987,8 @@ export class ChatPipelineService {
         extras.push(pick.text);
         shown.add("AGE");
         // the answer is read by handlePlanAge
-        if (!conv.pending_action) conv.pending_action = r.intent === "activate" ? PLAN_AGE_ACTIVATE : "plan_age";
+        if (!conv.pending_action)
+          conv.pending_action = r.intent === "activate" ? PLAN_AGE_ACTIVATE : "plan_age";
       } else if (pick) {
         pickedToActivate = r.intent === "activate";
         extras.push(pickedToActivate ? withoutLastQuestion(pick.text) : pick.text);
@@ -3759,7 +4119,13 @@ export class ChatPipelineService {
       // the customer ASKED something ("Can I buy for my parents?"): the answer goes first, then the activation
       // step (client chat, 17 Nov: only the activation text went out, the question was never answered)
       const said = (m.text || "").trim();
-      if (!pickedToActivate && (/\?\s*$/.test(said) || /^(can|could|is|are|does|do|will|would|shall|should|how|what|which|why|when)\b/i.test(said)))
+      if (
+        !pickedToActivate &&
+        (/\?\s*$/.test(said) ||
+          /^(can|could|is|are|does|do|will|would|shall|should|how|what|which|why|when)\b/i.test(
+            said,
+          ))
+      )
         shown.add("KEEP_ANSWER");
       const billing =
         f.billing || (/\bmonthly\b|\bmahina|\bmonth\b/i.test(m.text) ? "monthly" : undefined);
@@ -3818,7 +4184,11 @@ export class ChatPipelineService {
           ? this.productLabel(cat, l)
           : `Oxxy ${conv.recommended_plan ? conv.recommended_plan.charAt(0).toUpperCase() + conv.recommended_plan.slice(1) + " " : ""}plan`;
         extras.push(
-          await this.withCallbackOptions(s, taskId, say(ACTIVATION_BY_TEAM_T, l).replace("{plan}", label)),
+          await this.withCallbackOptions(
+            s,
+            taskId,
+            say(ACTIVATION_BY_TEAM_T, l).replace("{plan}", label),
+          ),
         );
         shown.add("E"); // the fixed text answers it: the LLM's "I will process your payment" never goes out
       }
@@ -4129,7 +4499,8 @@ export class ChatPipelineService {
     // "I will discuss with my family", "let me think", "busy now": not a YES or a NO. The objection answer
     // (summary + a follow-up time, handleObjection) replies to it, never the next sales step (client, 17 Nov)
     const objection = detectObjection(m.text);
-    const answer = objection && objection !== "not_interested" ? "unclear" : parseConsentAnswer(m.text);
+    const answer =
+      objection && objection !== "not_interested" ? "unclear" : parseConsentAnswer(m.text);
     if (answer === "unclear") {
       await conversation.update(s.conversation.id, { pending_action: null }); // a question etc.: the LLM answers it
       s.conversation.pending_action = null;
@@ -4307,7 +4678,8 @@ export class ChatPipelineService {
   private async handleSoftActivationAnswer(m: Inbound, s: Saved): Promise<boolean> {
     if (s.conversation.pending_action !== "soft_activation") return false;
     const objection = detectObjection(m.text); // "discuss with my family": answered by handleObjection
-    const answer = objection && objection !== "not_interested" ? "unclear" : parseConsentAnswer(m.text);
+    const answer =
+      objection && objection !== "not_interested" ? "unclear" : parseConsentAnswer(m.text);
     await conversation.update(s.conversation.id, { pending_action: null });
     s.conversation.pending_action = null;
     if (answer === "unclear") return false; // a question: answered normally
@@ -4339,7 +4711,9 @@ export class ChatPipelineService {
     if (text === null) {
       // the spend is already known (no plan picked yet, e.g. the age question was skipped): never asked
       // again (client, 17 Nov: "expenses details two times"); the plan by value, or the age first
-      const known = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
+      const known = await quiet(() =>
+        need.findOne({ where: { conversation_id: s.conversation.id } }),
+      );
       if (known?.annual_medical_spend && !s.customer.active_product) {
         const pick = await this.oxxyPlanByValue(s, known);
         if (pick?.askAge) {
@@ -4348,7 +4722,11 @@ export class ChatPipelineService {
           return;
         }
         if (pick) {
-          await this.sendAndSave(s.customer.id, await this.pickThenActivate(s, pick.text), m.waMessageId);
+          await this.sendAndSave(
+            s.customer.id,
+            await this.pickThenActivate(s, pick.text),
+            m.waMessageId,
+          );
           return;
         }
       }
@@ -4378,7 +4756,9 @@ export class ChatPipelineService {
       const text = say(ACTIVATION_BY_TEAM_T, l).replace("{plan}", this.productLabel(cat, l));
       return await this.withCallbackOptions(s, taskId, text);
     }
-    await conversation.update(s.conversation.id, { pending_action: `send_activation_link:${cat.id}` });
+    await conversation.update(s.conversation.id, {
+      pending_action: `send_activation_link:${cat.id}`,
+    });
     s.conversation.pending_action = `send_activation_link:${cat.id}`;
     await this.setState(s, this.activationPath(cat.product));
     return disclosureText(
@@ -4419,7 +4799,12 @@ export class ChatPipelineService {
       const p = await this._ValueCheck.prices(ProductType.Oxxy, plan);
       await this.sendAndSave(
         s.customer.id,
-        planDetailsText(plan, p.yearly ? Number(p.yearly) : null, p.monthly ? Number(p.monthly) : null, s.customer.language),
+        planDetailsText(
+          plan,
+          p.yearly ? Number(p.yearly) : null,
+          p.monthly ? Number(p.monthly) : null,
+          s.customer.language,
+        ),
         m.waMessageId,
       );
       return true;
@@ -4443,10 +4828,20 @@ export class ChatPipelineService {
     if (!open) {
       // the team sent the link (no official link in the catalogue): "paid" is acknowledged and checked, never
       // confirmed here (client, 17 Nov: "confirm activation only after successful verification")
-      if (kind !== "done" || !(s.conversation.recommended_plan || s.conversation.selected_product)) return false;
-      await this.createTaskOnce(TaskType.VerifyActivation, TaskPriority.High, s, "Customer says payment is done (link sent by the team)");
+      if (kind !== "done" || !(s.conversation.recommended_plan || s.conversation.selected_product))
+        return false;
+      await this.createTaskOnce(
+        TaskType.VerifyActivation,
+        TaskPriority.High,
+        s,
+        "Customer says payment is done (link sent by the team)",
+      );
       await this.recordTrigger(s, "P", "customer said done (team link)");
-      await this.sendAndSave(s.customer.id, say(PAYMENT_DONE_T, s.customer.language), m.waMessageId);
+      await this.sendAndSave(
+        s.customer.id,
+        say(PAYMENT_DONE_T, s.customer.language),
+        m.waMessageId,
+      );
       return true;
     }
 
@@ -4552,9 +4947,18 @@ export class ChatPipelineService {
     const trig = has && product === ProductType.CutMediBills ? "J" : "B";
     // "I have no insurance" is not "I have insurance"; "better / why / vs / cashless" is a comparison, not "Is
     // Oxxy insurance?" (client Q&A Q226 / Q227 / Q228 / Q242)
-    const none = /\b(no|don'?t have|do not have|not have|without|haven'?t got)\b[^.?!]{0,15}\b(insurance|bima)\b|\b(insurance|bima)\b[^.?!]{0,10}\b(nahi|nahin|illa|illai)\b/i.test(t);
-    const compare = /\b(better|best|choose|prefer|vs\.?|versus|difference|different|compare|cashless|over insurance|instead of)\b/i.test(t);
-    const together = /\b(combine|together|along ?side|with (my |the )?insurance|after (the )?insurance|both)\b|\b(can|could|may) (i|we) (use|have|keep)\b/i.test(t);
+    const none =
+      /\b(no|don'?t have|do not have|not have|without|haven'?t got)\b[^.?!]{0,15}\b(insurance|bima)\b|\b(insurance|bima)\b[^.?!]{0,10}\b(nahi|nahin|illa|illai)\b/i.test(
+        t,
+      );
+    const compare =
+      /\b(better|best|choose|prefer|vs\.?|versus|difference|different|compare|cashless|over insurance|instead of)\b/i.test(
+        t,
+      );
+    const together =
+      /\b(combine|together|along ?side|with (my |the )?insurance|after (the )?insurance|both)\b|\b(can|could|may) (i|we) (use|have|keep)\b/i.test(
+        t,
+      );
     const text = say(
       trig === "J"
         ? INSURANCE_COORDINATION_T
@@ -4656,7 +5060,10 @@ export class ChatPipelineService {
     if (worksAt) {
       // the client's approved answer (Q&A Q181 / Q179); a step that waits keeps waiting and is asked again
       const back = this.pendingBack(s);
-      const answer = say(worksAt === "every" ? WORKS_AT_EVERY_T : WORKS_AT_NAMED_T, s.customer.language);
+      const answer = say(
+        worksAt === "every" ? WORKS_AT_EVERY_T : WORKS_AT_NAMED_T,
+        s.customer.language,
+      );
       await this.sendAndSave(
         s.customer.id,
         [back.length ? withoutClosingQuestion(answer) : answer, ...back].join("\n\n"),
@@ -4817,7 +5224,13 @@ export class ChatPipelineService {
     if (s.conversation.recommended_plan || s.customer.active_product) return null;
     const offer = (bookOffer(s.customer.language) as { body: string }).body;
     const asked = await quiet(() =>
-      message.findOne({ where: { conversation_id: s.conversation.id, direction: "out", body: Like(`%${offer}%`) } as any }),
+      message.findOne({
+        where: {
+          conversation_id: s.conversation.id,
+          direction: "out",
+          body: Like(`%${offer}%`),
+        } as any,
+      }),
     );
     return asked ? "next" : null;
   }
@@ -4853,32 +5266,19 @@ export class ChatPipelineService {
       further = list.length > 0;
     }
 
-    // Client requirement (18 Nov): Suggest up to 5 nearby private health centres using Google Places API or LLM
+    // Client (18 Nov): up to 5 nearby options. Fewer than 5 verified centres: real places from Google Maps fill
+    // the gap as a separate, clearly unverified section. They are never saved to the directory, never marked
+    // verified and never numbered (so a "2" can only pick a verified centre). No LLM-made hospital names: a
+    // model can invent a hospital, and an invented one must never reach a customer (Playbook 10.1).
+    let others: PlaceCandidate[] = [];
     if (list.length < 5 && origin && this._Maps?.enabled) {
       try {
-        const candidates = await this._Maps.nearbyCandidates(origin, radiusKm || 10);
-        if (candidates.length > 0) {
-          const excludeIds = [...(exclude || []), ...list.map((c) => c.id)];
-          const added = await this.saveCandidatesAsCentres(candidates, n, excludeIds);
-          for (const c of added) {
-            if (list.length >= 5) break;
-            if (!list.some((existing) => existing.id === c.id || existing.name.toLowerCase() === c.name.toLowerCase())) {
-              list.push(c);
-            }
-          }
-        }
+        const known = new Set(list.map((c) => c.name.trim().toLowerCase()));
+        others = (await this._Maps.nearbyCandidates(origin, radiusKm || 10))
+          .filter((c) => c.name && !known.has(c.name.trim().toLowerCase()))
+          .slice(0, 5 - list.length);
       } catch (e) {
         this.logger.warn(`Google Places candidate search failed: ${(e as Error).message}`);
-      }
-    }
-    if (list.length < 5) {
-      const excludeNames = list.map((c) => c.name);
-      const llmCentres = await this.findCentresViaLlm(n, excludeNames);
-      for (const c of llmCentres) {
-        if (list.length >= 5) break;
-        if (!list.some((existing) => existing.id === c.id || existing.name.toLowerCase() === c.name.toLowerCase())) {
-          list.push(c);
-        }
       }
     }
 
@@ -4886,7 +5286,13 @@ export class ChatPipelineService {
       n.suggested_centre_ids = list.map((x) => x.id);
       await n.save();
     }
-    if (!list.length) return { text: await this.noCentreReply(s, n, origin), shown: false };
+    if (!list.length) {
+      if (!others.length) return { text: await this.noCentreReply(s, n, origin), shown: false };
+      // no verified centre: the team gets the gap task, the customer sees the real places marked unverified
+      await this.reportCentreGap(s, this.placeOf(n), origin ?? null, radiusKm);
+      return { text: unverifiedNearbyText(others, s.customer.language, true), shown: false };
+    }
+    const extra = others.length ? `\n\n${unverifiedNearbyText(others, s.customer.language)}` : "";
     // road distance and drive time for the few centres shown (Routes API); without it the straight line stays
     if (origin && this._Maps?.enabled) {
       const withPoint = list.filter((c) => Number(c.latitude) && Number(c.longitude));
@@ -4902,111 +5308,17 @@ export class ChatPipelineService {
     const spec = normaliseSpecialisation(n?.specialisation) ?? null;
     if (further)
       return {
-        text: nearestListText(list, spec, this.placeOf(n) ?? n?.locality ?? null, radiusKm, s.customer.language),
+        text:
+          nearestListText(
+            list,
+            spec,
+            this.placeOf(n) ?? n?.locality ?? null,
+            radiusKm,
+            s.customer.language,
+          ) + extra,
         shown: true,
       };
-    return { text: centreListText(list, spec, s.customer.language), shown: true };
-  }
-
-  private async saveCandidatesAsCentres(
-    candidates: PlaceCandidate[],
-    n: need | null,
-    excludeIds: string[] = [],
-  ): Promise<FoundCentre[]> {
-    const out: FoundCentre[] = [];
-    const city = n?.city || "Unknown";
-    for (const cand of candidates) {
-      if (out.length >= 5) break;
-      try {
-        let existing = await centre.findOne({
-          where: [{ name: cand.name, city }, { name: cand.name }],
-        });
-        if (existing && excludeIds.includes(existing.id)) {
-          continue;
-        }
-        let centreType = "multispeciality";
-        const lower = ((cand.name || "") + " " + (cand.address || "")).toLowerCase();
-        if (lower.includes("diagnostic") || lower.includes("lab") || lower.includes("scan") || lower.includes("pathology")) {
-          centreType = "diagnostic";
-        } else if (lower.includes("clinic") || lower.includes("dental") || lower.includes("care centre")) {
-          centreType = "clinic";
-        } else if (lower.includes("eye") || lower.includes("ortho") || lower.includes("heart") || lower.includes("cancer") || lower.includes("skin")) {
-          centreType = "specialist";
-        }
-        if (!existing) {
-          existing = await centre.save(
-            centre.create({
-              name: cand.name.slice(0, 100),
-              branch: null,
-              locality: n?.locality || null,
-              city,
-              address: (cand.address || "").slice(0, 200),
-              latitude: cand.latitude ?? 0,
-              longitude: cand.longitude ?? 0,
-              centre_type: centreType,
-              is_private: true,
-              verified: true,
-              active: true,
-            }),
-          );
-        }
-        if (!out.some((c) => c.id === existing.id || c.name.toLowerCase() === existing.name.toLowerCase())) {
-          out.push(existing as FoundCentre);
-        }
-      } catch (e) {
-        this.logger.warn(`Error saving centre candidate: ${(e as Error).message}`);
-      }
-    }
-    return out;
-  }
-
-  private async findCentresViaLlm(n: need | null, excludeNames: string[] = []): Promise<FoundCentre[]> {
-    const place = [n?.locality, n?.city].filter(Boolean).join(", ").trim();
-    if (!place || place.length < 3) return [];
-    try {
-      const avoid = excludeNames.length ? ` Do not include these centres: ${excludeNames.slice(0, 10).join(", ")}.` : "";
-      const prompt = `Name 3 to 5 real, well-known private hospitals, clinics or diagnostic centres near ${place}, India.${avoid} Return a valid JSON array of objects with keys: "name" (hospital or clinic name), "locality" (area or road), "type" (one of: multispeciality, clinic, diagnostic). Only return the JSON array, no explanation.`;
-      const draft = await this._Llm.generate(
-        [{ role: "user", content: prompt }],
-        "You are a healthcare directory service in India. Always return a valid JSON array of private hospitals or clinics.",
-      );
-      const text = draft?.reply_text || "";
-      const match = text.match(/\[[\s\S]*\]/);
-      if (!match) return [];
-      const parsed = JSON.parse(match[0]);
-      if (!Array.isArray(parsed) || !parsed.length) return [];
-      const out: FoundCentre[] = [];
-      const city = n?.city || "Unknown";
-      for (const item of parsed.slice(0, 5)) {
-        if (!item?.name) continue;
-        if (excludeNames.some((en) => en.toLowerCase() === String(item.name).toLowerCase())) continue;
-        let existing = await centre.findOne({
-          where: [{ name: item.name, city }, { name: item.name }],
-        });
-        if (!existing) {
-          existing = await centre.save(
-            centre.create({
-              name: String(item.name).slice(0, 100),
-              branch: null,
-              locality: String(item.locality || n?.locality || "").slice(0, 80),
-              city,
-              address: String(item.locality || n?.locality || n?.city || ""),
-              latitude: 0,
-              longitude: 0,
-              centre_type: item.type || "multispeciality",
-              is_private: true,
-              verified: true,
-              active: true,
-            }),
-          );
-        }
-        out.push(existing as FoundCentre);
-      }
-      return out;
-    } catch (e) {
-      this.logger.warn(`LLM centre search failed: ${(e as Error).message}`);
-      return [];
-    }
+    return { text: centreListText(list, spec, s.customer.language) + extra, shown: true };
   }
 
   // No verified centre for this place. First time: say so and ask for another centre and branch (this or
@@ -5048,7 +5360,10 @@ export class ChatPipelineService {
   ): Promise<{ locality: string | null; city?: string } | null> {
     const p = namedPlace(text);
     if (!p) return null;
-    const low = (x: unknown) => String(x ?? "").trim().toLowerCase();
+    const low = (x: unknown) =>
+      String(x ?? "")
+        .trim()
+        .toLowerCase();
     if (llm.locality && low(llm.locality).includes(low(p.locality))) return null; // the LLM read it already
     let locality: string | null = p.locality;
     let city: string | null = p.city;
@@ -5064,13 +5379,18 @@ export class ChatPipelineService {
     }
     const sameCity = !city || low(city) === low(n?.city);
     if (sameCity && (locality ? low(locality) === low(n?.locality) : true)) return null;
-    return city ? { locality: locality ? locality.slice(0, 80) : null, city } : { locality: locality!.slice(0, 80) };
+    return city
+      ? { locality: locality ? locality.slice(0, 80) : null, city }
+      : { locality: locality!.slice(0, 80) };
   }
 
   /** Cities with at least one verified, active centre */
   private async centreCities(): Promise<string[]> {
     try {
-      const rows = await centre.find({ where: { verified: true, active: true } as any, take: 2000 });
+      const rows = await centre.find({
+        where: { verified: true, active: true } as any,
+        take: 2000,
+      });
       const seen = new Map<string, string>();
       for (const r of rows) {
         const c = String((r as any).city ?? "").trim();
@@ -5173,7 +5493,20 @@ export class ChatPipelineService {
   }
 
   private async humanAck(
-    kind: "who" | "need" | "savings" | "when" | "calc" | "age" | "city" | "spend" | "book_yes" | "book_no" | "family" | "billing" | "activate",
+    kind:
+      | "who"
+      | "need"
+      | "savings"
+      | "when"
+      | "calc"
+      | "age"
+      | "city"
+      | "spend"
+      | "book_yes"
+      | "book_no"
+      | "family"
+      | "billing"
+      | "activate",
     value: string | number | null,
     s: Saved,
     userText?: string,
@@ -5215,7 +5548,12 @@ export class ChatPipelineService {
    * it and never asks for the location again (client, 17 Nov: "once the location is given in the chat, use it
    * everywhere"). "Near Peelamedu, Coimbatore." + how far, or the list when the distance is known too.
    */
-  private async useKnownArea(m: Inbound, s: Saved, n: need | null, exclude?: string[]): Promise<boolean> {
+  private async useKnownArea(
+    m: Inbound,
+    s: Saved,
+    n: need | null,
+    exclude?: string[],
+  ): Promise<boolean> {
     const place = this.placeOf(n);
     if (!n || !place) return false;
     if (n.travel_radius_km) {
@@ -5226,12 +5564,19 @@ export class ChatPipelineService {
       await this.setState(s, [ConversationState.CentreSearch]);
     await this.setPending(s, "centre_radius");
     const l = s.customer.language;
-    await this.sendAndSave(s.customer.id, `${this.nearText(place, l)} ${say(RADIUS_Q, l)}`, m.waMessageId);
+    await this.sendAndSave(
+      s.customer.id,
+      `${this.nearText(place, l)} ${say(RADIUS_Q, l)}`,
+      m.waMessageId,
+    );
     return true;
   }
 
   private nearText(place: string, l?: string | null): string {
-    return say({ en: "Near {place}.", hi: "{place} के पास।", hinglish: "{place} ke paas." }, l).replace("{place}", place);
+    return say(
+      { en: "Near {place}.", hi: "{place} के पास।", hinglish: "{place} ke paas." },
+      l,
+    ).replace("{place}", place);
   }
 
   // The "Send location" question is asked once per conversation when the area is already known (a customer
@@ -5239,7 +5584,11 @@ export class ChatPipelineService {
   private async locationAsked(s: Saved): Promise<boolean> {
     try {
       return !!(await message.findOne({
-        where: { conversation_id: s.conversation.id, direction: "out", type: "location_request" } as any,
+        where: {
+          conversation_id: s.conversation.id,
+          direction: "out",
+          type: "location_request",
+        } as any,
       }));
     } catch {
       return false;
@@ -5274,7 +5623,9 @@ export class ChatPipelineService {
     const n = await this.needRow(s);
     if (!n.city) {
       // the area of the pin is remembered (not the pin), so a later search never asks for the location again
-      const at = await quiet(() => this._Maps?.reverseGeocode(m.location!) ?? Promise.resolve(null));
+      const at = await quiet(
+        () => this._Maps?.reverseGeocode(m.location!) ?? Promise.resolve(null),
+      );
       if (at?.city) {
         n.city = at.city.slice(0, 80);
         n.locality = (at.locality ?? null) as any;
@@ -5290,7 +5641,11 @@ export class ChatPipelineService {
   private async handleCentreLocationText(m: Inbound, s: Saved): Promise<boolean> {
     if (s.conversation.pending_action !== "centre_location" || m.location) return false;
     const n = await this.needRow(s);
-    if (m.type === "location" || m.type === "unsupported" || NON_TEXT_RE.test((m.text || "").trim())) {
+    if (
+      m.type === "location" ||
+      m.type === "unsupported" ||
+      NON_TEXT_RE.test((m.text || "").trim())
+    ) {
       // a pin whose coordinates did not arrive (a message recovered after a restart), or a LIVE location (the
       // Cloud API delivers it as "unsupported", no coordinates): ask once more, never read it as the area
       await this.askLocation(m, s, n);
@@ -5316,7 +5671,13 @@ export class ChatPipelineService {
           await n.save();
         }
       }
-      await this.continueWithArea(m, s, n, undefined, "location not shared: the area given earlier");
+      await this.continueWithArea(
+        m,
+        s,
+        n,
+        undefined,
+        "location not shared: the area given earlier",
+      );
       return true;
     }
     if (!text || declinesLocation(text) || /\?\s*$/.test(text) || text.split(/\s+/).length > 8)
@@ -5382,7 +5743,10 @@ export class ChatPipelineService {
     if (km == null) {
       // a question about something else: answered normally. "I want the hospital details" / "ok" / anything
       // that is not a distance: the list within about 10 km, never the same distance question again
-      if (/\?\s*$/.test(m.text.trim()) && !/hospital|centre|center|clinic|detail|list|suggest|option/i.test(m.text))
+      if (
+        /\?\s*$/.test(m.text.trim()) &&
+        !/hospital|centre|center|clinic|detail|list|suggest|option/i.test(m.text)
+      )
         return false;
       km = 10;
       note = say(RADIUS_DEFAULT_T, s.customer.language);
@@ -5405,9 +5769,15 @@ export class ChatPipelineService {
         )) ?? null)
       : null;
     if (res.shown) await this.setPending(s, "centre_pick");
-    await this.sendAndSave(s.customer.id, note ? `${note}
+    await this.sendAndSave(
+      s.customer.id,
+      note
+        ? `${note}
 
-${res.text}` : res.text, m.waMessageId);
+${res.text}`
+        : res.text,
+      m.waMessageId,
+    );
     if (decision)
       await this._Triggers!.record(
         s.customer.id,
@@ -5486,8 +5856,11 @@ ${res.text}` : res.text, m.waMessageId);
       await this.setPending(s, null);
       return false;
     }
-    const id =
-      digit ? ids[Number(digit[1]) - 1] : typeof picked === "number" ? inOrder[picked]?.id : undefined;
+    const id = digit
+      ? ids[Number(digit[1]) - 1]
+      : typeof picked === "number"
+        ? inOrder[picked]?.id
+        : undefined;
     if (!id) {
       await this.sendAndSave(
         s.customer.id,
@@ -5637,12 +6010,17 @@ ${res.text}` : res.text, m.waMessageId);
     if ((d.step === "landmark" || d.step === "specialisation") && !d.d) {
       const early = parseCustomerDate(text);
       if (early) {
-        const tm = text.match(/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\b(?:morning|afternoon|evening)\b/i);
+        const tm = text.match(
+          /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\b(?:morning|afternoon|evening)\b/i,
+        );
         if (tm && !d.t) d.t = tm[0];
         const chk = this._DateWindow.validate(early);
         if (chk.valid) {
           d.d = early;
-          await reply([say(DATE_NOTED_T, l).replace("{date}", showDate(early)), ...(await this.advanceBooking(s, d))]);
+          await reply([
+            say(DATE_NOTED_T, l).replace("{date}", showDate(early)),
+            ...(await this.advanceBooking(s, d)),
+          ]);
         } else {
           // the rule now, then the same step: the date is asked again when its turn comes
           await this.setPending(s, writeDraft(d));
@@ -5657,7 +6035,8 @@ ${res.text}` : res.text, m.waMessageId);
       }
     }
     if (d.step === "specialisation" && knowsNotWhichDoctor(text)) {
-      const n = (await need.findOne({ where: { conversation_id: s.conversation.id } })) ??
+      const n =
+        (await need.findOne({ where: { conversation_id: s.conversation.id } })) ??
         need.create({ conversation_id: s.conversation.id } as any);
       n.specialisation = NOT_SURE_SPECIALISATION;
       await n.save();
@@ -5782,7 +6161,11 @@ ${res.text}` : res.text, m.waMessageId);
     // the answer said back before the next question (client, 17 Nov: "acknowledge every answer"); the time needs
     // none: the saved request repeats everything
     const ackSay = (en: string, hi: string, hg: string) => say({ en, hi, hinglish: hg }, l);
-    const clip = (x: string) => String(x).trim().slice(0, 60).replace(/[.!?।\s]+$/, "");
+    const clip = (x: string) =>
+      String(x)
+        .trim()
+        .slice(0, 60)
+        .replace(/[.!?।\s]+$/, "");
     const said = (d as any)._said as string | undefined;
     delete (d as any)._said; // never written into the saved draft
     const ack =
@@ -5791,14 +6174,28 @@ ${res.text}` : res.text, m.waMessageId);
         : d.step === "landmark" && d.l
           ? /^\s*near\b/i.test(d.l)
             ? ackSay(`Noted: ${clip(d.l)}.`, `नोट किया: ${clip(d.l)}।`, `Noted: ${clip(d.l)}.`)
-            : ackSay(`Noted: near ${clip(d.l)}.`, `नोट किया: ${clip(d.l)} के पास।`, `Noted: ${clip(d.l)} ke paas.`)
+            : ackSay(
+                `Noted: near ${clip(d.l)}.`,
+                `नोट किया: ${clip(d.l)} के पास।`,
+                `Noted: ${clip(d.l)} ke paas.`,
+              )
           : d.step === "specialisation"
-            ? ackSay(`Noted: ${clip(said ?? text)}.`, `नोट किया: ${clip(said ?? text)}।`, `Noted: ${clip(said ?? text)}.`)
+            ? ackSay(
+                `Noted: ${clip(said ?? text)}.`,
+                `नोट किया: ${clip(said ?? text)}।`,
+                `Noted: ${clip(said ?? text)}.`,
+              )
             : d.step === "date" && d.d
               ? say(DATE_NOTED_T, l).replace("{date}", showDate(d.d))
               : null;
     const next = await this.advanceBooking(s, d);
-    await reply(ack && next.length && !/^Your booking request|booking request has been|बुकिंग अनुरोध/.test(next[0]) ? [ack, ...next] : next);
+    await reply(
+      ack &&
+        next.length &&
+        !/^Your booking request|booking request has been|बुकिंग अनुरोध/.test(next[0])
+        ? [ack, ...next]
+        : next,
+    );
     return true;
   }
 
@@ -5826,7 +6223,8 @@ ${res.text}` : res.text, m.waMessageId);
     const k = t.match(/^(?:option|no\.?|number)?\s*([1-9])\.?$/);
     if (k) {
       const last = String((await this.lastBotText(s)) ?? "");
-      if (/Reply with (1|1 or 2|1-\d)\b|(1|1 or 2|1-\d) (mein se|में से)/i.test(last)) id = ids[Number(k[1]) - 1];
+      if (/Reply with (1|1 or 2|1-\d)\b|(1|1 or 2|1-\d) (mein se|में से)/i.test(last))
+        id = ids[Number(k[1]) - 1];
     }
     if (!id && !k && t.split(/\s+/).length <= 6) {
       // the name (and branch, when two share a name) of a centre in the list: Helper/CentreReplies pickFromList
@@ -5837,7 +6235,12 @@ ${res.text}` : res.text, m.waMessageId);
     if (!id) return null;
     const ctr = await centre.findOne({ where: { id, verified: true, active: true } as any });
     if (!ctr) return null;
-    return { c: ctr.id, cn: ctr.branch ? `${ctr.name}, ${ctr.branch}` : ctr.name, u: false, l: null };
+    return {
+      c: ctr.id,
+      cn: ctr.branch ? `${ctr.name}, ${ctr.branch}` : ctr.name,
+      u: false,
+      l: null,
+    };
   }
 
   // ---- Recovery: objections (M), agreed follow-ups (N), medicines (K), rescue (Playbook 14, 15) ----
@@ -5870,7 +6273,11 @@ ${res.text}` : res.text, m.waMessageId);
       if (!(await this.alreadyReplied(m.waMessageId))) return;
       const conv = await conversation.findOne({ where: { id: s.conversation.id } });
       if (!conv || conv.closed_at || !RESCUE_STATES.has(conv.state as ConversationState)) return;
-      if (s.conversation.pending_action?.startsWith("flow:") || s.conversation.pending_action?.startsWith("send_activation_link:")) return;
+      if (
+        s.conversation.pending_action?.startsWith("flow:") ||
+        s.conversation.pending_action?.startsWith("send_activation_link:")
+      )
+        return;
       const done = conv.rescue_count ?? 0;
       if (done >= MAX_RESCUES) return;
       const cons = await consent.findOne({ where: { customer_id: s.customer.id } });
@@ -5910,7 +6317,9 @@ ${res.text}` : res.text, m.waMessageId);
       order: { created_on: "DESC" } as any,
     });
     // the details of the chat (client, 17 Nov: "it does not give a summary of the details at the end")
-    const ctr = b?.centre_id ? await quiet(() => centre.findOne({ where: { id: b.centre_id } })) : null;
+    const ctr = b?.centre_id
+      ? await quiet(() => centre.findOne({ where: { id: b.centre_id } }))
+      : null;
     const plan = s.conversation.recommended_plan;
     let price: string | null = null;
     if (plan && s.conversation.selected_product !== ProductType.CutMediBills) {
@@ -5939,7 +6348,18 @@ ${res.text}` : res.text, m.waMessageId);
         price,
         bookingDetail: b
           ? {
-              centre: ctr ? (ctr.branch ? `${ctr.name}, ${ctr.branch}` : ctr.name) : say({ en: "the chosen centre", hi: "चुना गया केंद्र", hinglish: "chuna gaya centre" }, s.customer.language),
+              centre: ctr
+                ? ctr.branch
+                  ? `${ctr.name}, ${ctr.branch}`
+                  : ctr.name
+                : say(
+                    {
+                      en: "the chosen centre",
+                      hi: "चुना गया केंद्र",
+                      hinglish: "chuna gaya centre",
+                    },
+                    s.customer.language,
+                  ),
               date: b.preferred_date ?? null,
               time: b.preferred_time ?? null,
               confirmed: b.booking_status === BookingStatus.Confirmed,
@@ -5947,7 +6367,10 @@ ${res.text}` : res.text, m.waMessageId);
           : null,
         linkSent,
         callback: cb?.callback_from
-          ? showWindow({ from: cb.callback_from, to: cb.callback_to ?? cb.callback_from }, s.customer.language)
+          ? showWindow(
+              { from: cb.callback_from, to: cb.callback_to ?? cb.callback_from },
+              s.customer.language,
+            )
           : null,
       },
       s.customer.language,
@@ -5961,9 +6384,16 @@ ${res.text}` : res.text, m.waMessageId);
     if (s.conversation.pending_action) return false;
     if (!isClosingMessage(m.text)) return false;
     const conv = s.conversation;
-    const booking = await quiet(() => booking_request.findOne({ where: { conversation_id: conv.id } as any }));
+    const booking = await quiet(() =>
+      booking_request.findOne({ where: { conversation_id: conv.id } as any }),
+    );
     const callback = await this.chosenCallback(s);
-    if (!conv.recommended_plan && conv.selected_product !== ProductType.CutMediBills && !booking && !callback)
+    if (
+      !conv.recommended_plan &&
+      conv.selected_product !== ProductType.CutMediBills &&
+      !booking &&
+      !callback
+    )
       return false;
     const last = String((await this.lastBotText(s)) ?? "");
     if (SUMMARY_HEAD_RE.test(last)) return false; // the summary was just sent: not twice
@@ -6089,7 +6519,12 @@ ${res.text}` : res.text, m.waMessageId);
    */
   private async handleBareYes(m: Inbound, s: Saved): Promise<boolean> {
     if (s.conversation.pending_action) return false;
-    if (!/^\s*(yes|yeah|yep|ya|ok|okay|sure|haan|ha|han|ji|aama|seri|sari)\s*[.!]*\s*$/i.test(m.text || "")) return false;
+    if (
+      !/^\s*(yes|yeah|yep|ya|ok|okay|sure|haan|ha|han|ji|aama|seri|sari)\s*[.!]*\s*$/i.test(
+        m.text || "",
+      )
+    )
+      return false;
     const last = String((await this.lastBotText(s)) ?? "").trim();
     const q = last.split(/(?<=[.!?])\s+/).pop() ?? "";
     if (!/\?\s*$/.test(q) || !/^\s*(what|which|where|when|how|who)\b/i.test(q)) return false;
@@ -6104,14 +6539,22 @@ ${res.text}` : res.text, m.waMessageId);
       consult: ["doctor consultation", "डॉक्टर परामर्श", "doctor consultation"],
       surgery: ["treatment or surgery", "इलाज या सर्जरी", "ilaaj ya surgery"],
     };
-    const [en, hi, hg] = (nd && thing[nd]) || ["medicine or healthcare service", "दवा या हेल्थकेयर सेवा", "dawai ya healthcare service"];
+    const [en, hi, hg] = (nd && thing[nd]) || [
+      "medicine or healthcare service",
+      "दवा या हेल्थकेयर सेवा",
+      "dawai ya healthcare service",
+    ];
     const forWhom =
       who === "self"
         ? ["you need", "आपको चाहिए", "aapko chahiye"]
         : who === "parent" || who === "parents"
           ? ["your parent needs", "आपके माता-पिता को चाहिए", "aapke parents ko chahiye"]
           : who
-            ? ["your family member needs", "आपके परिवार के सदस्य को चाहिए", "aapke family member ko chahiye"]
+            ? [
+                "your family member needs",
+                "आपके परिवार के सदस्य को चाहिए",
+                "aapke family member ko chahiye",
+              ]
             : ["the patient needs", "मरीज़ को चाहिए", "patient ko chahiye"];
     await this.sendAndSave(
       s.customer.id,
@@ -6142,7 +6585,9 @@ ${res.text}` : res.text, m.waMessageId);
     if (signal === "dont_know" && noHealth) signal = "one_word"; // the spend questions are health questions
     // the second "I don't know" asks the yearly spend: not when it is already known (never asked twice)
     if (signal === "dont_know" && prev?.signal === "dont_know") {
-      const known = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
+      const known = await quiet(() =>
+        need.findOne({ where: { conversation_id: s.conversation.id } }),
+      );
       if (known?.annual_medical_spend) signal = "one_word";
     }
     // "Okay" right after the bot asked something ("Would you like to proceed?") answers that question:
@@ -6321,20 +6766,41 @@ ${res.text}` : res.text, m.waMessageId);
     if (this._Triggers && (!d || d.suppression)) return false; // explained already: the LLM answers
     const cmb =
       (s.customer.active_product || s.conversation.selected_product) === ProductType.CutMediBills;
-    const known = await quiet(() => need.findOne({ where: { conversation_id: s.conversation.id } }));
+    const known = await quiet(() =>
+      need.findOne({ where: { conversation_id: s.conversation.id } }),
+    );
     // a waiting button-flow step (the plan card) does not stop the medicine steps
     if (s.conversation.pending_action?.startsWith("flow:")) await this.setPending(s, null);
     if (!s.conversation.pending_action && !noHealth) {
       // the names, then the area only if this chat does not have it, then the team checks delivery (client, 17 Nov)
       await this.setPending(s, "med_name");
-      await this.sendAndSave(s.customer.id, medicineAskText(cmb ? "Cut Medi Bills" : "Oxxy", s.customer.language), m.waMessageId);
+      await this.sendAndSave(
+        s.customer.id,
+        medicineAskText(cmb ? "Cut Medi Bills" : "Oxxy", s.customer.language),
+        m.waMessageId,
+      );
     } else if (!s.conversation.pending_action && known?.city) {
       // no health consent: no medicine names; the known area goes to the team at once
       await this.setPending(s, "med_city:0:");
-      await this.sendAndSave(s.customer.id, medicineText(cmb ? "Cut Medi Bills" : "Oxxy", false, s.customer.language).replace(/\s*Please share your city\.$/, ""), m.waMessageId);
-      await this.createTaskOnce(TaskType.Servicing, TaskPriority.Normal, s, `Medicine home delivery request (no names: no health consent); deliver to ${this.placeOf(known)}. Check delivery availability, then confirm with the customer.`);
+      await this.sendAndSave(
+        s.customer.id,
+        medicineText(cmb ? "Cut Medi Bills" : "Oxxy", false, s.customer.language).replace(
+          /\s*Please share your city\.$/,
+          "",
+        ),
+        m.waMessageId,
+      );
+      await this.createTaskOnce(
+        TaskType.Servicing,
+        TaskPriority.Normal,
+        s,
+        `Medicine home delivery request (no names: no health consent); deliver to ${this.placeOf(known)}. Check delivery availability, then confirm with the customer.`,
+      );
       await this.setPending(s, null);
-      await this.sendMore(s, { kind: "text", body: medicineNotedText(null, this.placeOf(known)!, s.customer.language) });
+      await this.sendMore(s, {
+        kind: "text",
+        body: medicineNotedText(null, this.placeOf(known)!, s.customer.language),
+      });
     } else {
       if (!s.conversation.pending_action) await this.setPending(s, "med_city:0:");
       await this.sendAndSave(

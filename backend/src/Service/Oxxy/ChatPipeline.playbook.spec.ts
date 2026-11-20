@@ -293,7 +293,7 @@ describe("Playbook 4.1 / 4.5: the consented outbound lead", () => {
   it("'Yes, please' before consent: the notice, then discovery question 1 right after YES", async () => {
     const t = setup({ state: S.New, pending: "lead_intro", consented: false });
     await t.run("Yes, please");
-    expect(t.out[0]).toMatch(/^Before you share health details/);
+    expect(t.out[0]).toMatch(/^Before sharing health details/); // 18 Nov notice wording
     expect(t.conv.pending_action).toBe("after_consent:lead_yes");
     await t.run("yes");
     expect(t.out[1]).toMatch(/Is the healthcare need for you or someone in your family\?/);

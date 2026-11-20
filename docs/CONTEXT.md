@@ -400,6 +400,60 @@ option and Anthropic key labels, the Go-live / no-key messages) and in the git b
   `docs/oxxy-voice-agent-api.postman_collection.json` (`scripts/write-postman.ts` writes both).
 - One API key per system: the voice agent gets its own key, separate from the CRM's.
 
+## Client sequence 1: "Reduce Your Medical Bill Now" card (20 Nov)
+
+The client changed the requirement (19 Nov, hand sketch + picture); they send it in three sequences, this is the
+first. Code: `Service/Oxxy/BillCard.ts` (texts, readers) + `handleBillCard` in the pipeline (no LLM).
+- **First card** of a chat (greeting, WhatsApp welcome event, "Main Menu"): the client's picture
+  (`frontend/public/oxxy-bill-card.jpg`, from their .webp; served by the console's host, e.g.
+  https://oxxy.sharyx.ai/oxxy-bill-card.jpg, or `OXXY_BILL_IMAGE_URL`) + "Reduce Your Medical Bill Now / up to 40%"
+  + three buttons **Calculate discount / Learn More / Activate Oxxy**. WhatsApp allows 3 reply buttons, so the
+  sketch's fourth, **Talk to Us** (voice bot), is the number in the text, one tap calls (`OXXY_TALK_PHONE`, else
+  `OXXY_SUPPORT_PHONE`, else +91 88008 55340). Decision by the user, 20 Nov. The 17 Nov welcome card is no longer
+  sent; its button ids still work.
+- **Calculate discount** -> "enter your bill amount" (pending `bill_amount`; "10000", "₹25,000", "1.5 lakh",
+  "50k") -> bill / instant discount up to 30% / you could pay, "estimate for illustration only" (like oxxy.in's
+  calculator) + Activate Oxxy / Learn More / Main Menu. A question goes to the normal chat; a short non-amount
+  asks once more.
+- **Learn More** -> "Regular Health Insurance vs Oxxy": the six points published on www.oxxy.in, as two blocks
+  (WhatsApp has no table), ending "Oxxy is not insurance". Trigger B recorded.
+- **Activate Oxxy** -> list of the four plans (discount + yearly price with GST from `plan_catalog`, pending
+  `bill_plan`) -> the picked plan (yearly / monthly cost + GST = final, plan page) with Activate Yearly / Activate
+  Monthly / Add Family Member and pending `flow:close:0`, so the existing activation steps follow.
+- Template `oxxy_reduce_bill` (picture + same text + 3 quick replies) submitted to Meta 20 Nov: PENDING; migration
+  `ReduceBillTemplate1794770000000`. Quick-reply taps arrive as the button text and are read like the ids.
+- Open with the client [CONFIRM]: 40% (card) / 30% (calculator) / 20% (their picture: ₹10,000 − ₹2,000); the voice
+  bot's number for Talk to Us; "chat should not disappear" (taken as: Main Menu on every answer brings the card
+  back); whether the old guided flow (who / service / spend) stays reachable. Sequences 2 and 3 to come.
+- Deploy: the picture is in the frontend build; until it is deployed the card's image link answers HTML and
+  WhatsApp would refuse the picture (the card then needs `OXXY_BILL_IMAGE_URL` or the deploy first).
+
+## Review of the 17-19 Nov work (20 Nov)
+
+Reviewed the 31 commits on `20-11-new-flow` (17-19 Nov, made with another tool). Fixed:
+- **Centres**: the search saved Google Maps places AND hospital names made up by the LLM as `verified: true`
+  directory centres. Now Google places (real ones) are shown under the verified list as "not yet verified by
+  Oxxy", plain lines (never numbered, so never a pick), never saved; with no verified centre the customer gets
+  only those lines + "reply with the name, the team checks it" and the team gets the gap task. The LLM hospital
+  names are gone. Migration `ReviewFixesCentresAndLinks1794760000000` sets back to unverified every centre with
+  `verified = true` and no `verified_at` / `verification_source` (the bot-made rows; console / CSV rows always
+  have `verified_at`).
+- **Cut Medi Bills links**: `SeedPlanActivationDetails` set `/activate/cut-medi-bills-monthly|annual`, both 404 on
+  oxxy.in (checked 20 Nov). The same migration clears them, so Cut Medi Bills goes to the team until the real link
+  is entered on Plans. The Oxxy `/healthplan?plan_name=…` links answer 200. The renewal terms and "5 to 10 working
+  days" in that migration were not confirmed by the client [CONFIRM].
+- **Late WhatsApp messages**: a message older than 5 minutes (or "out of order") was saved and never answered, and
+  the pipeline skipped one older than 10 minutes when anything happened since. Removed: only a newer, already
+  answered message makes one stale (the old rule, kept with `wa_timestamp` ordering). Repeats stay blocked by
+  `wa_message_id`.
+- Tests: 7 were failing (the late-message drop, the new welcome buttons, the new notice wording). Hindi / Tamil
+  script greetings ("नमस्ते", "வணக்கம்") now open the welcome card (they went to the LLM).
+Still for the client [CONFIRM]: the founder answer (Pankaj Gupta, not in their documents), the prompt line saying
+Oxxy is available in any city, the advisor number +91 92665 68181 (only 8800855340 is in their KB), the DPDP
+notice wording changed on 18 Nov ("Before sharing health details …": legal text), the LLM prompt asking to share
+oxxy.in links while the validator rejects links, temperature 0.5 (the 97.2% eval was at 0.2). `generateHumanAck`
+in `Llm.service.ts` is unused.
+
 ## Client API documentation (14 Nov)
 
 - `docs/CRM_API_REFERENCE.md` is the document for the client's CRM developers: the three connections (Actions API,

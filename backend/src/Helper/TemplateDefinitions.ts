@@ -29,13 +29,14 @@ export const OXXY_LINKS = {
 };
 /** The logo shown on the welcome / calculator cards (local file for the Meta template example) */
 export const LOGO_FILE = "../frontend/public/oxxy-logo.png";
+/** The client's picture for the "Reduce Your Medical Bill Now" card (sequence 1, 20 Nov) */
+export const BILL_IMAGE_FILE = "../frontend/public/oxxy-bill-card.jpg";
 
 // The client's current WhatsApp welcome, word for word (client, 17 Nov: "first message like this")
 export const WELCOME_CARD_TEXT =
   "Welcome to Oxxy HealthCare!\nHello 👋\n\nWe’re happy to have you with us. With Oxxy, you can access exclusive healthcare benefits and discounts at our partner hospitals, diagnostic centres, path labs and more across India.\n\nYour healthcare journey with us starts here. 💚";
 
-export const VERIFY_CARD_TEXT =
-  `Verify Our Healthcare Services\n\nHello 👋\n🏥 It is sensible to verify any healthcare service before paying. For your convenience, I am sharing Customer Testimonials, News articles, Oxxy’s official website & policy page.\n1. Customer Testimonials: ${OXXY_LINKS.stories}\n2. News Articles: ${OXXY_LINKS.media}\n3. Official Website: ${OXXY_LINKS.website}\n4. Policy Page: ${OXXY_LINKS.policies}\nHope that clarifies your doubts!`;
+export const VERIFY_CARD_TEXT = `Verify Our Healthcare Services\n\nHello 👋\n🏥 It is sensible to verify any healthcare service before paying. For your convenience, I am sharing Customer Testimonials, News articles, Oxxy’s official website & policy page.\n1. Customer Testimonials: ${OXXY_LINKS.stories}\n2. News Articles: ${OXXY_LINKS.media}\n3. Official Website: ${OXXY_LINKS.website}\n4. Policy Page: ${OXXY_LINKS.policies}\nHope that clarifies your doubts!`;
 
 export const TEMPLATES: TemplateDef[] = [
   {
@@ -150,7 +151,15 @@ export const TEMPLATES: TemplateDef[] = [
     language: "en",
     category: "MARKETING",
     body: "Hello {{1}}, based on what you shared, the Oxxy {{2}} plan fits best because {{3}}.\n\nPrice ({{7}}):\nPlan cost: ₹{{4}}\n+ GST (18%): ₹{{5}}\n= Final payable: ₹{{6}}\n\nWould you like to activate your Oxxy care plan?",
-    examples: ["Priya", "Infinity", "it has no age limit and no upper eligible bill limit", "40,000", "7,200", "47,200", "yearly"],
+    examples: [
+      "Priya",
+      "Infinity",
+      "it has no age limit and no upper eligible bill limit",
+      "40,000",
+      "7,200",
+      "47,200",
+      "yearly",
+    ],
     footer: "Reply STOP to opt out",
     quickReplies: ["Activate Now", "Add Family Member", "Talk to Expert"],
   },
@@ -162,6 +171,18 @@ export const TEMPLATES: TemplateDef[] = [
     quickReplies: ["Main Menu"],
     urlButtons: [{ text: "Terms & Conditions", url: OXXY_LINKS.policies }],
   },
+  // ---- Client sequence 1 (20 Nov): the first card, to start a chat outside the 24-hour window. Inside the
+  // window the bot sends the same card as an interactive message (Service/Oxxy/BillCard.ts). A tap on a quick
+  // reply arrives as the button text, which handleBillCard reads like the ids.
+  {
+    name: "oxxy_reduce_bill",
+    language: "en",
+    category: "MARKETING",
+    headerImage: BILL_IMAGE_FILE,
+    body: "*Reduce Your Medical Bill Now*\n\nGet an instant discount of up to 40% on hospital, diagnostic centre and path lab bills across India with Oxxy.\n\n📞 Talk to us: +91 88008 55340",
+    footer: "Reply STOP to opt out",
+    quickReplies: ["Calculate discount", "Learn More", "Activate Oxxy"],
+  },
 ];
 
 /**
@@ -171,14 +192,16 @@ export const TEMPLATES: TemplateDef[] = [
 export function metaTemplateBody(t: TemplateDef, headerHandle?: string) {
   const components: Record<string, unknown>[] = [];
   if (t.headerImage && headerHandle)
-    components.push({ type: "HEADER", format: "IMAGE", example: { header_handle: [headerHandle] } });
-  components.push(
-    {
-      type: "BODY",
-      text: t.body,
-      ...(t.examples?.length ? { example: { body_text: [t.examples] } } : {}),
-    },
-  );
+    components.push({
+      type: "HEADER",
+      format: "IMAGE",
+      example: { header_handle: [headerHandle] },
+    });
+  components.push({
+    type: "BODY",
+    text: t.body,
+    ...(t.examples?.length ? { example: { body_text: [t.examples] } } : {}),
+  });
   if (t.footer) components.push({ type: "FOOTER", text: t.footer });
   const buttons = [
     ...(t.quickReplies ?? []).map((text) => ({ type: "QUICK_REPLY", text })),
