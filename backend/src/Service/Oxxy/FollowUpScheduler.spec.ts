@@ -100,6 +100,24 @@ describe("conversation rescue (Playbook 15: at most two in a row)", () => {
     expect(upd).toHaveBeenCalledWith("v1", { rescue_count: 2 });
     expect(create).not.toHaveBeenCalled();
   });
+  it("inside the 24-hour window the first card goes again (client general rule, 20 Nov), 6 h later the second", async () => {
+    const { svc, wa } = setup();
+    jest.spyOn(conversation, "findOne").mockResolvedValue({
+      id: "v1",
+      state: "intent_menu",
+      rescue_count: 0,
+      last_customer_message_at: new Date(Date.now() - 30 * 60000),
+    } as never);
+    jest.spyOn(conversation, "update").mockResolvedValue({} as never);
+    const create = jest.spyOn(svc, "create").mockResolvedValue({} as never);
+    await svc.execute(rescue);
+    const sent = wa.send.mock.calls[0][1] as { kind: string; body: string };
+    expect(sent.kind).toBe("buttons");
+    expect(sent.body).toMatch(/Why Overpay Your Medical Bills\?/);
+    const next = (create.mock.calls[0][0] as { scheduledFor: Date }).scheduledFor.getTime();
+    expect(Math.round((next - Date.now()) / 3600000)).toBe(6);
+  });
+
   it("a third is never sent", async () => {
     const { svc, wa } = setup();
     jest

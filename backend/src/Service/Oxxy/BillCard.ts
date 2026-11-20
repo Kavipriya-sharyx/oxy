@@ -162,6 +162,17 @@ export function billResultCard(amount: number, l?: Lg): OutboundMessage {
  * "Regular Health Insurance vs Oxxy": the six points published on www.oxxy.in ("Where Oxxy scores better than
  * health insurances"). WhatsApp has no table, so the two columns are two blocks. Oxxy is never called insurance.
  */
+/**
+ * Learn More's picture: the client's "Why Choose Oxxy Medical Discount Plans?" comparison (20 Nov), from
+ * OXXY_COMPARE_IMAGE_URL, else oxxy-compare-card.jpg next to the welcome image; no link = text only.
+ */
+export function compareImageHeader(): InteractiveHeader | undefined {
+  const own = process.env.OXXY_COMPARE_IMAGE_URL || "";
+  if (/^https:\/\//i.test(own)) return { type: "image", link: own };
+  const origin = (process.env.OXXY_WELCOME_IMAGE_URL || "").match(/^https:\/\/[^/]+/i)?.[0];
+  return origin ? { type: "image", link: `${origin}/oxxy-compare-card.jpg` } : undefined;
+}
+
 export function billCompareCard(l?: Lg): OutboundMessage {
   const body = [
     tr(
@@ -234,13 +245,14 @@ export function billCompareCard(l?: Lg): OutboundMessage {
     "",
     tr(
       l,
-      "Oxxy is not insurance: it lowers your medical bills and works alongside any insurance you already have.",
-      "Oxxy इंश्योरेंस नहीं है: यह आपके मेडिकल बिल कम करता है और आपके मौजूदा इंश्योरेंस के साथ काम करता है।",
-      "Oxxy insurance nahi hai: yeh aapke medical bills kam karta hai aur aapke existing insurance ke saath kaam karta hai.",
+      "Oxxy is not insurance: it lowers your medical bills and works alongside any insurance you already have. Your insurance remains valuable, so please keep it.",
+      "Oxxy इंश्योरेंस नहीं है: यह आपके मेडिकल बिल कम करता है और आपके मौजूदा इंश्योरेंस के साथ काम करता है। आपका इंश्योरेंस ज़रूरी है, कृपया उसे जारी रखें।",
+      "Oxxy insurance nahi hai: yeh aapke medical bills kam karta hai aur aapke existing insurance ke saath kaam karta hai. Aapka insurance zaroori hai, please use jaari rakhein.",
     ),
   ].join("\n");
   return {
     kind: "buttons",
+    header: compareImageHeader(),
     body,
     buttons: [
       { id: BILL_IDS.calc, title: tr(l, "Calculate discount", "छूट जानें", "Discount jaanein") },

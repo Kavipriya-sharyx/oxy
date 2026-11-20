@@ -439,15 +439,20 @@ Code: `Service/Oxxy/BookCard.ts` (texts, readers) + `handleAppointment` / `apptW
 - **Sequence 2**: picture `oxxy-book-card.jpg` (or `OXXY_BOOK_IMAGE_URL`) + "Book Appointment" + one button
   (`appt_start`). Then, draft in pending `appt:<json>`:
   1. where: "Send location" button (pin) or a typed area -> Google geocode (no Maps service = the name question);
-  2. list (max 9 + "Other hospital"): verified partner centres within 10 km first ("✅ Oxxy partner"), then Google
-     Maps nearby places marked "Not an Oxxy partner yet" (never saved, never called partners, team checks the
-     discount; user, 20 Nov: "current location or typed location, Google search, show hospitals");
-     "Other hospital" / a typed name -> resolveCentre (partner if the name matches, else for the team);
+  2. list (max 5 + "Other hospital", Playbook 10): directory centres within 10 km first, then Google Maps nearby
+     places; government facilities left out (`looksGovernment`, 10.1); rows show name, locality and type only,
+     **never tie-up / partner / discount status** (Playbook 2.1, Trigger D; doc check 20 Nov). A Google place is
+     never saved; once picked it is booked like a centre the customer named (10.2: team verification task).
+     "Other hospital" / a typed name -> resolveCentre (directory centre if the name matches, else for the team);
   3. booking for: Myself / Family member [CONFIRM: the sketch says only "Booking for"];
-  4. date (booking window rule: 3 days to 6 months, `dateProblemText` otherwise); 5. time ("11 am", "evening");
-  6. saved with `saveBookingRequest` (split out of `finishBooking`: a partner = booking_request + CRM
-     create_booking_request; other = directory-verification task) + CRM event `appointment_requested`; card
-     "OK, your request is processed. Please activate services" [Activate] (the four plans) [Later] (thank you).
+  4. specialisation / test / service (Playbook 11.1 step 2), only with the health consent; kept in need row;
+  5. date (booking window rule: 3 days to 6 months, `dateProblemText` otherwise); 6. time ("11 am", "evening");
+  7. saved with `saveBookingRequest` (split out of `finishBooking`: directory centre = booking_request + CRM
+     create_booking_request; other = directory-verification task) + CRM event `appointment_requested`; reply =
+     Trigger H text (`bookingSavedText`, pending confirmation) + Playbook 11.2's ONE soft suggestion ("no
+     pressure; your booking request is already recorded") via `softActivationOffer` (once per journey, opens the
+     ActivationFollowUp task) [Activate] (the four plans) [Later] (decline: SOFT_ACTIVATION_DECLINED_T,
+     `stopActivationPitch`, outcome activation_declined, only a Main Menu button).
   A question in the middle goes to the normal chat; the step stays.
 - **General rule**: (a) "AI bot call in 60 seconds": the bot cannot call; the first card of a new chat sends CRM
   event `voice_call_requested` with `call_at` (+60 s, or 09:00 IST in the blackout), not for a voice-started chat.
@@ -455,6 +460,10 @@ Code: `Service/Oxxy/BookCard.ts` (texts, readers) + `handleAppointment` / `apptW
   hours, blackout 9 pm-9 am": rescue defaults are now 0.5 h and 6 h (Configuration page takes decimals); a rescue
   inside the 24-hour window sends the first card again (outside it, the old rescue template); the first card now
   gets a rescue (flow:start was excluded); quiet hours 21:00-09:00 move it to 09:00.
+- Doc check (20 Nov, Playbook + Trigger layer vs the app): fixed the booking list (tie-up words, 9 -> 5,
+  government), the missing specialisation step, the push wording of the end card, the decline handling and the
+  Learn More card ("keep your insurance", Trigger B). Still against the docs by the client's choice [CONFIRM]:
+  two in-window resends (Playbook 15.1 allows one reminder) and no "recommended" mark on the four-plan list.
 - Templates `oxxy_why_overpay`, `oxxy_book_appointment` (picture + text + quick replies); migration
   `AppointmentTemplates1794780000000`.
 - Deploy: both pictures are in the frontend build; deploy the frontend with the backend.

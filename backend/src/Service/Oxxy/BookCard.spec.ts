@@ -36,7 +36,8 @@ describe("sequence 2 and 3 cards (client, 20 Nov)", () => {
         apptListCard(options.slice(3), null, l),
         apptForAsk("Moolchand Hospital", l),
         apptDoneCard(
-          { hospital: "Moolchand", date: "2026-12-01", time: "11:00 AM", partner: false },
+          "Your booking request has been made for 1 Dec 2026 at 11:00 AM at Moolchand. It is pending confirmation.",
+          true,
           l,
         ),
         apptThanks(l),
@@ -45,10 +46,10 @@ describe("sequence 2 and 3 cards (client, 20 Nov)", () => {
     }
   });
 
-  it("the list holds at most 9 hospitals + Other hospital (WhatsApp: 10 rows)", () => {
+  it("the list holds at most 5 centres + Other hospital (Playbook 10)", () => {
     const options = Array.from({ length: 12 }, (_, i) => ({ n: `H${i}` }));
     const list = apptListCard(options, null, "en") as { rows: { id: string }[] };
-    expect(list.rows).toHaveLength(10);
+    expect(list.rows).toHaveLength(6); // Playbook 10: up to five + Other hospital
     expect(list.rows.at(-1)!.id).toBe("appt_other");
   });
 

@@ -42,6 +42,15 @@ describe("bill card helpers (client sequence 1)", () => {
     expect(billImageHeader()).toEqual({ type: "image", link: "https://cdn.example.in/card.jpg" });
   });
 
+  it("Learn More carries the client's comparison picture (20 Nov)", () => {
+    expect((billCompareCard("en") as { header?: unknown }).header).toBeUndefined();
+    process.env.OXXY_WELCOME_IMAGE_URL = "https://oxxy.sharyx.ai/logo.png";
+    expect((billCompareCard("en") as { header?: unknown }).header).toEqual({
+      type: "image",
+      link: "https://oxxy.sharyx.ai/oxxy-compare-card.jpg",
+    });
+  });
+
   it("reads bill amounts", () => {
     expect(readBillAmount("10000")).toBe(10000);
     expect(readBillAmount("₹25,000")).toBe(25000);

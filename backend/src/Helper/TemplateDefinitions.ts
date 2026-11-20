@@ -34,6 +34,8 @@ export const BILL_IMAGE_FILE = "../frontend/public/oxxy-bill-card.jpg";
 /** The client's pictures for sequence 2 (Book Appointment) and sequence 3 (Why Overpay), 20 Nov */
 export const BOOK_IMAGE_FILE = "../frontend/public/oxxy-book-card.jpg";
 export const OVERPAY_IMAGE_FILE = "../frontend/public/oxxy-overpay-card.jpg";
+/** The client's "Why Choose Oxxy Medical Discount Plans?" comparison picture (Learn More, 20 Nov) */
+export const COMPARE_IMAGE_FILE = "../frontend/public/oxxy-compare-card.jpg";
 
 // The client's current WhatsApp welcome, word for word (client, 17 Nov: "first message like this")
 export const WELCOME_CARD_TEXT =
@@ -205,6 +207,16 @@ export const TEMPLATES: TemplateDef[] = [
     body: "*Book Appointment*\n\nBook your visit to a hospital or diagnostic centre near you, and get a medical discount on your bill with Oxxy.",
     footer: "Reply STOP to opt out",
     quickReplies: ["Book Appointment"],
+  },
+  // Learn More (20 Nov): the client's comparison picture; inside the window the same card is billCompareCard
+  {
+    name: "oxxy_learn_more",
+    language: "en",
+    category: "MARKETING",
+    headerImage: COMPARE_IMAGE_FILE,
+    body: "*Why Choose Oxxy Medical Discount Plans?*\n\nOxxy gives instant discounts on hospital stays, diagnostics, medicines, doctor consultations, surgeries and health packages across India. Oxxy is not insurance: it works alongside any insurance you already have, so please keep your insurance.",
+    footer: "Reply STOP to opt out",
+    quickReplies: ["Calculate discount", "Activate Oxxy", "Main Menu"],
   },
 ];
 

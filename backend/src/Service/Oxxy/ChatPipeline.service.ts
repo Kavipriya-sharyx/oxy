@@ -98,6 +98,10 @@ import {
   ApptOption,
   apptDateAsk,
   apptDoneCard,
+  apptSpecAsk,
+  looksGovernment,
+  MAX_OPTIONS,
+  readSpec,
   apptForAsk,
   apptListCard,
   apptNameAsk,
@@ -1855,8 +1859,9 @@ export class ChatPipelineService {
 
   /**
    * Client sequences 2 and 3 (20 Nov; Service/Oxxy/BookCard.ts): the first card's two buttons, and the booking:
-   * where (pin or typed area) -> nearby hospitals (partners first, Google Maps places marked not a partner,
-   * "Other hospital") -> booking for -> date -> time -> saved as a booking request -> Activate / Later.
+   * where (pin or typed area) -> up to five private centres near it (directory first, then Google Maps places,
+   * no tie-up / discount word) + "Other hospital" -> booking for -> specialisation (with the health consent) ->
+   * date -> time -> saved as a booking request, pending confirmation + one soft suggestion [Activate] [Later].
    * Code only, no LLM. false = not for this flow (the normal conversation answers; the step stays).
    */
   private async handleAppointment(m: Inbound, s: Saved): Promise<boolean> {
@@ -1903,7 +1908,15 @@ export class ChatPipelineService {
       return true;
     }
     if (text.toLowerCase() === BOOK_IDS.later || (pending === APPT_AFTER && asksApptLater(text))) {
+      // Playbook 11.2 decline: the booking stays, the follow-up covers its confirmation only, no second pitch
       await this.setPending(s, null);
+      await conversation.update(s.conversation.id, { outcome: "activation_declined" });
+      s.conversation.outcome = "activation_declined";
+      await this.markTriggerResponse(s.conversation.id, "declined", {
+        triggerId: "E",
+        force: true,
+      });
+      await this.stopActivationPitch(s);
       await reply(apptThanks(l));
       return true;
     }
@@ -1956,7 +1969,30 @@ export class ChatPipelineService {
         await reply(apptForAsk(d.cn ?? "", l));
         return true;
       }
+      // Playbook 11.1 step 2: the specialisation, a health detail, so only with the health consent
+      if (!(await this.noHealthQuestions(s))) {
+        await save({ ...d, step: "spec", f });
+        await reply(apptSpecAsk(l));
+        return true;
+      }
       await save({ ...d, step: "date", f });
+      await reply(apptDateAsk(l));
+      return true;
+    }
+    if (d.step === "spec") {
+      const sp = readSpec(text);
+      if (!sp) {
+        if (aside()) return false;
+        await reply(apptSpecAsk(l));
+        return true;
+      }
+      if (sp !== "skip") {
+        // kept in the need row (encrypted), never in pending_action (BookingFlow's rule)
+        const n = await this.needRow(s);
+        n.specialisation = normaliseSpecialisation(sp) ?? sp;
+        await n.save();
+      }
+      await save({ ...d, step: "date" });
       await reply(apptDateAsk(l));
       return true;
     }
@@ -2032,35 +2068,37 @@ export class ChatPipelineService {
   }
 
   /**
-   * Up to 9 hospitals near a spot: Oxxy's verified partner centres first (nearest first), then real places from
-   * Google Maps. The Google places are only shown, marked "not an Oxxy partner yet"; never saved to the
-   * directory and never called partners (the antigravity review, 20 Nov).
+   * Up to five private centres near a spot (Playbook 10 / Trigger D): the verified directory first (nearest
+   * first), then real places from Google Maps. Government facilities are left out (10.1). A Google place is only
+   * shown, never saved to the directory; once picked it is booked like a centre the customer named (10.2: the
+   * team verifies it). No tie-up / partner / discount status is ever shown (Playbook 2.1).
    */
   private async apptOptions(origin: GeoPoint): Promise<ApptOption[]> {
     const out: ApptOption[] = [];
     const partners = await this._CentreSearch
       .search({ latitude: origin.latitude, longitude: origin.longitude, radiusKm: 10 })
       .catch(() => []);
-    for (const c of partners.slice(0, 5))
+    for (const c of partners.filter((x) => !looksGovernment(x.name)).slice(0, MAX_OPTIONS))
       out.push({
         n: c.branch ? `${c.name}, ${c.branch}` : c.name,
         a: c.locality || c.city || null,
+        k: (c as any).centre_type ? String((c as any).centre_type).replace(/_/g, " ") : null,
         c: c.id,
       });
     if (this._Maps?.enabled) {
       const known = new Set(partners.map((c) => c.name.trim().toLowerCase()));
       const places = await this._Maps.nearbyCandidates(origin, 10).catch(() => []);
       for (const p of places) {
-        if (out.length >= 9) break;
-        if (!p.name || known.has(p.name.trim().toLowerCase())) continue;
+        if (out.length >= MAX_OPTIONS) break;
+        if (!p.name || known.has(p.name.trim().toLowerCase()) || looksGovernment(p.name)) continue;
         const short = (p.address || "").split(",").slice(0, 2).join(",").trim();
         out.push({ n: p.name.slice(0, 80), a: short || null });
       }
     }
-    return out.slice(0, 9);
+    return out.slice(0, MAX_OPTIONS);
   }
 
-  /** A typed hospital name (with city / state): a partner centre when it is one, else for the team to check */
+  /** A typed hospital name (with city / state): a directory centre when it is one, else for the team to check */
   private async apptName(m: Inbound, s: Saved, d: ApptDraft): Promise<boolean> {
     const l = s.customer.language;
     const text = (m.text || "").trim();
@@ -2076,11 +2114,15 @@ export class ChatPipelineService {
     return true;
   }
 
-  /** Saves the booking request (the same rows as the chat booking) and sends "processed" + Activate / Later */
+  /**
+   * Saves the booking request (the same rows as the chat booking) and sends Trigger H (recorded, pending
+   * confirmation) + Playbook 11.2's one soft activation suggestion [Activate] [Later]. softActivationOffer
+   * records the suggestion (once per journey, never with an active product) and opens the human follow-up task.
+   */
   private async apptFinish(m: Inbound, s: Saved, d: ApptDraft): Promise<boolean> {
     const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
     const who = d.f === "family" ? "a family member" : "the customer";
-    await this.saveBookingRequest(
+    const saved = await this.saveBookingRequest(
       s,
       {
         step: "time",
@@ -2097,20 +2139,18 @@ export class ChatPipelineService {
     );
     await this.crmEvent(s, "appointment_requested", {
       hospital: d.cn,
-      oxxy_partner: !!d.c,
+      in_directory: !!d.c,
       centre_id: d.c ?? null,
       area: d.l ?? d.p ?? null,
       booking_for: d.f ?? null,
       preferred_date: d.d,
       preferred_time: d.t,
     }).catch(() => undefined);
-    await this.setPending(s, APPT_AFTER);
+    const soft = !!(await this.softActivationOffer(s, d.d!));
+    await this.setPending(s, soft ? APPT_AFTER : null);
     await this.sendAndSave(
       s.customer.id,
-      apptDoneCard(
-        { hospital: d.cn ?? "", date: d.d!, time: d.t!, partner: !!d.c },
-        s.customer.language,
-      ),
+      apptDoneCard(saved, soft, s.customer.language),
       m.waMessageId,
     );
     return true;
@@ -3260,7 +3300,13 @@ export class ChatPipelineService {
     // nothing health-related stored; the notice follows right after the answer (askConsentLater). The consent
     // step itself runs for the first message (welcome), a YES / NO to the notice, and the health-need row.
     let consentLater: "none" | "awaiting" | null = null;
-    if (consentStatus === "none" || consentStatus === "awaiting") {
+    // The activation / payment step (the link YES, then DONE / payment failed / not now) needs no health detail:
+    // the notice neither intercepts it nor follows it (e2e 20 Nov: the notice came right after the link, and
+    // "DONE" then got "Sorry, I did not understand. Do you agree to share your health-related information?").
+    const paymentStep =
+      !!s.conversation.pending_action?.startsWith("send_activation_link:") ||
+      s.conversation.state === ConversationState.AwaitingPayment;
+    if ((consentStatus === "none" || consentStatus === "awaiting") && !paymentStep) {
       if (this.consentStepNow(consentStatus, m, s)) {
         await this.handleConsentStep(consentStatus, m, s, cons);
         return;
@@ -3269,7 +3315,8 @@ export class ChatPipelineService {
       (s as any).consentLater = consentStatus;
     }
     // refused, or not given yet: the LLM may talk, but never about health
-    const healthBlocked = consentStatus === "refused" || !!consentLater;
+    const healthBlocked =
+      consentStatus === "refused" || !!consentLater || (paymentStep && consentStatus !== "granted");
 
     // 1c. Opening list (plan 12.2). A new conversation gets the welcome + 4-row list (state INTENT_MENU).
     // A tap on a row goes to that row's state with a fixed reply. Anything else is a normal conversation.

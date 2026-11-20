@@ -3,16 +3,18 @@
 // Sequence 3, the first card of a chat and "Main Menu": "Why Overpay Your Medical Bills?" + the client's picture,
 //   [Reduce My Bill] -> sequence 1 (the bill card)   [Book Appointment] -> sequence 2 (the booking card)
 // Sequence 2, "Book Appointment" + the client's picture, [Book Appointment] ->
-//   where are you? (a "Send location" button, or a typed area) -> nearby hospitals: Oxxy partner centres first,
-//   then real places from Google Maps marked "not an Oxxy partner yet" (never called partners, never promised a
-//   discount, never saved to the directory), and "Other hospital" to type a name -> booking for (myself / family)
-//   -> date -> time -> "your request is processed, please activate services" [Activate] [Later] -> thank you.
+//   where are you? (a "Send location" button, or a typed area) -> up to five private centres near them (the
+//   verified directory first, then real places from Google Maps, government facilities left out; never a word
+//   about tie-up / partner / discount status, Playbook 2.1 + 10) and "Other hospital" to type a name -> booking
+//   for (myself / family) -> specialisation (only with the health consent) -> date -> time -> the request
+//   recorded, pending confirmation + ONE soft activation suggestion [Activate] [Later] (Playbook 11 / 11.2).
 // The draft lives in conversation.pending_action as `appt:<json>`. Pure texts and readers; the pipeline
 // (handleAppointment) sends them. No LLM. Hindi / Hinglish are drafts for a native-speaker review.
 import { InteractiveHeader, ListRow, OutboundMessage } from "@Helper/WhatsappMessage";
 import { say } from "@Helper/Lang";
 import { showDate } from "./BookingFlow";
 import { BILL_IDS } from "./BillCard";
+import { SOFT_ACTIVATION_DECLINED_T } from "@Helper/PlanReplies";
 
 type Lg = string | null | undefined;
 const tr = (l: Lg, en: string, hi: string, hinglish: string) => say({ en, hi, hinglish }, l);
@@ -123,14 +125,24 @@ export function bookCard(l?: Lg): OutboundMessage {
 
 // ---------------------------------------------------------------- the draft
 
-export type ApptStep = "where" | "pick" | "name" | "for" | "date" | "time";
+export type ApptStep = "where" | "pick" | "name" | "for" | "spec" | "date" | "time";
 
-/** One hospital shown in the list: a partner centre (c = its id) or a place from Google Maps (no c) */
+/** One centre shown in the list: a directory centre (c = its id) or a place from Google Maps (no c) */
 export interface ApptOption {
   n: string; // name
-  a?: string | null; // address / branch
+  a?: string | null; // locality / address
+  k?: string | null; // type (Multispeciality hospital, Diagnostic centre ...)
   c?: string | null; // verified centre id
 }
+
+/** Playbook 10 / Trigger D: up to five centres */
+export const MAX_OPTIONS = 5;
+
+/** Playbook 10.1: government facilities are not in the suggested private-centre list */
+export const looksGovernment = (name: string) =>
+  /\b(govt|government|aiims|esic?|civil hospital|district hospital|general hospital|phc|chc|primary health|community health|municipal|corporation|cantonment|railway hospital|sarkari|rajkiya|zila)\b|सरकारी|राजकीय/i.test(
+    name || "",
+  );
 
 export interface ApptDraft {
   step: ApptStep;
@@ -138,7 +150,7 @@ export interface ApptDraft {
   p?: string | null; // the place the customer gave (typed area, or the pin's area)
   c?: string | null; // chosen verified centre id
   cn?: string | null; // chosen hospital name
-  u?: boolean; // not an Oxxy partner (Google place or typed name): the team checks it
+  u?: boolean; // not in the directory (Google place or typed name): the team checks it
   l?: string | null; // its address / area
   f?: "self" | "family" | null; // booking for
   d?: string | null; // date YYYY-MM-DD
@@ -183,19 +195,14 @@ export const apptWhereAgain = (l?: Lg): string =>
 
 const cut = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 1).trimEnd() + "…");
 
-/** Step 2: the hospitals near the customer (partners first), and "Other hospital" */
+/** Step 2: the centres near the customer (directory first), and "Other hospital" */
 export function apptListCard(options: ApptOption[], place: string | null, l?: Lg): OutboundMessage {
-  const partners = options.filter((o) => o.c).length;
-  const rows: ListRow[] = options.slice(0, 9).map((o, i) => ({
+  // Playbook 10 / Trigger D: up to five centres; name, locality and type only. Never a word about tie-up,
+  // network, partner or discount status while presenting a centre (Playbook 2.1, doc check 20 Nov).
+  const rows: ListRow[] = options.slice(0, MAX_OPTIONS).map((o, i) => ({
     id: `appt_opt_${i}`,
     title: cut(o.n, 24),
-    description: cut(
-      o.c
-        ? tr(l, "✅ Oxxy partner", "✅ Oxxy पार्टनर", "✅ Oxxy partner") + (o.a ? ` · ${o.a}` : "")
-        : tr(l, "Not an Oxxy partner yet", "अभी Oxxy पार्टनर नहीं", "Abhi Oxxy partner nahi") +
-            (o.a ? ` · ${o.a}` : ""),
-      72,
-    ),
+    description: cut([o.a, o.k].filter(Boolean).join(" · ") || o.n, 72),
   }));
   rows.push({
     id: BOOK_IDS.other,
@@ -211,29 +218,15 @@ export function apptListCard(options: ApptOption[], place: string | null, l?: Lg
   const body = [
     tr(
       l,
-      `Hospitals near you${near}:`,
-      `आपके पास के अस्पताल${near}:`,
-      `Aapke paas ke hospitals${near}:`,
+      `Here are private healthcare centres near you${near}.`,
+      `आपके पास${near} के कुछ प्राइवेट हेल्थकेयर सेंटर ये हैं।`,
+      `Aapke paas${near} ke kuch private healthcare centres yeh hain.`,
     ),
-    "",
-    partners
-      ? tr(
-          l,
-          "✅ Oxxy partners give the Oxxy discount. For the others, our team will check whether the discount applies.",
-          "✅ Oxxy पार्टनर पर Oxxy छूट मिलती है। बाकी के लिए हमारी टीम छूट की जाँच करेगी।",
-          "✅ Oxxy partners par Oxxy discount milta hai. Baaki ke liye hamari team discount check karegi.",
-        )
-      : tr(
-          l,
-          "These are not Oxxy partners yet. Our team will check whether the Oxxy discount applies at the hospital you choose.",
-          "ये अभी Oxxy पार्टनर नहीं हैं। आप जो अस्पताल चुनेंगे, वहाँ Oxxy छूट मिलती है या नहीं, हमारी टीम जाँच करेगी।",
-          "Yeh abhi Oxxy partners nahi hain. Aap jo hospital chunenge, wahan Oxxy discount milta hai ya nahi, hamari team check karegi.",
-        ),
     tr(
       l,
-      "Tap below to choose.",
-      "चुनने के लिए नीचे टैप करें।",
-      "Chunne ke liye neeche tap karein.",
+      "Tap below to choose one, or pick Other hospital to name the centre you prefer.",
+      "नीचे टैप करके एक चुनें, या अपनी पसंद का सेंटर बताने के लिए दूसरा अस्पताल चुनें।",
+      "Neeche tap karke ek chunein, ya apni pasand ka centre batane ke liye Doosra hospital chunein.",
     ),
   ].join("\n");
   return {
@@ -345,51 +338,47 @@ export const apptTimeAgain = (l?: Lg): string =>
     "Please time likhein, jaise: 11 am, 5:30 pm, ya morning / evening.",
   );
 
-/** The end (the sketch's "OK, your request is processed. Please activate services") */
-export function apptDoneCard(
-  o: { hospital: string; date: string; time: string; partner: boolean },
-  l?: Lg,
-): OutboundMessage {
-  const lines = [
-    tr(
-      l,
-      "✅ OK, your request is processed.",
-      "✅ ठीक है, आपका अनुरोध दर्ज हो गया है।",
-      "✅ OK, aapki request process ho gayi hai.",
-    ),
-    "",
-    tr(l, `Hospital: ${o.hospital}`, `अस्पताल: ${o.hospital}`, `Hospital: ${o.hospital}`),
-    tr(
-      l,
-      `Date: ${showDate(o.date)}, ${o.time}`,
-      `तारीख: ${showDate(o.date)}, ${o.time}`,
-      `Date: ${showDate(o.date)}, ${o.time}`,
-    ),
-    "",
-    o.partner
-      ? tr(
-          l,
-          "Our team will confirm the appointment with you. This is a request until the team confirms it.",
-          "हमारी टीम आपके साथ अपॉइंटमेंट कन्फ़र्म करेगी। टीम के कन्फ़र्म करने तक यह एक अनुरोध है।",
-          "Hamari team aapke saath appointment confirm karegi. Team ke confirm karne tak yeh ek request hai.",
-        )
-      : tr(
-          l,
-          "This hospital is not an Oxxy partner yet: our team will check it, confirm the appointment with you and tell you whether the Oxxy discount applies.",
-          "यह अस्पताल अभी Oxxy पार्टनर नहीं है: हमारी टीम इसकी जाँच करेगी, आपके साथ अपॉइंटमेंट कन्फ़र्म करेगी और बताएगी कि Oxxy छूट मिलेगी या नहीं।",
-          "Yeh hospital abhi Oxxy partner nahi hai: hamari team ise check karegi, aapke saath appointment confirm karegi aur batayegi ki Oxxy discount milega ya nahi.",
-        ),
-    "",
-    tr(
-      l,
-      "Please activate Oxxy services to get the discount on your bill.",
-      "बिल पर छूट पाने के लिए कृपया Oxxy सेवाएँ एक्टिवेट करें।",
-      "Bill par discount paane ke liye please Oxxy services activate karein.",
-    ),
-  ];
+/** Playbook 11 step 2: the specialisation (health detail: asked only with the health consent) */
+export const apptSpecAsk = (l?: Lg): string =>
+  tr(
+    l,
+    "Which doctor specialisation, test or healthcare service should I include in the request? (for example: cardiologist, MRI, eye check-up)",
+    "अनुरोध में कौन सी डॉक्टर विशेषज्ञता, टेस्ट या सेवा शामिल करूँ? (जैसे: कार्डियोलॉजिस्ट, MRI, आँखों की जाँच)",
+    "Request mein kaunsi doctor specialisation, test ya service include karun? (jaise: cardiologist, MRI, eye check-up)",
+  );
+
+/** "not sure", "skip", "general": no specialisation; else the service as typed (never a diagnosis) */
+export function readSpec(text: string): string | null | "skip" {
+  const t = (text || "").trim();
+  if (
+    /^(skip|no|none|not sure|don'?t know|dont know|general|any|nahi pata|pata nahi|kuch nahi)\b/i.test(
+      t,
+    )
+  )
+    return "skip";
+  if (t.length < 2 || t.split(/\s+/).length > 8) return null;
+  return t.slice(0, 60);
+}
+
+/**
+ * The end: the client's sketch ("your request is processed, please activate services" [Activate] [Later]) in the
+ * playbook's words: Trigger H (request recorded, pending confirmation) + Playbook 11.2's ONE soft activation
+ * suggestion ("no pressure; your booking request is already recorded"). `saved` = bookingSavedText.
+ */
+export function apptDoneCard(saved: string, soft: boolean, l?: Lg): OutboundMessage {
+  if (!soft) return { kind: "text", body: saved };
   return {
     kind: "buttons",
-    body: lines.join("\n"),
+    body: [
+      saved,
+      "",
+      tr(
+        l,
+        "To help mobilise the process and support your broader healthcare needs, you may activate Oxxy now if you would like. There is no pressure; your booking request is already recorded.",
+        "प्रक्रिया आगे बढ़ाने और आपकी बाकी स्वास्थ्य ज़रूरतों में मदद के लिए, आप चाहें तो अभी Oxxy एक्टिवेट कर सकते हैं। कोई दबाव नहीं है; आपका बुकिंग अनुरोध पहले से दर्ज है।",
+        "Process aage badhane aur aapki baaki healthcare zarooraton mein madad ke liye, aap chahein to abhi Oxxy activate kar sakte hain. Koi pressure nahi hai; aapka booking request pehle se recorded hai.",
+      ),
+    ].join("\n"),
     buttons: [
       { id: BOOK_IDS.activate, title: tr(l, "Activate", "एक्टिवेट करें", "Activate") },
       { id: BOOK_IDS.later, title: tr(l, "Later", "बाद में", "Baad mein") },
@@ -398,23 +387,17 @@ export function apptDoneCard(
 }
 
 export const asksApptActivate = (text: string) =>
-  /^(appt_activate|activate|activate now|activate services)\s*[.!]?$/i.test((text || "").trim());
+  /^(appt_activate|activate|activate now|activate services|yes)\s*[.!]?$/i.test(
+    (text || "").trim(),
+  );
 export const asksApptLater = (text: string) =>
-  /^(appt_later|later|not now|baad mein|बाद में)\s*[.!]?$/i.test((text || "").trim());
+  /^(appt_later|later|not now|no|no thanks|baad mein|बाद में)\s*[.!]?$/i.test((text || "").trim());
 
-/** "Later": the thank-you message */
+/** "Later" (Playbook 11.2 decline): the booking stays, no second suggestion */
 export const apptThanks = (l?: Lg): OutboundMessage => ({
   kind: "buttons",
-  body: tr(
-    l,
-    "Thank you! 🙏 Our team will be in touch about your appointment. Whenever you are ready, you can activate Oxxy here, or ask me anything.",
-    "धन्यवाद! 🙏 हमारी टीम आपकी अपॉइंटमेंट के बारे में संपर्क करेगी। जब भी आप तैयार हों, यहाँ Oxxy एक्टिवेट कर सकते हैं या मुझसे कुछ भी पूछ सकते हैं।",
-    "Dhanyavaad! 🙏 Hamari team aapki appointment ke baare mein contact karegi. Jab bhi aap ready hon, yahan Oxxy activate kar sakte hain ya mujhse kuch bhi pooch sakte hain.",
-  ),
-  buttons: [
-    { id: BILL_IDS.activate, title: tr(l, "Activate Oxxy", "Oxxy एक्टिवेट करें", "Oxxy activate") },
-    { id: BILL_IDS.menu, title: tr(l, "Main Menu", "मुख्य मेनू", "Main Menu") },
-  ],
+  body: say(SOFT_ACTIVATION_DECLINED_T, l),
+  buttons: [{ id: BILL_IDS.menu, title: tr(l, "Main Menu", "मुख्य मेनू", "Main Menu") }],
 });
 
 /** A row pick from the list: its index, or null */

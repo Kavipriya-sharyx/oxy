@@ -17,6 +17,7 @@ import { booking_request } from "@Database/Table/Oxxy/booking_request";
 import { activation } from "@Database/Table/Oxxy/activation";
 import { centre } from "@Database/Table/Oxxy/centre";
 import { plan_catalog } from "@Database/Table/Oxxy/plan_catalog";
+import { trigger_event } from "@Database/Table/Oxxy/trigger_event";
 
 type Fn = (...a: unknown[]) => unknown;
 const stub = (cls: unknown, name: string, impl: Fn) =>
@@ -119,6 +120,12 @@ function setup(
   stub(conversation, "findOne", async () => conv);
   stub(need, "findOne", async () => null);
   stub(task, "findOne", async () => null);
+  stub(task, "find", async () => []);
+  stub(trigger_event, "findOne", async () => null);
+  stub(trigger_event, "save", async (v) => v);
+  stub(trigger_event, "create", (v) => v);
+  const needRow = { specialisation: null as string | null, save: async () => undefined };
+  stub(need, "create", () => needRow);
   stub(booking_request, "findOne", async () => null);
   stub(booking_request, "find", async () => []);
   stub(activation, "findOne", async () => null);
@@ -228,7 +235,7 @@ describe("client sequence 3: the Why Overpay first card (20 Nov)", () => {
 });
 
 describe("client sequence 2: Book Appointment (20 Nov)", () => {
-  it("typed area -> partners first, Google places marked -> pick -> for -> date -> time -> saved -> Later", async () => {
+  it("typed area -> directory first, then Google places, no tie-up word -> pick -> for -> specialisation -> date -> time -> saved -> Later", async () => {
     const t = setup({ state: S.IntentMenu });
     await t.run("appt_start");
     expect(msg<{ kind: string }>(t).kind).toBe("location_request");
@@ -239,14 +246,17 @@ describe("client sequence 2: Book Appointment (20 Nov)", () => {
       rows: { id: string; title: string; description: string }[];
     }>(t);
     expect(list.kind).toBe("list");
-    // the partner, then the Google place (Moolchand from Google is the same name: shown once), then "Other"
+    // the directory centre, then the Google place (Moolchand from Google is the same name: shown once), "Other"
     expect(list.rows.map((r) => r.id)).toEqual(["appt_opt_0", "appt_opt_1", "appt_other"]);
-    expect(list.rows[0].description).toMatch(/✅ Oxxy partner/);
     expect(list.rows[1].title).toBe("Sunrise Diagnostics");
-    expect(list.rows[1].description).toMatch(/Not an Oxxy partner yet/);
+    // Playbook 2.1 / Trigger D: never a word about tie-up, partner or discount status
+    expect(JSON.stringify(list)).not.toMatch(/partner|tie-?up|network|discount/i);
     await t.run("appt_opt_0");
     expect(last(t).text).toMatch(/Hospital: Moolchand Hospital[\s\S]*Who is this booking for/);
     await t.run("appt_family");
+    // Playbook 11.1 step 2: the specialisation (the health consent is given here)
+    expect(last(t).text).toMatch(/Which doctor specialisation, test or healthcare service/);
+    await t.run("cardiologist");
     expect(last(t).text).toMatch(/When do you want to go/);
     await t.run("tomorrow");
     expect(last(t).text).not.toMatch(/What time suits you/); // inside 3 days: the booking window rule
@@ -257,8 +267,12 @@ describe("client sequence 2: Book Appointment (20 Nov)", () => {
       expect.objectContaining({ centre_id: "ctr-1", preferred_time: "11:00 AM" }),
     );
     const done = msg<{ body: string; buttons: { id: string }[] }>(t);
-    expect(done.body).toMatch(/OK, your request is processed/);
-    expect(done.body).toMatch(/Please activate Oxxy services/);
+    // Trigger H + Playbook 11.2: pending confirmation, then ONE soft suggestion, no pressure
+    expect(done.body).toMatch(
+      /Your booking request has been made for .+Moolchand Hospital.+pending confirmation/,
+    );
+    expect(done.body).toMatch(/There is no pressure; your booking request is already recorded/);
+    expect(done.body).not.toMatch(/confirmed\b|partner/i);
     expect(done.buttons.map((b) => b.id)).toEqual(["appt_activate", "appt_later"]);
     expect(
       t.emit.mock.calls.some(
@@ -267,24 +281,30 @@ describe("client sequence 2: Book Appointment (20 Nov)", () => {
       ),
     ).toBe(true);
     await t.run("appt_later");
-    expect(last(t).text).toMatch(/Thank you/);
+    expect(last(t).text).toMatch(/^Absolutely, no problem. Your booking request is recorded/);
+    expect((last(t).msg as { buttons: { id: string }[] }).buttons.map((b) => b.id)).toEqual([
+      "flow_menu",
+    ]);
     expect(t.generate).not.toHaveBeenCalled();
   });
 
-  it("a shared pin works too; a Google place is booked for the team to check, never as a partner", async () => {
+  it("a shared pin works too; a Google place is booked for the team to check (Playbook 10.2)", async () => {
     const t = setup({ state: S.IntentMenu });
     await t.run("appt_start");
     await t.run("", { type: "location", location: { latitude: 28.52, longitude: 77.21 } });
     expect(t.maps.nearbyCandidates).toHaveBeenCalled();
-    expect(String(last(t).text)).toMatch(/Hospitals near you \(Saket, New Delhi\)/);
+    expect(String(last(t).text)).toMatch(
+      /private healthcare centres near you \(Saket, New Delhi\)/,
+    );
     await t.run("appt_opt_1");
     await t.run("appt_self");
+    await t.run("skip");
     await t.run(inTenDays());
     await t.run("evening");
     expect(t.createBooking).not.toHaveBeenCalled(); // not a directory centre: a task for the team
     const done = msg<{ body: string }>(t);
     expect(done.body).toMatch(/Sunrise Diagnostics/);
-    expect(done.body).toMatch(/not an Oxxy partner yet/);
+    expect(done.body).toMatch(/Our team will first check the centre and branch/);
   });
 
   it("Other hospital -> the typed name, city, state; Activate -> the plans", async () => {
@@ -296,6 +316,7 @@ describe("client sequence 2: Book Appointment (20 Nov)", () => {
     await t.run("Moolchand, New Delhi, Delhi");
     expect(last(t).text).toMatch(/Who is this booking for/);
     await t.run("my mother");
+    await t.run("eye check-up");
     await t.run(inTenDays());
     await t.run("10:30 am");
     await t.run("appt_activate");
@@ -331,5 +352,35 @@ describe("live chat 20 Nov: Activate Yearly -> yes must send the link", () => {
     const t = setup({ state: S.IntentMenu });
     await t.run("I want to book");
     expect((last(t).msg as { kind: string }).kind).toBe("location_request");
+  });
+});
+
+describe("doc check 20 Nov: centre list rules (Playbook 10)", () => {
+  it("at most five centres, government facilities left out", async () => {
+    const t = setup({ state: S.IntentMenu });
+    t.maps.nearbyCandidates.mockImplementation(async () =>
+      [
+        "Govt District Hospital",
+        "AIIMS Delhi",
+        "ESIC Hospital",
+        "City Care",
+        "Apex Clinic",
+        "Sun Labs",
+        "Max Eye",
+        "Blue Dental",
+        "Hope Hospital",
+      ].map((name) => ({
+        name,
+        address: "Saket, New Delhi",
+        latitude: 1,
+        longitude: 1,
+        maps_url: null,
+      })),
+    );
+    await t.run("appt_start");
+    await t.run("Saket, New Delhi");
+    const rows = (last(t).msg as { rows: { title: string }[] }).rows.map((r) => r.title);
+    expect(rows).toHaveLength(6); // 5 + Other hospital
+    expect(rows.join(" ")).not.toMatch(/Govt|AIIMS|ESIC/);
   });
 });
