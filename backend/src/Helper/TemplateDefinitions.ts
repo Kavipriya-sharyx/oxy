@@ -179,7 +179,7 @@ export const TEMPLATES: TemplateDef[] = [
     language: "en",
     category: "MARKETING",
     headerImage: BILL_IMAGE_FILE,
-    body: "*Reduce Your Medical Bill Now*\n\nGet an instant discount of up to 40% on hospital, diagnostic centre and path lab bills across India with Oxxy.\n\n📞 Talk to us: +91 88008 55340",
+    body: "*Reduce Your Medical Bill Now*\n\nGet an instant discount of up to 40% on hospital, diagnostic centre and path lab bills across India with Oxxy.",
     footer: "Reply STOP to opt out",
     quickReplies: ["Calculate discount", "Learn More", "Activate Oxxy"],
   },

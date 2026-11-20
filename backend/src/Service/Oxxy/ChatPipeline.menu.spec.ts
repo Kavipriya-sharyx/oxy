@@ -152,14 +152,14 @@ describe("welcome + opening list through the pipeline", () => {
     await t.run("hi");
     const sent = last(t).msg as { kind: string; buttons: { title: string }[] };
     expect(sent.kind).toBe("buttons");
-    // WhatsApp shows at most 3 reply buttons: "Talk to Us" is the call number in the text (decision, 20 Nov)
+    // WhatsApp shows at most 3 reply buttons; "Talk to Us" is left out for now (20 Nov)
     expect(sent.buttons.map((b) => b.title)).toEqual([
       "Calculate discount",
       "Learn More",
       "Activate Oxxy",
     ]);
     expect(last(t).text).toBe(BILL_CARD_TEXT("en"));
-    expect(last(t).text).toMatch(/Talk to us: \+91 88008 55340/);
+    expect(last(t).text).not.toMatch(/Talk to us/);
     expect(t.conv.state).toBe(S.IntentMenu);
     expect(t.generate).not.toHaveBeenCalled();
   });

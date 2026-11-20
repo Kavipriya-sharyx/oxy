@@ -3,8 +3,8 @@
 //   [Calculate discount] -> "Enter your bill amount" -> the discount at 30%
 //   [Learn More]         -> "Regular Health Insurance vs Oxxy" (the points published on www.oxxy.in)
 //   [Activate Oxxy]      -> the plans -> the chosen plan card (price + GST) -> the existing activation steps
-//   "Talk to Us"         -> a phone number in the text, one tap calls (the voice bot); WhatsApp shows at most
-//                           three reply buttons, so the fourth item is the call link (decision, 20 Nov)
+//   "Talk to Us" (the sketch's fourth item) is left out for now; WhatsApp shows at most three reply buttons and
+//   the call link in the text was dropped on 20 Nov, to be added somewhere else later
 // Pure texts and readers; the pipeline (handleBillCard) sends them. No LLM, so the answers come at once
 // (client: "timer delay: minimise"). Hindi / Hinglish are drafts for a native-speaker review.
 import { InteractiveHeader, ListRow, OutboundMessage } from "@Helper/WhatsappMessage";
@@ -31,10 +31,6 @@ export const BILL_PLAN = "bill_plan";
 export const BILL_RATE = 0.3;
 export const MAX_DISCOUNT_PCT = 40;
 
-/** The number "Talk to Us" calls: the voice bot (OXXY_TALK_PHONE), else the official support number */
-export const talkPhone = (): string =>
-  (process.env.OXXY_TALK_PHONE || process.env.OXXY_SUPPORT_PHONE || "+91 88008 55340").trim();
-
 /**
  * The card picture: OXXY_BILL_IMAGE_URL, else oxxy-bill-card.jpg next to the welcome image (the console's public
  * folder, frontend/public). WhatsApp needs a public https JPG / PNG; no link = the card without a picture.
@@ -46,14 +42,6 @@ export function billImageHeader(): InteractiveHeader | undefined {
   const origin = welcome.match(/^https:\/\/[^/]+/i)?.[0];
   return origin ? { type: "image", link: `${origin}/oxxy-bill-card.jpg` } : undefined;
 }
-
-const talkLine = (l: Lg) =>
-  tr(
-    l,
-    `📞 Talk to us: ${talkPhone()}`,
-    `📞 हमसे बात करें: ${talkPhone()}`,
-    `📞 Humse baat karein: ${talkPhone()}`,
-  );
 
 export const BILL_CARD_TEXT = (l?: Lg): string =>
   [
@@ -70,11 +58,9 @@ export const BILL_CARD_TEXT = (l?: Lg): string =>
       `Oxxy के साथ पूरे भारत में अस्पताल, डायग्नोस्टिक सेंटर और पैथ लैब के बिल पर ${MAX_DISCOUNT_PCT}% तक की तुरंत छूट पाएँ।`,
       `Oxxy ke saath poore India mein hospital, diagnostic centre aur path lab bills par ${MAX_DISCOUNT_PCT}% tak ki instant discount paayein.`,
     ),
-    "",
-    talkLine(l),
   ].join("\n");
 
-/** The first card: picture, text, three buttons, the call number */
+/** The first card: picture, text, three buttons */
 export function billCard(l?: Lg): OutboundMessage {
   return {
     kind: "buttons",
@@ -160,8 +146,6 @@ export function billResultCard(amount: number, l?: Lg): OutboundMessage {
         "यह सिर्फ़ उदाहरण के लिए अनुमान है। असली छूट प्लान (20%, 25%, 30% या 40% तक), इलाज और अस्पताल पर निर्भर करती है।",
         "Yeh sirf example ke liye estimate hai. Asli discount plan (20%, 25%, 30% ya 40% tak), treatment aur hospital par depend karta hai.",
       ),
-      "",
-      talkLine(l),
     ].join("\n"),
     buttons: [
       {
@@ -254,8 +238,6 @@ export function billCompareCard(l?: Lg): OutboundMessage {
       "Oxxy इंश्योरेंस नहीं है: यह आपके मेडिकल बिल कम करता है और आपके मौजूदा इंश्योरेंस के साथ काम करता है।",
       "Oxxy insurance nahi hai: yeh aapke medical bills kam karta hai aur aapke existing insurance ke saath kaam karta hai.",
     ),
-    "",
-    talkLine(l),
   ].join("\n");
   return {
     kind: "buttons",

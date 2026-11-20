@@ -11,7 +11,7 @@ export class ReduceBillTemplate1794770000000 implements MigrationInterface {
        ON CONFLICT DO NOTHING`,
       [
         "oxxy_reduce_bill",
-        "First card (client sequence 1): picture + up to 40% discount, Calculate discount / Learn More / Activate Oxxy, call number",
+        "First card (client sequence 1): picture + up to 40% discount, Calculate discount / Learn More / Activate Oxxy",
       ],
     );
   }

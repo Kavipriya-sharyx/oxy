@@ -408,8 +408,8 @@ first. Code: `Service/Oxxy/BillCard.ts` (texts, readers) + `handleBillCard` in t
   (`frontend/public/oxxy-bill-card.jpg`, from their .webp; served by the console's host, e.g.
   https://oxxy.sharyx.ai/oxxy-bill-card.jpg, or `OXXY_BILL_IMAGE_URL`) + "Reduce Your Medical Bill Now / up to 40%"
   + three buttons **Calculate discount / Learn More / Activate Oxxy**. WhatsApp allows 3 reply buttons, so the
-  sketch's fourth, **Talk to Us** (voice bot), is the number in the text, one tap calls (`OXXY_TALK_PHONE`, else
-  `OXXY_SUPPORT_PHONE`, else +91 88008 55340). Decision by the user, 20 Nov. The 17 Nov welcome card is no longer
+  sketch's fourth, **Talk to Us** (voice bot), is left out for now (user, 20 Nov: the call line in the text was
+  removed, to be added somewhere else later). The 17 Nov welcome card is no longer
   sent; its button ids still work.
 - **Calculate discount** -> "enter your bill amount" (pending `bill_amount`; "10000", "₹25,000", "1.5 lakh",
   "50k") -> bill / instant discount up to 30% / you could pay, "estimate for illustration only" (like oxxy.in's
