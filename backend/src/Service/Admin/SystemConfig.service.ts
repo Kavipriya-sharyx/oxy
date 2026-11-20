@@ -27,6 +27,10 @@ const intIn = (min: number, max: number, what: string) => (v: string) =>
   /^\d+$/.test(v) && Number(v) >= min && Number(v) <= max
     ? null
     : `${what} must be a whole number from ${min} to ${max}`;
+const hoursIn = (min: number, max: number, what: string) => (v: string) =>
+  /^\d+(\.\d{1,2})?$/.test(v) && Number(v) >= min && Number(v) <= max
+    ? null
+    : `${what} must be a number of hours from ${min} to ${max} (0.5 = 30 minutes)`;
 const range = (min: number, max: number, what: string) => (v: string) => {
   const m = v.match(/^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$/);
   return m && Number(m[1]) >= min && Number(m[2]) <= max && Number(m[1]) < Number(m[2])
@@ -76,11 +80,11 @@ const TIMINGS: ConfigFieldDef[] = [
   {
     key: "RESCUE_1_HOURS",
     configPath: "Timings.Rescue1",
-    label: "First nudge when the customer goes quiet (hours)",
+    label: "First nudge when the customer goes quiet (hours, 0.5 = 30 minutes)",
     group: "timings",
     fromEnv: true,
-    placeholder: "20",
-    check: intIn(1, 168, "The first nudge"),
+    placeholder: "0.5",
+    check: hoursIn(0.25, 168, "The first nudge"),
   },
   {
     key: "RESCUE_2_HOURS",
@@ -88,8 +92,8 @@ const TIMINGS: ConfigFieldDef[] = [
     label: "Second nudge (hours after the first)",
     group: "timings",
     fromEnv: true,
-    placeholder: "48",
-    check: intIn(1, 168, "The second nudge"),
+    placeholder: "6",
+    check: hoursIn(0.25, 168, "The second nudge"),
   },
   {
     key: "TRIGGER_Q_DELAY_HOURS",

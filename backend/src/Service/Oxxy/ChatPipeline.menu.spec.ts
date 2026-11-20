@@ -3,7 +3,7 @@ import { GuardrailService } from "./Guardrail.service";
 import { assertTransition } from "./ConversationStateMachine";
 import { ConversationState as S } from "@Helper/Enum/ConversationState";
 import { fixedReply, NOTICE_VERSION } from "@Helper/FixedReplies";
-import { BILL_CARD_TEXT } from "./BillCard";
+import { OVERPAY_CARD_TEXT } from "./BookCard";
 import { plan_catalog } from "@Database/Table/Oxxy/plan_catalog";
 import { MENU_BUTTON, MENU_ROWS, WELCOME, matchMenuRow, openingList } from "@Helper/OpeningMenu";
 import { message } from "@Database/Table/Oxxy/message";
@@ -147,18 +147,14 @@ describe("welcome + opening list through the pipeline", () => {
     expect(t.generate).not.toHaveBeenCalled();
   });
 
-  it("a consenting customer's first message gets the client's bill card (sequence 1, 20 Nov), state INTENT_MENU, no Claude", async () => {
+  it("a consenting customer's first message gets the client's first card (sequence 3, 20 Nov), state INTENT_MENU, no Claude", async () => {
     const t = setup();
     await t.run("hi");
     const sent = last(t).msg as { kind: string; buttons: { title: string }[] };
     expect(sent.kind).toBe("buttons");
-    // WhatsApp shows at most 3 reply buttons; "Talk to Us" is left out for now (20 Nov)
-    expect(sent.buttons.map((b) => b.title)).toEqual([
-      "Calculate discount",
-      "Learn More",
-      "Activate Oxxy",
-    ]);
-    expect(last(t).text).toBe(BILL_CARD_TEXT("en"));
+    // Why Overpay: ① the bill card (sequence 1), ② Book Appointment (sequence 2)
+    expect(sent.buttons.map((b) => b.title)).toEqual(["Reduce My Bill", "Book Appointment"]);
+    expect(last(t).text).toBe(OVERPAY_CARD_TEXT("en"));
     expect(last(t).text).not.toMatch(/Talk to us/);
     expect(t.conv.state).toBe(S.IntentMenu);
     expect(t.generate).not.toHaveBeenCalled();
@@ -173,10 +169,10 @@ describe("welcome + opening list through the pipeline", () => {
     expect(t.generate).not.toHaveBeenCalled();
   });
 
-  it("a Hindi greeting gets the bill card in Hindi", async () => {
+  it("a Hindi greeting gets the first card in Hindi", async () => {
     const t = setup({ language: "hi" });
     await t.run("नमस्ते");
-    expect(last(t).text).toBe(BILL_CARD_TEXT("hi"));
+    expect(last(t).text).toBe(OVERPAY_CARD_TEXT("hi"));
   });
 
   it.each(MENU_ROWS.map((r) => [r.id, r.state] as const))(
@@ -321,9 +317,9 @@ describe("client sequence 1: the Reduce Your Medical Bill card (20 Nov)", () => 
     expect(last(t).text).toMatch(/enter your bill amount/i);
   });
 
-  it("Main Menu brings the card back", async () => {
+  it("Main Menu brings the first card back (Why Overpay, sequence 3)", async () => {
     const t = setup({ state: S.IntentMenu });
     await t.run("flow_menu");
-    expect(last(t).text).toBe(BILL_CARD_TEXT("en"));
+    expect(last(t).text).toBe(OVERPAY_CARD_TEXT("en"));
   });
 });

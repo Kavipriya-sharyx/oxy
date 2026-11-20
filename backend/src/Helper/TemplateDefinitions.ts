@@ -31,6 +31,9 @@ export const OXXY_LINKS = {
 export const LOGO_FILE = "../frontend/public/oxxy-logo.png";
 /** The client's picture for the "Reduce Your Medical Bill Now" card (sequence 1, 20 Nov) */
 export const BILL_IMAGE_FILE = "../frontend/public/oxxy-bill-card.jpg";
+/** The client's pictures for sequence 2 (Book Appointment) and sequence 3 (Why Overpay), 20 Nov */
+export const BOOK_IMAGE_FILE = "../frontend/public/oxxy-book-card.jpg";
+export const OVERPAY_IMAGE_FILE = "../frontend/public/oxxy-overpay-card.jpg";
 
 // The client's current WhatsApp welcome, word for word (client, 17 Nov: "first message like this")
 export const WELCOME_CARD_TEXT =
@@ -182,6 +185,26 @@ export const TEMPLATES: TemplateDef[] = [
     body: "*Reduce Your Medical Bill Now*\n\nGet an instant discount of up to 40% on hospital, diagnostic centre and path lab bills across India with Oxxy.",
     footer: "Reply STOP to opt out",
     quickReplies: ["Calculate discount", "Learn More", "Activate Oxxy"],
+  },
+  // ---- Client sequences 3 and 2 (20 Nov): the first card and the booking card (Service/Oxxy/BookCard.ts).
+  // "Reduce My Bill" opens the bill card; "Book Appointment" starts the booking (handleAppointment).
+  {
+    name: "oxxy_why_overpay",
+    language: "en",
+    category: "MARKETING",
+    headerImage: OVERPAY_IMAGE_FILE,
+    body: "*Why Overpay Your Medical Bills?*\n\nWith Oxxy you get an instant discount on hospital, diagnostic centre and path lab bills across India. Choose how we can help you:",
+    footer: "Reply STOP to opt out",
+    quickReplies: ["Reduce My Bill", "Book Appointment"],
+  },
+  {
+    name: "oxxy_book_appointment",
+    language: "en",
+    category: "MARKETING",
+    headerImage: BOOK_IMAGE_FILE,
+    body: "*Book Appointment*\n\nBook your visit to a hospital or diagnostic centre near you, and get a medical discount on your bill with Oxxy.",
+    footer: "Reply STOP to opt out",
+    quickReplies: ["Book Appointment"],
   },
 ];
 

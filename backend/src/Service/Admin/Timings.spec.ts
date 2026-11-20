@@ -69,7 +69,11 @@ describe("quiet hours from the settings", () => {
 describe("other timings read live", () => {
   it("rescue gaps, payment reminder and journey window follow the settings, with safe defaults", () => {
     delete process.env.RESCUE_1_HOURS;
-    expect(rescueDelayMs(0)).toBe(20 * 3600000);
+    expect(rescueDelayMs(0)).toBe(30 * 60000); // client general rule, 20 Nov: 30 minutes
+    delete process.env.RESCUE_2_HOURS;
+    expect(rescueDelayMs(1)).toBe(6 * 3600000); // then 6 hours
+    process.env.RESCUE_1_HOURS = "0.5";
+    expect(rescueDelayMs(0)).toBe(30 * 60000);
     process.env.RESCUE_1_HOURS = "6";
     process.env.RESCUE_2_HOURS = "24";
     expect(rescueDelayMs(0)).toBe(6 * 3600000);

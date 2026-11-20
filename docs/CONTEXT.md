@@ -424,9 +424,40 @@ first. Code: `Service/Oxxy/BillCard.ts` (texts, readers) + `handleBillCard` in t
   `ReduceBillTemplate1794770000000`. Quick-reply taps arrive as the button text and are read like the ids.
 - Open with the client [CONFIRM]: 40% (card) / 30% (calculator) / 20% (their picture: ₹10,000 − ₹2,000); the voice
   bot's number for Talk to Us; "chat should not disappear" (taken as: Main Menu on every answer brings the card
-  back); whether the old guided flow (who / service / spend) stays reachable. Sequences 2 and 3 to come.
+  back); whether the old guided flow (who / service / spend) stays reachable. Sequences 2 and 3: next section.
 - Deploy: the picture is in the frontend build; until it is deployed the card's image link answers HTML and
   WhatsApp would refuse the picture (the card then needs `OXXY_BILL_IMAGE_URL` or the deploy first).
+
+## Client sequences 2 and 3 + general rule (20 Nov)
+
+Code: `Service/Oxxy/BookCard.ts` (texts, readers) + `handleAppointment` / `apptWhere` / `apptOptions` /
+`apptName` / `apptFinish` in the pipeline (no LLM). Spec: `ChatPipeline.appointment.spec.ts`, `BookCard.spec.ts`.
+- **Sequence 3 = the first card** now (greeting, WhatsApp welcome event, Main Menu): picture
+  `frontend/public/oxxy-overpay-card.jpg` (or `OXXY_OVERPAY_IMAGE_URL`) + "Why Overpay Your Medical Bills?" +
+  **① Reduce My Bill** (`home_reduce` -> the sequence 1 bill card) and **② Book Appointment** (`home_book` -> the
+  sequence 2 card). The sketch only drew "①>" "②>": taken as links to sequences 1 and 2 [CONFIRM].
+- **Sequence 2**: picture `oxxy-book-card.jpg` (or `OXXY_BOOK_IMAGE_URL`) + "Book Appointment" + one button
+  (`appt_start`). Then, draft in pending `appt:<json>`:
+  1. where: "Send location" button (pin) or a typed area -> Google geocode (no Maps service = the name question);
+  2. list (max 9 + "Other hospital"): verified partner centres within 10 km first ("✅ Oxxy partner"), then Google
+     Maps nearby places marked "Not an Oxxy partner yet" (never saved, never called partners, team checks the
+     discount; user, 20 Nov: "current location or typed location, Google search, show hospitals");
+     "Other hospital" / a typed name -> resolveCentre (partner if the name matches, else for the team);
+  3. booking for: Myself / Family member [CONFIRM: the sketch says only "Booking for"];
+  4. date (booking window rule: 3 days to 6 months, `dateProblemText` otherwise); 5. time ("11 am", "evening");
+  6. saved with `saveBookingRequest` (split out of `finishBooking`: a partner = booking_request + CRM
+     create_booking_request; other = directory-verification task) + CRM event `appointment_requested`; card
+     "OK, your request is processed. Please activate services" [Activate] (the four plans) [Later] (thank you).
+  A question in the middle goes to the normal chat; the step stays.
+- **General rule**: (a) "AI bot call in 60 seconds": the bot cannot call; the first card of a new chat sends CRM
+  event `voice_call_requested` with `call_at` (+60 s, or 09:00 IST in the blackout), not for a voice-started chat.
+  Needs the client's voice system to act on it [CONFIRM]. (b) "send the messages again in 30 mins, repeat in 6
+  hours, blackout 9 pm-9 am": rescue defaults are now 0.5 h and 6 h (Configuration page takes decimals); a rescue
+  inside the 24-hour window sends the first card again (outside it, the old rescue template); the first card now
+  gets a rescue (flow:start was excluded); quiet hours 21:00-09:00 move it to 09:00.
+- Templates `oxxy_why_overpay`, `oxxy_book_appointment` (picture + text + quick replies); migration
+  `AppointmentTemplates1794780000000`.
+- Deploy: both pictures are in the frontend build; deploy the frontend with the backend.
 
 ## Review of the 17-19 Nov work (20 Nov)
 

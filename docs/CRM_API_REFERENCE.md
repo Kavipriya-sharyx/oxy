@@ -287,6 +287,8 @@ Milestones for the customer's timeline. `event` says which:
 | `trigger` | `trigger_id` (A–R), `trigger_reason`, `asset_ids`, `cta`, `next_state`, `suppression_reason` |
 | `consent` | `health_data_consent` (true / false), `notice_version` |
 | `activation_declined` | `activation_pitch_allowed: false` (the customer declined after booking: no more sales follow-up) |
+| `voice_call_requested` | `whatsapp_number`, `call_at` (ISO time), `reason`, `language`. Client rule (20 Nov): a new WhatsApp enquiry gets an AI voice-bot call within 60 seconds. `call_at` is 60 s after the first message, or 09:00 IST when it came in the 21:00-09:00 blackout. **Your voice system places the call**; not sent for a chat the voice AI itself started. |
+| `appointment_requested` | `hospital`, `oxxy_partner` (true / false), `centre_id` (partner only), `area`, `booking_for` (`self` / `family`), `preferred_date`, `preferred_time`. Sent with every WhatsApp "Book Appointment" request; a partner centre also comes as `create_booking_request` (6.2), any other hospital is for your team to check. |
 
 Answer `2xx`; no id needed.
 

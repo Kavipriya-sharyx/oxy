@@ -716,7 +716,7 @@ describe("17 Nov client chat: callback times after the button flow", () => {
   it("a new chat still gets the welcome card on request_welcome", async () => {
     const t = setup();
     await t.run("", { type: "request_welcome" });
-    expect(text(last(t))).toContain("Reduce Your Medical Bill Now"); // first card since 20 Nov
+    expect(text(last(t))).toContain("Why Overpay Your Medical Bills?"); // first card since 20 Nov (sequence 3)
   });
 
   it("pin -> Book appointment -> Suggest nearby -> list -> Yes -> details -> booking saved -> the plan with GST", async () => {
@@ -757,7 +757,7 @@ describe("17 Nov client chat: callback times after the button flow", () => {
     expect(all).toContain(
       "Your booking request has been made for 25 Nov 2026 at morning at KMCH Hospital",
     );
-    expect(t.sent.filter((m) => text(m).includes("Reduce Your Medical Bill Now"))).toHaveLength(1); // never restarted
+    expect(t.sent.filter((m) => text(m).includes("Why Overpay Your Medical Bills?"))).toHaveLength(1); // never restarted
     expect(text(last(t))).toContain(
       "Plan cost: ₹20,000\n+ GST (18%): ₹3,600\n= Final payable: ₹23,600 a year",
     );

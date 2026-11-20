@@ -14,6 +14,7 @@ import { follow_up } from "@Database/Table/Oxxy/follow_up";
 import { ActivationStatus } from "@Helper/Enum/ActivationStatus";
 import { PaymentStatus } from "@Helper/Enum/PaymentStatus";
 import { MAX_RESCUES, RESCUE_TEMPLATES, rescueDelayMs } from "./RecoveryFlow";
+import { overpayCard } from "./BookCard";
 
 const QUEUE = "scheduled";
 
@@ -242,9 +243,18 @@ export class FollowUpSchedulerService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
+      // client general rule (20 Nov): "send the messages again". Inside the 24-hour window a rescue sends the
+      // first card again (Why Overpay, with Reduce My Bill / Book Appointment); after it, the approved template
+      const resendCard =
+        job.kind === "rescue" && !!conv && isWithin24h(conv.last_customer_message_at);
+      const lang = resendCard
+        ? ((await customer.findOne({ where: { id: job.customerId } }))?.language ?? null)
+        : null;
       await this._Wa.send(
         job.customerId,
-        { kind: "template", name: job.templateName, languageCode: "en", params: job.params },
+        resendCard
+          ? overpayCard(lang)
+          : { kind: "template", name: job.templateName, languageCode: "en", params: job.params },
         "proactive",
       );
       // the three lead buttons are answered by the lead_intro flow (Playbook 4.1)

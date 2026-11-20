@@ -4,7 +4,14 @@ import { parseCustomerDate, showDate } from "./BookingFlow";
 import { isQuietHours, proactiveHours, hour12, hhmm } from "./WhatsappRules";
 import { L, lang, say } from "@Helper/Lang";
 
-export type Objection = "price" | "think" | "family" | "busy" | "not_interested" | "no_provider" | "benefit";
+export type Objection =
+  | "price"
+  | "think"
+  | "family"
+  | "busy"
+  | "not_interested"
+  | "no_provider"
+  | "benefit";
 
 /** One objection per message, the most specific first (Playbook 14, Trigger layer 9 M) */
 export function detectObjection(text: string): Objection | null {
@@ -223,7 +230,12 @@ export interface SummaryFacts {
   beneficiary?: string | null;
   area?: string | null; // "Peelamedu, Coimbatore"
   price?: string | null; // "₹999 monthly or ₹10,000 yearly"
-  bookingDetail?: { centre: string; date?: string | null; time?: string | null; confirmed?: boolean } | null;
+  bookingDetail?: {
+    centre: string;
+    date?: string | null;
+    time?: string | null;
+    confirmed?: boolean;
+  } | null;
   linkSent?: boolean;
   callback?: string | null; // "Today, 4-6 pm (CB-1A1B5949)"
 }
@@ -262,39 +274,53 @@ export function summaryLines(f: SummaryFacts, l: string | null = "en"): string {
             hi: "सुझाव: आपकी उम्र और ज़रूरत के अनुसार एक Oxxy प्लान।",
             hinglish: "Suggestion: aapki age aur zaroorat ke hisaab se ek Oxxy plan.",
           };
-  const next: L = f.linkSent && !f.booking
-    ? {
-        en: "Next step: complete the payment on the official page when you are ready; message here if anything is unclear.",
-        hi: "अगला कदम: जब आप तैयार हों, आधिकारिक पेज पर भुगतान पूरा करें; कुछ भी साफ़ न हो तो यहाँ मैसेज करें।",
-        hinglish: "Next step: jab aap ready hon, official page par payment complete karein; kuch clear na ho to yahan message karein.",
-      }
-    : f.callback && !f.booking
-    ? {
-        en: "Next step: our team will call you at the time above.",
-        hi: "अगला कदम: हमारी टीम ऊपर दिए समय पर आपको कॉल करेगी।",
-        hinglish: "Next step: hamari team upar diye time par aapko call karegi.",
-      }
-    : f.booking
-    ? {
-        en: "Next step: your booking request is recorded; the Oxxy team will contact you about confirmation.",
-        hi: "अगला कदम: आपका बुकिंग अनुरोध दर्ज है; पुष्टि के लिए Oxxy टीम आपसे संपर्क करेगी।",
-        hinglish:
-          "Next step: aapka booking request recorded hai; confirmation ke liye Oxxy team aapse contact karegi.",
-      }
-    : {
-        en: "Next step: choose a centre, take a booking request, or review the plan details before any payment.",
-        hi: "अगला कदम: कोई केंद्र चुनें, बुकिंग अनुरोध दें, या किसी भी भुगतान से पहले प्लान की जानकारी देखें।",
-        hinglish:
-          "Next step: koi centre chunein, booking request dein, ya kisi bhi payment se pehle plan details dekhein.",
-      };
+  const next: L =
+    f.linkSent && !f.booking
+      ? {
+          en: "Next step: complete the payment on the official page when you are ready; message here if anything is unclear.",
+          hi: "अगला कदम: जब आप तैयार हों, आधिकारिक पेज पर भुगतान पूरा करें; कुछ भी साफ़ न हो तो यहाँ मैसेज करें।",
+          hinglish:
+            "Next step: jab aap ready hon, official page par payment complete karein; kuch clear na ho to yahan message karein.",
+        }
+      : f.callback && !f.booking
+        ? {
+            en: "Next step: our team will call you at the time above.",
+            hi: "अगला कदम: हमारी टीम ऊपर दिए समय पर आपको कॉल करेगी।",
+            hinglish: "Next step: hamari team upar diye time par aapko call karegi.",
+          }
+        : f.booking
+          ? {
+              en: "Next step: your booking request is recorded; the Oxxy team will contact you about confirmation.",
+              hi: "अगला कदम: आपका बुकिंग अनुरोध दर्ज है; पुष्टि के लिए Oxxy टीम आपसे संपर्क करेगी।",
+              hinglish:
+                "Next step: aapka booking request recorded hai; confirmation ke liye Oxxy team aapse contact karegi.",
+            }
+          : {
+              en: "Next step: choose a centre, take a booking request, or review the plan details before any payment.",
+              hi: "अगला कदम: कोई केंद्र चुनें, बुकिंग अनुरोध दें, या किसी भी भुगतान से पहले प्लान की जानकारी देखें।",
+              hinglish:
+                "Next step: koi centre chunein, booking request dein, ya kisi bhi payment se pehle plan details dekhein.",
+            };
   const lines: string[] = [say(need, l)];
   if (f.beneficiary || f.area)
     lines.push(
       say(
         {
-          en: [f.beneficiary ? `For: ${f.beneficiary}.` : "", f.area ? `Area: ${f.area}.` : ""].filter(Boolean).join(" "),
-          hi: [f.beneficiary ? `किसके लिए: ${f.beneficiary}।` : "", f.area ? `इलाका: ${f.area}।` : ""].filter(Boolean).join(" "),
-          hinglish: [f.beneficiary ? `Kiske liye: ${f.beneficiary}.` : "", f.area ? `Area: ${f.area}.` : ""].filter(Boolean).join(" "),
+          en: [f.beneficiary ? `For: ${f.beneficiary}.` : "", f.area ? `Area: ${f.area}.` : ""]
+            .filter(Boolean)
+            .join(" "),
+          hi: [
+            f.beneficiary ? `किसके लिए: ${f.beneficiary}।` : "",
+            f.area ? `इलाका: ${f.area}।` : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
+          hinglish: [
+            f.beneficiary ? `Kiske liye: ${f.beneficiary}.` : "",
+            f.area ? `Area: ${f.area}.` : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
         },
         l,
       ),
@@ -319,7 +345,11 @@ export function summaryLines(f: SummaryFacts, l: string | null = "en"): string {
     lines.push(
       say(
         b.confirmed
-          ? { en: `Booking: ${at} (confirmed).`, hi: `बुकिंग: ${at} (पुष्टि हो गई)।`, hinglish: `Booking: ${at} (confirmed).` }
+          ? {
+              en: `Booking: ${at} (confirmed).`,
+              hi: `बुकिंग: ${at} (पुष्टि हो गई)।`,
+              hinglish: `Booking: ${at} (confirmed).`,
+            }
           : {
               en: `Booking request: ${at} (waiting for confirmation).`,
               hi: `बुकिंग अनुरोध: ${at} (पुष्टि बाकी)।`,
@@ -335,13 +365,23 @@ export function summaryLines(f: SummaryFacts, l: string | null = "en"): string {
         {
           en: "Activation: the official link was sent; the plan starts once the payment on that page is complete.",
           hi: "एक्टिवेशन: आधिकारिक लिंक भेजा गया है; उस पेज पर भुगतान पूरा होने पर प्लान शुरू होगा।",
-          hinglish: "Activation: official link bhej diya gaya hai; us page par payment complete hone par plan start hoga.",
+          hinglish:
+            "Activation: official link bhej diya gaya hai; us page par payment complete hone par plan start hoga.",
         },
         l,
       ),
     );
   if (f.callback)
-    lines.push(say({ en: `Callback: ${f.callback}.`, hi: `कॉलबैक: ${f.callback}।`, hinglish: `Callback: ${f.callback}.` }, l));
+    lines.push(
+      say(
+        {
+          en: `Callback: ${f.callback}.`,
+          hi: `कॉलबैक: ${f.callback}।`,
+          hinglish: `Callback: ${f.callback}.`,
+        },
+        l,
+      ),
+    );
   lines.push(say(next, l));
   return lines.join("\n");
 }
@@ -453,7 +493,11 @@ export function objectionReply(
 export function asksMedicine(text: string): boolean {
   const t = (text || "").toLowerCase();
   // "Which medicine should I take for my BP?" asks for medical advice, not delivery (client Q&A Q173)
-  if (/\b(which|what) (medicine|medicines|tablet|tablets|drug|drugs)\b[^?.!]{0,30}\b(should|take|for my|for his|for her|best)\b|\bshould i take\b|\bprescribe\b/.test(t))
+  if (
+    /\b(which|what) (medicine|medicines|tablet|tablets|drug|drugs)\b[^?.!]{0,30}\b(should|take|for my|for his|for her|best)\b|\bshould i take\b|\bprescribe\b/.test(
+      t,
+    )
+  )
     return false;
   const med = /\b(medicines?|tablets?|pharmacy|dawai|dawa|chemist)\b|दवा|दवाई/u.test(t);
   const ask =
@@ -467,11 +511,16 @@ export function asksMedicine(text: string): boolean {
 export const BENEFIT_T: L = {
   en: "Fair question. Oxxy helps lower eligible bills for consultations, tests, medicines and larger treatments, and it can be used again and again while the plan is active, so even a few visits a year add up and it is there when a bigger bill comes. Would you like the plan details, or should I follow up later?",
   hi: "सही सवाल है। Oxxy परामर्श, जाँच, दवाइयों और बड़े इलाज के योग्य बिल कम करने में मदद करता है, और प्लान चालू रहने तक बार-बार इस्तेमाल हो सकता है, इसलिए साल की कुछ विज़िट भी जुड़ जाती हैं और बड़े बिल पर साथ रहता है। क्या आप प्लान की जानकारी चाहेंगे, या मैं बाद में फ़ॉलो-अप करूँ?",
-  hinglish: "Sahi sawaal hai. Oxxy consultation, tests, dawaiyan aur bade ilaaj ke eligible bills kam karne mein madad karta hai, aur plan active rehne tak baar-baar use ho sakta hai, isliye saal ki kuch visits bhi jud jaati hain aur bade bill par saath rehta hai. Kya aap plan details chahenge, ya main baad mein follow-up karun?",
+  hinglish:
+    "Sahi sawaal hai. Oxxy consultation, tests, dawaiyan aur bade ilaaj ke eligible bills kam karne mein madad karta hai, aur plan active rehne tak baar-baar use ho sakta hai, isliye saal ki kuch visits bhi jud jaati hain aur bade bill par saath rehta hai. Kya aap plan details chahenge, ya main baad mein follow-up karun?",
 };
 
 /** Price objection after a plan was shown: the same plan, its monthly option and value, a clear next step */
-export function priceKeepPlanText(planTitle: string, monthlyInline: string | null, l: string | null = "en"): string {
+export function priceKeepPlanText(
+  planTitle: string,
+  monthlyInline: string | null,
+  l: string | null = "en",
+): string {
   return say(
     {
       en: `I understand. ${monthlyInline ? `The ${planTitle} plan is also available monthly at ${monthlyInline}, so there is no big one-time payment. ` : ""}It can be used again and again for consultations, tests, medicines and larger treatments. Would you like the monthly option, or should I follow up later?`,
@@ -483,7 +532,10 @@ export function priceKeepPlanText(planTitle: string, monthlyInline: string | nul
 }
 
 /** Trigger K: the saving and home delivery, then the medicine names (with health consent) */
-export function medicineAskText(product: "Oxxy" | "Cut Medi Bills", l: string | null = "en"): string {
+export function medicineAskText(
+  product: "Oxxy" | "Cut Medi Bills",
+  l: string | null = "en",
+): string {
   return say(
     {
       en: `${product} may provide savings on almost all medicines, with home delivery at no additional charge, subject to service availability. Which medicines do you need? Please type the names (and the strength, if you know it).`,
@@ -495,7 +547,11 @@ export function medicineAskText(product: "Oxxy" | "Cut Medi Bills", l: string | 
 }
 
 /** Trigger K, the end: delivery is checked by the team before anything is confirmed */
-export function medicineNotedText(names: string | null, place: string, l: string | null = "en"): string {
+export function medicineNotedText(
+  names: string | null,
+  place: string,
+  l: string | null = "en",
+): string {
   return say(
     {
       en: `Noted: ${names ? `${names}, ` : ""}delivery to ${place}. Our team will check home-delivery availability and the saving in your area and confirm with you here before anything is ordered. Nothing is confirmed yet.`,
@@ -536,12 +592,16 @@ export function medicineText(
 // ---------------------------------------------------------------- rescue (Playbook 15)
 
 /** No reply after the bot's message: first rescue after this long, second this long after the first */
-/** Gap before rescue 1 / rescue 2 (Configuration page RESCUE_1_HOURS / RESCUE_2_HOURS, read live) [CONFIRM] */
+/**
+ * Gap before rescue 1 / rescue 2 (Configuration page RESCUE_1_HOURS / RESCUE_2_HOURS, read live; decimals allowed,
+ * 0.5 = 30 minutes). Client general rule (20 Nov): "send the messages again in 30 mins, repeat this in 6 hours
+ * (blackout 9 pm to 9 am)": 0.5 h, then 6 h after the first. The blackout is the scheduler's quiet hours.
+ */
 export function rescueDelayMs(attempt: number, env: NodeJS.ProcessEnv = process.env): number {
   const raw = attempt === 0 ? env.RESCUE_1_HOURS : env.RESCUE_2_HOURS;
   const h = Number(raw);
-  const hours = raw && Number.isFinite(h) && h >= 1 && h <= 168 ? h : attempt === 0 ? 20 : 48;
-  return hours * 3600 * 1000;
+  const hours = raw && Number.isFinite(h) && h >= 0.25 && h <= 168 ? h : attempt === 0 ? 0.5 : 6;
+  return Math.round(hours * 3600 * 1000);
 }
 /** Approved Marketing / Utility templates, by attempt (Playbook 15.1) [CONFIRM] names and approval */
 export const RESCUE_TEMPLATES = ["conversation_rescue_1", "conversation_rescue_2"];

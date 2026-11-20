@@ -92,6 +92,36 @@ import {
   readBillAmount,
   readPlanPick,
 } from "./BillCard";
+import {
+  APPT_AFTER,
+  ApptDraft,
+  ApptOption,
+  apptDateAsk,
+  apptDoneCard,
+  apptForAsk,
+  apptListCard,
+  apptNameAsk,
+  apptNoneNearby,
+  apptThanks,
+  apptTimeAgain,
+  apptTimeAsk,
+  apptWhereAgain,
+  apptWhereAsk,
+  asksApptActivate,
+  asksApptLater,
+  asksBookCard,
+  asksReduceBill,
+  asksStartBooking,
+  BOOK_IDS,
+  bookCard,
+  overpayCard,
+  readAppt,
+  readApptPick,
+  readApptTime,
+  readBookingFor,
+  writeAppt,
+} from "./BookCard";
+import { isQuietHours, nextAllowedAt } from "./WhatsappRules";
 import { oneQuestion } from "@Helper/OneQuestion";
 import { singleExpenseSignal } from "@Helper/NeedSignals";
 import { knownSpecialisation, normaliseSpecialisation } from "./CentreSearch.service";
@@ -1497,6 +1527,10 @@ export class ChatPipelineService {
       return true;
     }
     if (!text || m.location) return true;
+    // "Shall I send the official secure activation link? YES / NO" is waiting: that YES is about the link, not
+    // the health notice (live chat, 20 Nov: Activate Yearly -> "yes" got the notice and the link never came).
+    // No health detail is involved; the notice follows after the link when the chat goes on.
+    if (s.conversation.pending_action?.startsWith("send_activation_link:")) return false;
     // YES / NO ("ok", "sari" too, to the notice's own question): the notice, or the answer to it
     if (parseConsentAnswer(text, status === "awaiting") !== "unclear") return true;
     if (isGreeting(text)) return true; // "hi" again: the notice (the welcome and options came first)
@@ -1777,11 +1811,309 @@ export class ChatPipelineService {
    * card (welcomeCard) is no longer sent; its button ids still work for chats that already have it.
    */
   private async startGuidedFlow(m: Inbound, s: Saved) {
-    await this.sendAndSave(s.customer.id, billCard(s.customer.language), m.waMessageId);
+    // client sequence 3 (20 Nov): "Why Overpay Your Medical Bills?" with ① Reduce My Bill (sequence 1, the bill
+    // card) and ② Book Appointment (sequence 2); handleAppointment reads both
+    await this.sendAndSave(s.customer.id, overpayCard(s.customer.language), m.waMessageId);
     await this.setPending(s, "flow:start");
-    if (s.conversation.state === ConversationState.New)
+    if (s.conversation.state === ConversationState.New) {
       await this.setState(s, [ConversationState.IntentMenu]);
-    await this.recordTrigger(s, "W", "reduce your medical bill card");
+      await this.requestVoiceCall(s, "new WhatsApp enquiry");
+    }
+    await this.recordTrigger(s, "W", "why overpay your medical bills card");
+  }
+
+  /**
+   * Client general rule (20 Nov): "for any enquiry, AI bot call in 60 seconds". The voice AI places the call;
+   * the bot only tells the CRM (event voice_call_requested, docs/CRM_API_REFERENCE.md) with the time to call:
+   * 60 seconds from now, or 09:00 IST when the enquiry comes in the 21:00-09:00 blackout. Not for a chat the
+   * voice AI itself started (the customer is already on a call), nor for a customer who opted out.
+   */
+  private async requestVoiceCall(s: Saved, reason: string) {
+    try {
+      if (s.conversation.call_context) return;
+      const now = new Date();
+      const callAt = isQuietHours(now) ? nextAllowedAt(now) : new Date(now.getTime() + 60_000);
+      await this.crmEvent(s, "voice_call_requested", {
+        whatsapp_number: s.customer.wa_number,
+        call_at: callAt.toISOString(),
+        reason,
+        language: s.customer.language ?? "en",
+      });
+    } catch (e) {
+      this.logger.warn(`voice call request not sent: ${(e as Error).message}`);
+    }
+  }
+
+  /** The four plans with the yearly price (sequence 1's Activate Oxxy, sequence 2's Activate) */
+  private async sendPlansList(s: Saved, replyTo: string | null) {
+    const prices: Partial<Record<PlanName, number | null>> = {};
+    for (const p of ["everyday", "vital", "thrive", "infinity"] as PlanName[])
+      prices[p] = (await this.flowPrice(p)).yearly;
+    await this.setPending(s, BILL_PLAN);
+    await this.sendAndSave(s.customer.id, plansListCard(prices, s.customer.language), replyTo);
+  }
+
+  /**
+   * Client sequences 2 and 3 (20 Nov; Service/Oxxy/BookCard.ts): the first card's two buttons, and the booking:
+   * where (pin or typed area) -> nearby hospitals (partners first, Google Maps places marked not a partner,
+   * "Other hospital") -> booking for -> date -> time -> saved as a booking request -> Activate / Later.
+   * Code only, no LLM. false = not for this flow (the normal conversation answers; the step stays).
+   */
+  private async handleAppointment(m: Inbound, s: Saved): Promise<boolean> {
+    const text = (m.text || "").trim();
+    const l = s.customer.language;
+    const reply = (msg: string | OutboundMessage) =>
+      this.sendAndSave(s.customer.id, msg, m.waMessageId);
+    const pending = s.conversation.pending_action;
+
+    if (asksReduceBill(text)) {
+      await this.setPending(s, "flow:start");
+      await reply(billCard(l));
+      await this.recordTrigger(s, "W", "reduce your medical bill card (from the first card)");
+      return true;
+    }
+    if (asksBookCard(text)) {
+      await this.setPending(s, "flow:start");
+      await reply(bookCard(l));
+      await this.recordTrigger(s, "W", "book appointment card (from the first card)");
+      return true;
+    }
+    // "I want to book", "need booking", "book appointment": the client's booking flow (sequence 2), unless a
+    // booking is already being taken (a longer sentence with a centre name stays with the chat booking)
+    const shortBooking =
+      asksToBook(text) &&
+      text.split(/\s+/).length <= 5 &&
+      !looksLikeQuestion(text) &&
+      // "book at Kumar Nursing Home" names the centre: the chat booking takes it as it is
+      !/\b(at|in|near)\b|hospital|clinic|cent(re|er)|\blab|nursing|diagnostic/i.test(text) &&
+      // only when nothing else waits for an answer (the old flow's appointment step reads "book later" itself)
+      (!pending || pending === "flow:start" || pending === APPT_AFTER);
+    if (asksStartBooking(text) || shortBooking) {
+      await this.setPending(s, writeAppt({ step: "where" }));
+      await reply(apptWhereAsk(l));
+      await this.recordTrigger(s, "G", "book appointment: where are you");
+      return true;
+    }
+    // after the request was saved: Activate -> the plans; Later -> thank you
+    if (
+      text.toLowerCase() === BOOK_IDS.activate ||
+      (pending === APPT_AFTER && asksApptActivate(text))
+    ) {
+      await this.sendPlansList(s, m.waMessageId);
+      return true;
+    }
+    if (text.toLowerCase() === BOOK_IDS.later || (pending === APPT_AFTER && asksApptLater(text))) {
+      await this.setPending(s, null);
+      await reply(apptThanks(l));
+      return true;
+    }
+
+    const d = readAppt(pending);
+    if (!d) return false;
+    const save = (next: ApptDraft) => this.setPending(s, writeAppt(next));
+    // a question in the middle is answered normally (the step stays, the next tap still works)
+    const aside = () => !m.location && (looksLikeQuestion(text) || text.split(/\s+/).length > 10);
+
+    // a new pin or "Other hospital" works at the list step and after it
+    if (m.location || d.step === "where") {
+      if (!m.location && (!text || aside())) return false;
+      return await this.apptWhere(m, s);
+    }
+    if (d.step === "pick") {
+      const i = readApptPick(text);
+      if (i != null && d.o?.[i]) {
+        const o = d.o[i];
+        const next: ApptDraft = {
+          ...d,
+          step: "for",
+          c: o.c ?? null,
+          cn: o.n,
+          u: !o.c,
+          l: o.a ?? d.p ?? null,
+        };
+        delete next.o;
+        await save(next);
+        await reply(apptForAsk(o.n, l));
+        return true;
+      }
+      if (text.toLowerCase() === BOOK_IDS.other) {
+        await save({ ...d, step: "name" });
+        await reply(apptNameAsk(l));
+        return true;
+      }
+      if (aside()) return false;
+      // a typed name instead of a tap
+      return await this.apptName(m, s, { ...d, step: "name" });
+    }
+    if (d.step === "name") {
+      if (aside()) return false;
+      return await this.apptName(m, s, d);
+    }
+    if (d.step === "for") {
+      const f = readBookingFor(text);
+      if (!f) {
+        if (aside()) return false;
+        await reply(apptForAsk(d.cn ?? "", l));
+        return true;
+      }
+      await save({ ...d, step: "date", f });
+      await reply(apptDateAsk(l));
+      return true;
+    }
+    if (d.step === "date") {
+      const iso = parseCustomerDate(text);
+      if (!iso) {
+        if (aside()) return false;
+        await reply(apptDateAsk(l));
+        return true;
+      }
+      const chk = this._DateWindow.validate(iso);
+      if (!chk.valid) {
+        await reply(dateProblemText(String(chk.reason), undefined, l));
+        return true;
+      }
+      await save({ ...d, step: "time", d: iso });
+      await reply(apptTimeAsk(iso, l));
+      return true;
+    }
+    if (d.step === "time") {
+      const t = readApptTime(text);
+      if (!t) {
+        if (aside()) return false;
+        await reply(apptTimeAgain(l));
+        return true;
+      }
+      return await this.apptFinish(m, s, { ...d, t });
+    }
+    return false;
+  }
+
+  /** The where step: a pin or a typed area -> the hospitals near it */
+  private async apptWhere(m: Inbound, s: Saved): Promise<boolean> {
+    const l = s.customer.language;
+    const reply = (msg: string | OutboundMessage) =>
+      this.sendAndSave(s.customer.id, msg, m.waMessageId);
+    let origin: GeoPoint | null = null;
+    let place: string | null = null;
+    if (m.location) {
+      origin = m.location;
+      const geo = await quiet(
+        () => this._Maps?.reverseGeocode(m.location!) ?? Promise.resolve(null),
+      );
+      place = geo ? [geo.locality, geo.city].filter(Boolean).join(", ") || null : null;
+    } else if (this._Maps?.enabled) {
+      const geo = await this._Maps.geocode(m.text.trim().slice(0, 120)).catch(() => null);
+      if (!geo) {
+        await reply(apptWhereAgain(l));
+        return true;
+      }
+      origin = { latitude: geo.latitude, longitude: geo.longitude };
+      place = [geo.locality, geo.city].filter(Boolean).join(", ") || m.text.trim().slice(0, 60);
+    } else {
+      // no map service: the customer names the hospital instead
+      await this.setPending(s, writeAppt({ step: "name", p: m.text.trim().slice(0, 80) }));
+      await reply(apptNameAsk(l));
+      return true;
+    }
+    const options = await this.apptOptions(origin);
+    if (!options.length) {
+      await this.setPending(s, writeAppt({ step: "name", p: place }));
+      await reply(apptNoneNearby(l));
+      return true;
+    }
+    await this.setPending(s, writeAppt({ step: "pick", o: options, p: place }));
+    await reply(apptListCard(options, place, l));
+    await this.recordTrigger(
+      s,
+      "D",
+      `book appointment: ${options.length} hospitals near ${place ?? "the pin"}`,
+    );
+    return true;
+  }
+
+  /**
+   * Up to 9 hospitals near a spot: Oxxy's verified partner centres first (nearest first), then real places from
+   * Google Maps. The Google places are only shown, marked "not an Oxxy partner yet"; never saved to the
+   * directory and never called partners (the antigravity review, 20 Nov).
+   */
+  private async apptOptions(origin: GeoPoint): Promise<ApptOption[]> {
+    const out: ApptOption[] = [];
+    const partners = await this._CentreSearch
+      .search({ latitude: origin.latitude, longitude: origin.longitude, radiusKm: 10 })
+      .catch(() => []);
+    for (const c of partners.slice(0, 5))
+      out.push({
+        n: c.branch ? `${c.name}, ${c.branch}` : c.name,
+        a: c.locality || c.city || null,
+        c: c.id,
+      });
+    if (this._Maps?.enabled) {
+      const known = new Set(partners.map((c) => c.name.trim().toLowerCase()));
+      const places = await this._Maps.nearbyCandidates(origin, 10).catch(() => []);
+      for (const p of places) {
+        if (out.length >= 9) break;
+        if (!p.name || known.has(p.name.trim().toLowerCase())) continue;
+        const short = (p.address || "").split(",").slice(0, 2).join(",").trim();
+        out.push({ n: p.name.slice(0, 80), a: short || null });
+      }
+    }
+    return out.slice(0, 9);
+  }
+
+  /** A typed hospital name (with city / state): a partner centre when it is one, else for the team to check */
+  private async apptName(m: Inbound, s: Saved, d: ApptDraft): Promise<boolean> {
+    const l = s.customer.language;
+    const text = (m.text || "").trim();
+    if (text.length < 3 || !/\p{L}/u.test(text)) {
+      await this.sendAndSave(s.customer.id, apptNameAsk(l), m.waMessageId);
+      return true;
+    }
+    const r = await this.resolveCentre(text);
+    const next: ApptDraft = { ...d, step: "for", c: r.c, cn: r.cn, u: r.u, l: d.p ?? null };
+    delete next.o;
+    await this.setPending(s, writeAppt(next));
+    await this.sendAndSave(s.customer.id, apptForAsk(r.cn ?? text, l), m.waMessageId);
+    return true;
+  }
+
+  /** Saves the booking request (the same rows as the chat booking) and sends "processed" + Activate / Later */
+  private async apptFinish(m: Inbound, s: Saved, d: ApptDraft): Promise<boolean> {
+    const n = await need.findOne({ where: { conversation_id: s.conversation.id } });
+    const who = d.f === "family" ? "a family member" : "the customer";
+    await this.saveBookingRequest(
+      s,
+      {
+        step: "time",
+        c: d.c ?? null,
+        cn: d.cn ?? null,
+        u: !d.c,
+        l: d.l ?? d.p ?? null,
+        d: d.d!,
+        t: d.t!,
+        ok: true,
+      },
+      n,
+      `for ${who}`,
+    );
+    await this.crmEvent(s, "appointment_requested", {
+      hospital: d.cn,
+      oxxy_partner: !!d.c,
+      centre_id: d.c ?? null,
+      area: d.l ?? d.p ?? null,
+      booking_for: d.f ?? null,
+      preferred_date: d.d,
+      preferred_time: d.t,
+    }).catch(() => undefined);
+    await this.setPending(s, APPT_AFTER);
+    await this.sendAndSave(
+      s.customer.id,
+      apptDoneCard(
+        { hospital: d.cn ?? "", date: d.d!, time: d.t!, partner: !!d.c },
+        s.customer.language,
+      ),
+      m.waMessageId,
+    );
+    return true;
   }
 
   /**
@@ -1808,11 +2140,7 @@ export class ChatPipelineService {
       return true;
     }
     if (id === BILL_IDS.activate || id === "activate oxxy") {
-      const prices: Partial<Record<PlanName, number | null>> = {};
-      for (const p of ["everyday", "vital", "thrive", "infinity"] as PlanName[])
-        prices[p] = (await this.flowPrice(p)).yearly;
-      await this.setPending(s, BILL_PLAN);
-      await reply(plansListCard(prices, l));
+      await this.sendPlansList(s, m.waMessageId);
       return true;
     }
     const plan = id.startsWith("plan_") || pending === BILL_PLAN ? readPlanPick(text) : null;
@@ -1893,6 +2221,7 @@ export class ChatPipelineService {
       await this.startGuidedFlow(m, s);
       return true;
     }
+    if (await this.handleAppointment(m, s)) return true;
     if (await this.handleBillCard(m, s)) return true;
     // Customer explicitly asks for testimonials, reviews, feedback, proof, or news articles while in the guided flow
     const inFlow = !!s.conversation.pending_action?.startsWith("flow:");
@@ -4595,6 +4924,9 @@ export class ChatPipelineService {
 
   private activationPath(product: string): ConversationState[] {
     return [
+      // from the client's cards (INTENT_MENU: bill card -> plan -> Activate) the chat goes through DISCOVERY;
+      // skipped from any later state (setState only takes the steps allowed from where the chat is)
+      ConversationState.Discovery,
       ConversationState.Routing,
       product === ProductType.CutMediBills
         ? ConversationState.CutMediBillsFit
@@ -5144,9 +5476,32 @@ export class ChatPipelineService {
 
   private async finishBooking(s: Saved, d: BookingDraft, n: need | null): Promise<string[]> {
     await this.setPending(s, null);
+    const text = await this.saveBookingRequest(s, d, n);
+    const rf = d.rf ?? (await this.flowResumeAfterBooking(s));
+    if (rf) {
+      // started from the button flow: back to its next step (sent after this reply), no activation offer
+      (s as any).flowAfterBooking = rf;
+      return [text];
+    }
+    const soft = await this.softActivationOffer(s, d.d!);
+    return soft ? [text, soft] : [text];
+  }
+
+  /**
+   * Records a booking request: a directory centre = booking_request (CRM create_booking_request) + the console
+   * task; any other centre = a directory-verification task for the team. Returns the confirmation text.
+   * `note` goes into the team's task (e.g. who the booking is for).
+   */
+  private async saveBookingRequest(
+    s: Saved,
+    d: BookingDraft,
+    n: need | null,
+    note?: string,
+  ): Promise<string> {
     const date = d.d!;
     const time = d.t!;
     const spec = n?.specialisation || null;
+    const extra = note ? ` (${note})` : "";
     let text: string;
     if (d.c) {
       const ctr = await centre.findOne({ where: { id: d.c } });
@@ -5165,7 +5520,7 @@ export class ChatPipelineService {
         TaskType.BookingConfirm,
         TaskPriority.Normal,
         s,
-        `Booking request at ${ctr?.name ?? d.cn} on ${date}, ${time}`,
+        `Booking request at ${ctr?.name ?? d.cn} on ${date}, ${time}${extra}`,
         { sendToCrm: false },
       );
       if (n) {
@@ -5187,7 +5542,7 @@ export class ChatPipelineService {
         TaskType.DirectoryVerification,
         TaskPriority.Normal,
         s,
-        `Booking request at a centre not in the directory: ${d.cn} (near ${d.l ?? "?"}) on ${date}, ${time}`,
+        `Booking request at a centre not in the directory: ${d.cn} (near ${d.l ?? "?"}) on ${date}, ${time}${extra}`,
       );
       text = bookingSavedText({
         date,
@@ -5205,14 +5560,7 @@ export class ChatPipelineService {
       "H",
       d.c ? "booking request saved" : "booking request, centre to be verified",
     );
-    const rf = d.rf ?? (await this.flowResumeAfterBooking(s));
-    if (rf) {
-      // started from the button flow: back to its next step (sent after this reply), no activation offer
-      (s as any).flowAfterBooking = rf;
-      return [text];
-    }
-    const soft = await this.softActivationOffer(s, date);
-    return soft ? [text, soft] : [text];
+    return text;
   }
 
   /**
@@ -6273,10 +6621,9 @@ ${res.text}`
       if (!(await this.alreadyReplied(m.waMessageId))) return;
       const conv = await conversation.findOne({ where: { id: s.conversation.id } });
       if (!conv || conv.closed_at || !RESCUE_STATES.has(conv.state as ConversationState)) return;
-      if (
-        s.conversation.pending_action?.startsWith("flow:") ||
-        s.conversation.pending_action?.startsWith("send_activation_link:")
-      )
+      // the first card (flow:start, client general rule 20 Nov: resend in 30 min, again in 6 h) does get one
+      const p = s.conversation.pending_action;
+      if ((p?.startsWith("flow:") && p !== "flow:start") || p?.startsWith("send_activation_link:"))
         return;
       const done = conv.rescue_count ?? 0;
       if (done >= MAX_RESCUES) return;
