@@ -335,3 +335,27 @@ describe("client sequence 1: the Reduce Your Medical Bill card (20 Nov)", () => 
     expect(last(t).text).toBe(OVERPAY_CARD_TEXT("en"));
   });
 });
+
+describe("chat-start options (Meta conversation starters, client 21 Nov)", () => {
+  it.each([
+    ["Reduce Your Medical Bill Now", /Reduce Your Medical Bill Now/],
+    ["Why Overpay Your Medical Bills", /Why Overpay Your Medical Bills\?/],
+    ["Book Appointment", null],
+    ["Activate Oxxy Plan", null],
+    ["Calculate Your Savings", /bill amount/i],
+    ["Talk to Us", null],
+  ])("'%s' as the very first message opens its own card, no health notice, no Claude", async (said, body) => {
+    stub(plan_catalog, "find", async () => []);
+    const t = setup({ state: S.New, consented: false });
+    await t.run(said);
+    expect(t.out).toHaveLength(1);
+    const sent = last(t).msg as { kind: string; rows?: unknown[] };
+    if (body) expect(String(last(t).text)).toMatch(body);
+    if (said === "Book Appointment") expect(sent.kind).toBe("location_request");
+    if (said === "Activate Oxxy Plan") expect(sent.kind).toBe("list");
+    if (said === "Talk to Us") expect(String(last(t).text)).toMatch(/advisor/i);
+    expect(String(last(t).text)).not.toMatch(/Before sharing health details/);
+    expect(t.conv.state).toBe(S.IntentMenu);
+    expect(t.generate).not.toHaveBeenCalled();
+  });
+});

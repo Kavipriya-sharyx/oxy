@@ -48,7 +48,7 @@ export function asksFounder(text: string): boolean {
 /** Checks if the user asks to speak/talk with an advisor or needs assistance */
 export function asksAdvisor(text: string): boolean {
   const t = (text || "").toLowerCase().trim();
-  return /\b(talk\s*to\s*(our\s*)?advisor|speak\s*to\s*advisor|connect\s*(to\s*)?advisor|advisor|assistance|needs\s*assistance|agent|expert|sales\s*team|call\s*me|call\s*support)\b/i.test(t);
+  return /\b(talk\s*to\s*us|talk\s*to\s*(our\s*)?advisor|speak\s*to\s*advisor|connect\s*(to\s*)?advisor|advisor|assistance|needs\s*assistance|agent|expert|sales\s*team|call\s*me|call\s*support)\b/i.test(t);
 }
 
 /** Inquiries asking for other/different centres, more choices, or another hospital */

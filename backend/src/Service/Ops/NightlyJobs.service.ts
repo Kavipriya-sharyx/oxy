@@ -1,10 +1,12 @@
 // The nightly schedule (BullMQ job schedulers, so several API instances still run each job once):
-// 02:00 IST CRM reconciliation, 02:30 IST data retention, 02:45 IST changes-feed pruning (90 days).
+// 02:00 IST CRM reconciliation, 02:30 IST data retention, 02:45 IST changes-feed pruning (90 days),
+// 03:00 IST the website pages read again (oxxy.in knowledge, client 21 Nov).
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Queue, Worker } from "bullmq";
 import { queuePrefix, redisConnection } from "@Root/Config/Redis";
 import { CrmReconciliationService } from "./CrmReconciliation.service";
 import { RetentionService } from "./Retention.service";
+import { WebsiteKnowledgeService } from "./WebsiteKnowledge.service";
 import { ChangeFeedService } from "@Service/Crm/ChangeFeed.service";
 import { ApiLogService } from "@Service/Admin/ApiLog.service";
 
@@ -21,6 +23,7 @@ export class NightlyJobsService implements OnModuleInit, OnModuleDestroy {
     private readonly _Retention: RetentionService,
     @Optional() private readonly _Feed?: ChangeFeedService,
     @Optional() private readonly _ApiLog?: ApiLogService,
+    @Optional() private readonly _Website?: WebsiteKnowledgeService,
   ) {}
 
   async onModuleInit() {
@@ -44,6 +47,11 @@ export class NightlyJobsService implements OnModuleInit, OnModuleDestroy {
         { pattern: "45 2 * * *", tz: "Asia/Kolkata" },
         { name: "feed_prune" },
       );
+      await this.queue.upsertJobScheduler(
+        "nightly-website-refresh",
+        { pattern: "0 3 * * *", tz: "Asia/Kolkata" },
+        { name: "website_refresh" },
+      );
       this.worker = new Worker(
         QUEUE,
         async (job) => {
@@ -52,7 +60,7 @@ export class NightlyJobsService implements OnModuleInit, OnModuleDestroy {
           else if (job.name === "feed_prune") {
             await this._Feed?.prune();
             await this._ApiLog?.prune(); // API logs: 90 days
-          }
+          } else if (job.name === "website_refresh") await this._Website?.run();
         },
         { connection, prefix, concurrency: 1 },
       );

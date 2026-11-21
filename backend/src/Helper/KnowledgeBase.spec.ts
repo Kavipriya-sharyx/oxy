@@ -68,3 +68,19 @@ describe("the button flow in every language fits WhatsApp's limits", () => {
     expect((savingsCard(50000, "hi") as { body: string }).body).toContain("₹15,000 तक");
   });
 });
+
+describe("oxxy.in website facts (client, 21 Nov: random questions answered from the website)", () => {
+  it.each([
+    ["what are your office timings", "W037"],
+    ["where is your office address", "W036"],
+    ["can I activate the cancer plan after cancer is detected", "W014"],
+    ["how many hospitals and cities in your network", "W007"],
+    ["how many medical records can I store", "W032"],
+  ])("'%s' finds %s", (q, id) => {
+    expect(relevantAnswers(q, 3).map((e) => e.id)).toContain(id);
+  });
+  it("never carries a plan price (prices come only from plan_catalog)", () => {
+    const { KB_WEBSITE } = jest.requireActual("./WebsiteKnowledge");
+    for (const e of KB_WEBSITE) expect(e.a).not.toMatch(/Rs\.?\s?[\d,]+\s*\/\s*(mo|month)|per month/i);
+  });
+});

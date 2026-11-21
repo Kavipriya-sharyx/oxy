@@ -115,6 +115,7 @@ import {
   asksApptActivate,
   asksApptLater,
   asksBookCard,
+  asksOverpayCard,
   asksReduceBill,
   asksStartBooking,
   BOOK_IDS,
@@ -1891,6 +1892,12 @@ export class ChatPipelineService {
       this.sendAndSave(s.customer.id, msg, m.waMessageId);
     const pending = s.conversation.pending_action;
 
+    if (asksOverpayCard(text)) {
+      await this.setPending(s, "flow:start");
+      await reply(overpayCard(l));
+      await this.recordTrigger(s, "W", "why overpay card (typed / chat-start option)");
+      return true;
+    }
     if (asksReduceBill(text)) {
       await this.setPending(s, "flow:start");
       await reply(billCard(l));
@@ -2189,7 +2196,8 @@ export class ChatPipelineService {
     const reply = (msg: string | OutboundMessage) =>
       this.sendAndSave(s.customer.id, msg, m.waMessageId);
 
-    if (id === BILL_IDS.calc || /^calculate( my| your)? discount$/i.test(text)) {
+    // "Calculate Your Savings" (client's chat-start list, 21 Nov) = the calculator too
+    if (id === BILL_IDS.calc || /^calculate( my| your)? (discount|savings?)$/i.test(text)) {
       await this.setPending(s, BILL_AMOUNT);
       await reply(billAmountAsk(l));
       return true;
@@ -2199,7 +2207,7 @@ export class ChatPipelineService {
       await this.recordTrigger(s, "B", "regular health insurance vs Oxxy (bill card)");
       return true;
     }
-    if (id === BILL_IDS.activate || id === "activate oxxy") {
+    if (id === BILL_IDS.activate || /^activate oxxy( plan)?$/.test(id)) {
       await this.sendPlansList(s, m.waMessageId);
       return true;
     }
@@ -2290,8 +2298,15 @@ export class ChatPipelineService {
       await this.startGuidedFlow(m, s);
       return true;
     }
-    if (await this.handleAppointment(m, s)) return true;
-    if (await this.handleBillCard(m, s)) return true;
+    // a chat-start option tapped as the very first message (client, 21 Nov): its own card answers, and the chat
+    // opens like the first cards do (INTENT_MENU, the 60-second voice call)
+    const opened = async () => {
+      if (s.conversation.state !== ConversationState.New) return;
+      await this.setState(s, [ConversationState.IntentMenu]);
+      await this.requestVoiceCall(s, "new WhatsApp enquiry");
+    };
+    if (await this.handleAppointment(m, s)) return (await opened(), true);
+    if (await this.handleBillCard(m, s)) return (await opened(), true);
     // Customer explicitly asks for testimonials, reviews, feedback, proof, or news articles while in the guided flow
     const inFlow = !!s.conversation.pending_action?.startsWith("flow:");
     if (inFlow && asksProofOrFeedback(text)) {
@@ -2327,6 +2342,7 @@ export class ChatPipelineService {
         "Customer requested advisor assistance: AI voice call, objection handling and follow-up",
       );
       await this.sendAndSave(s.customer.id, advisorContactCard(s.customer.language), m.waMessageId);
+      await opened();
       return true;
     }
     // the verify card's buttons (Customer Testimonial / News Articles): the page, the flow step stays

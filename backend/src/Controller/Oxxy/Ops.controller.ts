@@ -28,7 +28,8 @@ import { PlanChangeService } from "@Service/Ops/PlanChange.service";
 import { TemplatesService } from "@Service/Ops/Templates.service";
 import { GoLiveService } from "@Service/Ops/GoLive.service";
 import { WhatsappClient } from "@Service/Oxxy/WhatsappClient.service";
-import { MENU_ROWS } from "@Helper/OpeningMenu";
+import { CHAT_STARTERS } from "@Service/Oxxy/BookCard";
+import { WebsiteKnowledgeService } from "@Service/Ops/WebsiteKnowledge.service";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const id = (v: string) => {
@@ -48,6 +49,7 @@ export class OpsController extends JWTAuthController {
     private readonly _Templates: TemplatesService,
     private readonly _GoLive: GoLiveService,
     private readonly _Wa: WhatsappClient,
+    private readonly _Website: WebsiteKnowledgeService,
   ) {
     super();
   }
@@ -56,7 +58,7 @@ export class OpsController extends JWTAuthController {
   @Permission("settings.manage")
   @Get("ChatOpening")
   async ChatOpening() {
-    const defaults = MENU_ROWS.map((r) => r.title.en);
+    const defaults = [...CHAT_STARTERS]; // client, 21 Nov: each opens its own card
     try {
       return this.SendResponseData({ ...(await this._Wa.getChatOpening()), defaults });
     } catch (e) {
@@ -67,7 +69,7 @@ export class OpsController extends JWTAuthController {
   @Permission("settings.manage")
   @Post("ChatOpening")
   async SetChatOpening(@Body() body: { prompts?: string[]; enable_welcome_message?: boolean }) {
-    const prompts = Array.isArray(body?.prompts) && body.prompts.length ? body.prompts : MENU_ROWS.map((r) => r.title.en);
+    const prompts = Array.isArray(body?.prompts) && body.prompts.length ? body.prompts : [...CHAT_STARTERS];
     try {
       await this._Wa.setChatOpening(prompts, body?.enable_welcome_message !== false);
     } catch (e) {
@@ -251,6 +253,22 @@ export class OpsController extends JWTAuthController {
   @Post("Jobs/Reconciliation/Run")
   async RunReconciliation(@CurrentUser() UserId: string) {
     return this.SendResponseData(await this._Reconcile.run(UserId));
+  }
+
+  // ---- The website as knowledge (oxxy.in, read every night at 03:00 IST; client 21 Nov) ----
+  @Permission("settings.manage")
+  @Get("Jobs/Website")
+  async Website() {
+    return this.SendResponseData({
+      pages: await this._Website.pages(),
+      runs: await this.lastRuns("website_refresh"),
+    });
+  }
+
+  @Permission("settings.manage")
+  @Post("Jobs/Website/Run")
+  async RunWebsite(@CurrentUser() UserId: string) {
+    return this.SendResponseData(await this._Website.run(UserId));
   }
 
   @Permission("privacy.handle")

@@ -439,6 +439,22 @@ Code: `Service/Oxxy/BookCard.ts` (texts, readers) + `handleAppointment` / `apptW
   above the button. (3) Date and time questions: a blank line, the example on its own line. Arial font is not
   possible: WhatsApp has no font choice. (4) The plans list ("View plans") has a last row **View Plan Features**
   (`plan_features`) -> `planFeaturesCard` (four plans from `PLAN_DETAILS`, [Choose a Plan] [Main Menu]).
+- **Chat-start options (client 21 Nov, Meta "conversation starters", max 4):** `CHAT_STARTERS` in BookCard.ts =
+  Reduce Your Medical Bill Now / Book Appointment / Activate Oxxy Plan / Talk to Us (defaults of
+  `Console/ChatOpening`; console Settings -> Chat opening -> "Use the suggested options" -> Save on WhatsApp).
+  Each text (and the client's other two, "Why Overpay Your Medical Bills", "Calculate Your Savings") opens its
+  own card even as the very first message (no health notice; the chat opens: INTENT_MENU + voice call). The
+  welcome event (first open ever) sends the two first cards.
+- **oxxy.in facts (client 21 Nov: random questions from the website):** `Helper/WebsiteKnowledge.ts`, 38
+  paraphrased facts read 21 Nov, merged into the knowledge base after the approved answers (score x0.85).
+  Left out: plan prices (site shows two each), "guaranteed savings", monthly auto-renew, "no exclusions".
+- **oxxy.in read every night (21 Nov):** `Service/Ops/WebsiteKnowledge.service.ts` reads the 8 pages
+  (`WEBSITE_PAGES`, or `OXXY_WEBSITE_PAGES`, www.oxxy.in only) at 03:00 IST (NightlyJobs) and on "Read now"
+  (console Settings -> Website knowledge; `GET/POST Console/Jobs/Website[/Run]`). Cleaned: scripts out, struck-out
+  old prices out (`class="plan-strike"`, del/s), every price / saving line out, menu/footer lines kept once.
+  Stored in `website_page` (migration `WebsitePages1794800000000`), held in memory; `knowledgeFor` adds the 2
+  closest passages as `website_info` (LLM rule: approved answers win; never a price or guaranteed saving from it).
+  Not live per question (seconds per answer, breaks when the site is slow). A failed read keeps the old text.
 - **Sequence 3 = the second first card** (was the only one 20 Nov) (greeting, WhatsApp welcome event, Main Menu): picture
   `frontend/public/oxxy-overpay-card.jpg` (or `OXXY_OVERPAY_IMAGE_URL`) + "Why Overpay Your Medical Bills?" +
   **① Reduce My Bill** (`home_reduce` -> the sequence 1 bill card) and **② Book Appointment** (`home_book` -> the

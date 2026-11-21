@@ -50,9 +50,11 @@ export default function ChatOpeningPanel() {
         )}
       </div>
       <div className="small muted" style={{ marginBottom: 8 }}>
-        Quick questions (up to 4, 80 characters each). A tap sends the text, and the bot answers it
-        like the menu option of the same name. With the welcome message on, the bot sends the
-        welcome and the options as soon as a new customer opens the chat.
+        Quick questions (up to 4, 80 characters each). A tap sends the text, and the bot opens the
+        card of the same name (Reduce Your Medical Bill Now, Why Overpay Your Medical Bills, Book
+        Appointment, Activate Oxxy Plan, Calculate Your Savings, Talk to Us). With the welcome
+        message on, the bot sends the first cards as soon as a new customer opens the chat for the
+        first time.
       </div>
       <div className="grid g2" style={{ gap: 8 }}>
         {[0, 1, 2, 3].map((i) => (
@@ -70,6 +72,11 @@ export default function ChatOpeningPanel() {
         <button className="btn sm pri" disabled={save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? "Saving…" : "Save on WhatsApp"}
         </button>
+        {!!current?.defaults?.length && prompts.join("|") !== current.defaults.join("|") && (
+          <button className="btn sm" onClick={() => setEdit([...(current.defaults ?? [])])}>
+            Use the suggested options
+          </button>
+        )}
         {edit && (
           <button className="btn sm" onClick={() => setEdit(null)}>
             Undo changes

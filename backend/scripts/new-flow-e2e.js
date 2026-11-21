@@ -192,6 +192,24 @@ const tasksOf = (wa) => sql(`select coalesce(string_agg(t.type||':'||t.task_stat
   out = await say(D, text("Hi"), "Hi after STOP");
   check("4.3 nothing after STOP", out.length === 0, all(out));
 
+  // ===== 5. chat-start options (Meta conversation starters), each as a brand-new customer's first message
+  P("\n==================== 5. chat-start options as the first message (21 Nov) ====================");
+  const starters = [
+    ["Reduce Your Medical Bill Now", (o) => /Reduce Your Medical Bill Now/.test(all(o)) && buttonsOf(last(o)).join() === "Calculate discount,Learn More,Activate Oxxy"],
+    ["Why Overpay Your Medical Bills", (o) => /Why Overpay Your Medical Bills\?/.test(all(o))],
+    ["Book Appointment", (o) => last(o)?.interactive?.type === "location_request_message"],
+    ["Activate Oxxy Plan", (o) => rowsOf(last(o)).length === 5],
+    ["Calculate Your Savings", (o) => /enter your bill amount/i.test(all(o))],
+    ["Talk to Us", (o) => /advisor/i.test(all(o))],
+  ];
+  for (let i = 0; i < starters.length; i++) {
+    const [said, ok] = starters[i];
+    const who = PFX + "1" + i;
+    out = await say(who, text(said), said);
+    check(`5.${i + 1} '${said}' opens its own card, no health notice`, out.length > 0 && ok(out) && !/Before sharing health details/.test(all(out)), all(out));
+    check(`5.${i + 1}b chat opened (intent_menu)`, /^intent_menu\|/.test(convOf(who)), convOf(who));
+  }
+
   P(`\nnew flows: ${pass} passed, ${fail} failed`);
   fs.writeFileSync(OUT, log.join("\n"), "utf8");
   process.exit(fail ? 1 : 0);

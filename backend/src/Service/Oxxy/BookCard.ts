@@ -88,6 +88,20 @@ export const asksReduceBill = (text: string) =>
   /^(home_reduce|reduce my bill|reduce (my )?(medical )?bill|reduce your medical bill( now)?)\s*[.!]?$/i.test(
     (text || "").trim(),
   );
+/**
+ * The chat-start options (Meta "conversation starters", at most 4; client, 21 Nov). A tap sends the text; each
+ * opens its own card. The client's other two ("Why Overpay Your Medical Bills", "Calculate Your Savings") are
+ * read too when typed.
+ */
+export const CHAT_STARTERS = [
+  "Reduce Your Medical Bill Now",
+  "Book Appointment",
+  "Activate Oxxy Plan",
+  "Talk to Us",
+] as const;
+/** "Why Overpay Your Medical Bills" (typed, or a template quick reply): the Why Overpay card */
+export const asksOverpayCard = (text: string) =>
+  /^why overpay( your)?( medical)? bills?\s*[?.!]?$/i.test((text || "").trim());
 /** ② on the first card; the booking card's own button is appt_start */
 export const asksBookCard = (text: string) => (text || "").trim().toLowerCase() === BOOK_IDS.book;
 export const asksStartBooking = (text: string) =>

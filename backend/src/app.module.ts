@@ -75,6 +75,7 @@ import { OpsController } from "./Controller/Oxxy/Ops.controller";
 import { CrmReconciliationService } from "./Service/Ops/CrmReconciliation.service";
 import { RetentionService } from "./Service/Ops/Retention.service";
 import { NightlyJobsService } from "./Service/Ops/NightlyJobs.service";
+import { WebsiteKnowledgeService } from "./Service/Ops/WebsiteKnowledge.service";
 import { PlanChangeService } from "./Service/Ops/PlanChange.service";
 import { TemplatesService } from "./Service/Ops/Templates.service";
 import { GoLiveService } from "./Service/Ops/GoLive.service";
@@ -203,6 +204,7 @@ import { HealthController, HealthDetailsController } from "./Controller/Ops/Heal
     CrmReconciliationService,
     RetentionService,
     NightlyJobsService,
+    WebsiteKnowledgeService,
     PlanChangeService,
     TemplatesService,
     GoLiveService,

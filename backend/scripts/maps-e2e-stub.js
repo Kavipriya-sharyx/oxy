@@ -99,7 +99,7 @@ http
       // ---- WhatsApp Cloud API
       if (req.method === "POST" && /\/messages$/.test(url.pathname)) {
         sent.push(body);
-        return json(res, 200, { messaging_product: "whatsapp", messages: [{ id: `wamid.STUB${++n}` }] });
+        return json(res, 200, { messaging_product: "whatsapp", messages: [{ id: `wamid.STUB${Date.now()}x${++n}` }] });
       }
       if (req.method === "GET") return json(res, 200, { display_phone_number: "+91 00000 00000", verified_name: "Stub Business", quality_rating: "GREEN", data: [] });
       json(res, 404, { error: { message: `stub: no route ${req.method} ${url.pathname}` } });

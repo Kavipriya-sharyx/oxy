@@ -146,6 +146,21 @@ export async function getRetention(): Promise<{ days: number | null; runs: JobRu
 export async function runRetention(): Promise<JobRun> {
   return (await client.post<JobRun>("/Console/Jobs/Retention/Run")).data;
 }
+// ---- The website as knowledge (oxxy.in, read every night at 03:00 IST) ----
+export interface WebsitePage {
+  url: string;
+  title: string | null;
+  passages: number;
+  fetched_at: string | null;
+  changed_at: string | null;
+  fetch_error: string | null;
+}
+export async function getWebsiteKnowledge(): Promise<{ pages: WebsitePage[]; runs: JobRun[] }> {
+  return (await client.get<{ pages: WebsitePage[]; runs: JobRun[] }>("/Console/Jobs/Website")).data;
+}
+export async function runWebsiteKnowledge(): Promise<JobRun> {
+  return (await client.post<JobRun>("/Console/Jobs/Website/Run")).data;
+}
 export async function eraseCustomer(customerId: string) {
   return (await client.post(`/Console/PrivacyRequests/${customerId}/Erase`)).data;
 }

@@ -2,7 +2,7 @@
 // counts and ids only.
 import { job_run } from "@Database/Table/Oxxy/job_run";
 
-export type JobKind = "crm_reconciliation" | "data_retention";
+export type JobKind = "crm_reconciliation" | "data_retention" | "website_refresh";
 
 export interface JobOutcome {
   status: "ok" | "skipped";

@@ -2,7 +2,13 @@
 // the voice agent answers from them; the chat must too). Voice manual 50: "retrieve only the smallest relevant
 // knowledge passages for each turn" -> the closest few answers go into the LLM context as approved_answers,
 // never the whole book. Hard rules, prices from plan_catalog and the validator still win.
-import { KB_BRIDGES, KB_QA, KbBridge, KbEntry } from "./KnowledgeBaseData";
+import { KB_BRIDGES, KB_QA as KB_APPROVED, KbBridge, KbEntry } from "./KnowledgeBaseData";
+import { KB_WEBSITE } from "./WebsiteKnowledge";
+
+// the client's approved answers, then the oxxy.in website facts (client, 21 Nov: "answer random questions from
+// the website"); an approved answer wins a tie (website scores x0.85)
+const KB_QA: KbEntry[] = [...KB_APPROVED, ...KB_WEBSITE];
+const WEIGHT = KB_QA.map((e) => (e.id.startsWith("W") ? 0.85 : 1));
 
 const STOP = new Set(
   ("a an the is are am was were be been i me my we our you your it its this that these those to of in on at for " +
@@ -38,7 +44,7 @@ export function relevantAnswers(text: string, limit = 3): KbEntry[] {
     let score = 0;
     for (const w of said) score += DOCS[i].has(w) ? idf(w) : ANS[i].has(w) ? idf(w) / 2 : 0;
     // a short question that is almost the whole message wins over a long one that shares one word
-    return { e, score: score / Math.pow(DOCS[i].size || 1, 0.35) };
+    return { e, score: (WEIGHT[i] * score) / Math.pow(DOCS[i].size || 1, 0.35) };
   })
     .filter((x) => x.score >= 1.2)
     .sort((a, b) => b.score - a.score);
@@ -92,14 +98,58 @@ export function relevantBridge(text: string): KbBridge | null {
   return null;
 }
 
-/** For the LLM context: the approved answers and (if any) the bridge lines, compact */
+// ---- The website's own pages, read every night (Service/Ops/WebsiteKnowledge.service.ts; client, 21 Nov:
+// "random questions: answer from the content on oxxy.in"). Held in memory, set at start-up and after each read.
+interface SitePassage { url: string; text: string; words: Set<string> }
+let SITE: SitePassage[] = [];
+let SITE_DF = new Map<string, number>();
+
+/** Replace the website passages (cleaned: no prices; see the service) */
+export function setWebsitePassages(pages: { url: string; passages: string[] }[]): number {
+  const next: SitePassage[] = [];
+  for (const p of pages)
+    for (const t of p.passages ?? []) if (t && t.trim()) next.push({ url: p.url, text: t, words: new Set(words(t)) });
+  const df = new Map<string, number>();
+  for (const s of next) for (const w of s.words) df.set(w, (df.get(w) ?? 0) + 1);
+  SITE = next;
+  SITE_DF = df;
+  return next.length;
+}
+
+/** The closest website passages to the message (best first); empty when nothing is close */
+export function websitePassages(text: string, limit = 2): { source: string; text: string }[] {
+  if (!SITE.length) return [];
+  const said = new Set(words(text));
+  if (!said.size) return [];
+  const idfS = (w: string) => Math.log(1 + SITE.length / (1 + (SITE_DF.get(w) ?? 0)));
+  return SITE.map((s) => {
+    let score = 0;
+    let hits = 0;
+    for (const w of said)
+      if (s.words.has(w)) {
+        score += idfS(w);
+        hits++;
+      }
+    // two words in common (one when the message itself is one word), and not just common site words
+    const enough = hits >= Math.min(2, said.size);
+    return { s, score: enough ? score / Math.pow(s.words.size || 1, 0.25) : 0 };
+  })
+    .filter((x) => x.score >= 1.0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((x) => ({ source: x.s.url, text: x.s.text }));
+}
+
+/** For the LLM context: the approved answers, the website passages and (if any) the bridge lines, compact */
 export function knowledgeFor(text: string): Record<string, unknown> {
   const qa = relevantAnswers(text);
   const bridge = relevantBridge(text);
+  const site = websitePassages(text);
   return {
     ...(qa.length
       ? { approved_answers: qa.map((e) => ({ question: e.q, mode: e.mode, answer: e.a, ...(e.next ? { next_question: e.next } : {}) })) }
       : {}),
+    ...(site.length ? { website_info: site } : {}),
     ...(bridge ? { engagement_bridge: { situation: bridge.situation, examples: bridge.lines.slice(0, 3) } } : {}),
   };
 }
