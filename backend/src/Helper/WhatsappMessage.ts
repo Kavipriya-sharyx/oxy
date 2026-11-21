@@ -29,7 +29,8 @@ export type OutboundMessage =
     }
   // one button that opens a web address (the website, the savings calculator)
   | { kind: "cta_url"; body: string; buttonText: string; url: string; header?: InteractiveHeader; footer?: string }
-  | { kind: "template"; name: string; languageCode: string; params?: string[] }
+  // `headerImage`: the https picture for a template with an image header; `log`: what the chat history shows
+  | { kind: "template"; name: string; languageCode: string; params?: string[]; headerImage?: string; log?: string }
   // a "Send location" button: the customer shares the spot with one tap (interactive location_request_message)
   | { kind: "location_request"; body: string }
   // a map pin for a centre; `body` is what the chat history shows for it

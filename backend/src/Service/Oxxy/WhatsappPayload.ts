@@ -97,6 +97,8 @@ export function validateMessage(m: OutboundMessage): void {
     case "template":
       if (blank(m.name)) throw new InvalidMessageError("template name is required");
       if (blank(m.languageCode)) throw new InvalidMessageError("template languageCode is required");
+      if (m.headerImage !== undefined && !/^https:\/\/\S+$/i.test(m.headerImage))
+        throw new InvalidMessageError("template header image needs an https link");
       return;
 
     case "location_request":
@@ -166,10 +168,15 @@ export function buildPayload(to: string, m: OutboundMessage): Record<string, unk
         template: {
           name: m.name,
           language: { code: m.languageCode },
-          ...(m.params?.length
+          ...(m.params?.length || m.headerImage
             ? {
                 components: [
-                  { type: "body", parameters: m.params.map((text) => ({ type: "text", text })) },
+                  ...(m.headerImage
+                    ? [{ type: "header", parameters: [{ type: "image", image: { link: m.headerImage } }] }]
+                    : []),
+                  ...(m.params?.length
+                    ? [{ type: "body", parameters: m.params.map((text) => ({ type: "text", text })) }]
+                    : []),
                 ],
               }
             : {}),

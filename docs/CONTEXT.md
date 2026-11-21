@@ -394,9 +394,9 @@ option and Anthropic key labels, the Go-live / no-key messages) and in the git b
   "Download guide (HTML)" and "Download Postman collection"; the setup tab has a "Documents for the client's
   developers" panel with all four.
 - Voice guide: `components/VoiceAgentDocs.tsx`, content `frontend/src/data/voiceDocs.ts` (call flow, WhatsApp consent
-  lines [CONFIRM], call-context mapping, what to say for each StartConversation status, the 8 calls a voice agent
+  lines [CONFIRM], call-context mapping, what to say for each StartConversation status, the 9 calls a voice agent
   uses taken from the shared ACTIONS list, Node / Python example, rules, checklist). Anchors use the `voice-` prefix.
-- Postman: `buildVoicePostmanCollection()` (8 calls in call order), `POST /Developer/Postman { audience: "voice" }`,
+- Postman: `buildVoicePostmanCollection()` (9 calls in call order; SendTemplate added 21 Nov), `POST /Developer/Postman { audience: "voice" }`,
   `docs/oxxy-voice-agent-api.postman_collection.json` (`scripts/write-postman.ts` writes both).
 - One API key per system: the voice agent gets its own key, separate from the CRM's.
 
@@ -490,6 +490,40 @@ Code: `Service/Oxxy/BookCard.ts` (texts, readers) + `handleAppointment` / `apptW
 - Templates `oxxy_why_overpay`, `oxxy_book_appointment` (picture + text + quick replies); migration
   `AppointmentTemplates1794780000000`.
 - Deploy: both pictures are in the frontend build; deploy the frontend with the backend.
+
+## Voice-call templates: WhatsApp during the call (21 Nov)
+
+Client: "the WA trigger messages are different from this chatbot flow: the templates should be triggered based on
+the voice bot conversation. Whenever a customer asks during the call to share the plan details, an automated
+WhatsApp message ... in real time, while the call is still in progress." The chatbot flow stays as it is.
+- **Templates** (client's own, word for word from their editor screenshots; `Helper/TemplateDefinitions.ts`):
+  `oxxy_verification_links` (UTILITY, no header, body 191 chars, {{1}} name; URL Customer testimonials ->
+  /customer_stories, URL View Policies -> /policies, quick reply News Articles) and `plan_recommendation_status`
+  (UTILITY, logo image header, body 279 chars, {{1}} name {{2}} requirement {{3}} plan {{4}} reason; URL Website ->
+  http://www.oxxy.in/, quick reply "https://www.oxxy.in/#plan"). `urlFirst` keeps their button order. Migration
+  `VoiceTemplates1794810000000` lists them in `wa_template`; "Sync from Meta" fills in the status.
+- **API**: `POST /api/v1/Actions/SendTemplate` (`BotActions.sendVoiceTemplate`, checks in
+  `Service/Oxxy/VoiceTemplates.ts`): { wa_number | customer_id, template, params {customer_name, requirement, plan,
+  reason}, whatsapp_consent: true, consent_source, call_id?, context? }. Sent at once (no queue), always as the
+  template, sent as a reply (no 21:00-09:00 blackout: the customer asked for it on the call). Checks: template
+  allow-list, consent, opt-out, privacy request, safety pause, Meta status, same template within 10 min = 409
+  duplicate, plan one of the four (sent as "Oxxy Vital"), requirement / reason with no price, "guaranteed", web
+  address or new line (422 invalid_params). The plan template needs `OXXY_WELCOME_IMAGE_URL` (logo header).
+  A new number becomes a customer. Saves call_context (so no 60-second call, the LLM knows the plan),
+  recommended_plan, pending `voice_plan:<plan>` (only when no other step is pending), state New -> INTENT_MENU
+  (no first cards), trigger "VT", CRM event `voice_template_sent`. The history shows the filled-in text.
+- **Replies** (`handleVoiceTemplate`, after handleLead, before the chatbot cards): "yes" / "share the link" ->
+  that plan's cost card + Activate Yearly / Monthly (existing activation steps); quick reply
+  "https://www.oxxy.in/#plan" -> the four plans; "News Articles" -> the news page; a question is answered normally
+  and the plan step stays; "no" ends it.
+- Template sends can now carry an image header (`headerImage`) and a history text (`log`); older sends unchanged.
+- Docs: voice guide flow step 2a + rule, 9th call in the voice Postman collection.
+- Tests: `Service/Crm/VoiceTemplate.spec.ts`, menu spec; e2e `scripts/voice-template-e2e.js` 23/23 (needs
+  ACTIONS_API_KEY=e2e-actions-key on the 8777 backend), new-flow e2e 59/59.
+- Decided 21 Nov (the client left the four open points to us): (1) their quick reply whose label is the address
+  stays as they made it in Meta (changing it means a new Meta review); a tap shows the four plans. (2) Spelled
+  "Customer testimonials" (their editor field; the preview's "testimonals" was a typo). (3) Category stays UTILITY;
+  if Meta moves it to MARKETING, nothing in the code changes (Sync from Meta shows it). (4) Sent at any hour.
 
 ## SharyX Voice AI: the 60-second call (20 Nov)
 

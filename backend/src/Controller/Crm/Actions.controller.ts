@@ -237,6 +237,17 @@ export class ActionsController {
     return await this._Actions.sendApprovedAsset(body ?? {});
   }
 
+  /**
+   * send_voice_template (client, 21 Nov): during the call, the client's WhatsApp template in real time.
+   * { wa_number | customer_id, template: oxxy_verification_links | plan_recommendation_status,
+   *   params: { customer_name?, requirement, plan, reason }, whatsapp_consent: true, consent_source, call_id?, context? }
+   */
+  @Post("SendTemplate")
+  @HttpCode(201)
+  async sendVoiceTemplate(@Body() body: any) {
+    return await this._Actions.sendVoiceTemplate(body ?? {});
+  }
+
   /** create_escalation: { customer_id | wa_number, priority, reason, callback_window: {from, to}, summary } */
   @Post("Escalations")
   @HttpCode(201)

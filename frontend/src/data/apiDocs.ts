@@ -353,6 +353,89 @@ export const ACTIONS: DocEndpoint[] = [
     ],
   },
   {
+    id: "send-voice-template",
+    action: "send_voice_template",
+    method: "POST",
+    path: "/api/v1/Actions/SendTemplate",
+    summary:
+      "For the voice agent, while the call is still going on: sends one of the client's WhatsApp templates at once. plan_recommendation_status when the customer asks for the plan details (the plan you recommended and why); oxxy_verification_links when the customer asks for proof (testimonials, policies, news).",
+    whatsapp: "Yes, at once (template)",
+    body: [
+      { name: "customer_id or wa_number", type: "uuid / string", req: "yes", desc: "A new number is added as a customer." },
+      {
+        name: "template",
+        type: "string",
+        req: "yes",
+        desc: "plan_recommendation_status or oxxy_verification_links.",
+      },
+      {
+        name: "params.customer_name",
+        type: "string",
+        req: "no",
+        desc: "First name for Hello {{1}}. Default: the name we have, else \"there\".",
+      },
+      {
+        name: "params.requirement",
+        type: "string",
+        req: "no",
+        desc: 'Plan template: required. What the customer needs, for "regarding {{2}}", e.g. "OPD consultations for your parents". Max 120 characters.',
+      },
+      {
+        name: "params.plan",
+        type: "string",
+        req: "no",
+        desc: "Plan template: required. everyday, vital, thrive or infinity (sent as \"Oxxy Vital\").",
+      },
+      {
+        name: "params.reason",
+        type: "string",
+        req: "no",
+        desc: 'Plan template: required. For "because {{4}}", e.g. "it covers members up to 75 years". Max 200 characters. No price, no "guaranteed", no web address.',
+      },
+      {
+        name: "whatsapp_consent, consent_source",
+        type: "true, string",
+        req: "yes",
+        desc: 'Send true and "voice_ai" only after the customer said yes on the call.',
+      },
+      {
+        name: "first_name, language",
+        type: "string",
+        req: "no",
+        desc: "Saved on a new customer (language: en, hi or hinglish). The template itself is in English.",
+      },
+      { name: "call_id", type: "string", req: "no", desc: "Your call id: shown in the CRM event." },
+      {
+        name: "context",
+        type: "object",
+        req: "no",
+        desc: "Same as StartConversation's context (summary, need, city …): saved so the chat does not ask again.",
+      },
+    ],
+    request: `curl -X POST ${KEY} ${JSON_H} "{{BASE}}/api/v1/Actions/SendTemplate" -d '{
+  "customer_id": "511f3b99-db54-4ee4-9db2-d36296b94988",
+  "template": "plan_recommendation_status",
+  "params": { "customer_name": "Priya", "requirement": "OPD consultations for your parents",
+              "plan": "vital", "reason": "it covers members up to 75 years" },
+  "whatsapp_consent": true,
+  "consent_source": "voice_ai",
+  "call_id": "call_8f2a"
+}'`,
+    response: `HTTP 201
+{ "status": "sent", "customer_id": "511f3b99-…", "conversation_id": "0c9e…", "template": "plan_recommendation_status",
+  "wa_message_id": "wamid.HBgM…",
+  "params": ["Priya", "OPD consultations for your parents", "Oxxy Vital", "it covers members up to 75 years"],
+  "recommended_plan": "vital" }`,
+    errors:
+      "400 unknown_template, consent_required, customer_ref_required, invalid_id · 403 opted_out, privacy_request_open · 404 customer_not_found · 409 duplicate (same template in the last 10 minutes), safety_event_open, template_not_usable (rejected / paused in Meta) · 422 invalid_params (with problems) · 503 not_configured",
+    notes: [
+      "Say it on the call: \"I have sent the details to your WhatsApp now.\" Call it once per request; a second call within 10 minutes answers 409 duplicate.",
+      "When the customer replies \"yes\" to the plan template, the bot shows that plan's cost with GST and the activation buttons, then sends the official link. The quick reply https://www.oxxy.in/#plan shows the four plans; News Articles sends the news page.",
+      "Prices never go in the template: the bot quotes them from the official plan list.",
+      "Works at any hour: the customer asked for it on the call, so the 21:00-09:00 rule for proactive messages does not apply.",
+    ],
+  },
+  {
     id: "create-escalation",
     action: "create_escalation",
     method: "POST",
@@ -592,14 +675,20 @@ export const ERRORS: [number, string, string][] = [
   [
     400,
     "consent_required",
-    "StartConversation without whatsapp_consent: true and a consent_source",
+    "StartConversation / SendTemplate without whatsapp_consent: true and a consent_source",
   ],
+  [400, "unknown_template", "SendTemplate with a template other than plan_recommendation_status or oxxy_verification_links"],
   [401, "unauthorized", "Wrong, expired or revoked X-Api-Key"],
   [403, "opted_out", "The customer opted out: no follow-ups or content"],
   [403, "privacy_request_open", "Open privacy / deletion request: no follow-ups or content"],
   [403, "asset_not_approved", "The content is not approved for sending"],
   [404, "customer_not_found / asset_not_found / plan_not_found", "Not found"],
-  [409, "duplicate", "That content was already sent in this journey (also suppression_reason)"],
+  [
+    409,
+    "duplicate",
+    "That content was already sent in this journey (also suppression_reason); SendTemplate: the same template in the last 10 minutes",
+  ],
+  [409, "template_not_usable", "SendTemplate: the template is rejected, paused or disabled in Meta"],
   [409, "quiet_hours", "Proactive send between 21:00 and 09:00 IST (also next_allowed_at)"],
   [
     409,
@@ -609,6 +698,8 @@ export const ERRORS: [number, string, string][] = [
   [409, "safety_event_open", "An emergency is open: no commercial content"],
   [409, "chat_open", "StartConversation while a chat with the customer is already going on"],
   [410, "asset_expired", "The content is past its end date"],
+  [422, "invalid_params", "SendTemplate: a value is wrong (plan not one of the four, a price, a web address …); problems lists each"],
+  [503, "not_configured", "SendTemplate plan_recommendation_status: the logo address is not set on the server yet"],
   [
     422,
     "centre_needs_verification",

@@ -267,7 +267,7 @@ export function billCompareCard(l?: Lg): OutboundMessage {
   };
 }
 
-const PLAN_ORDER: PlanName[] = ["everyday", "vital", "thrive", "infinity"];
+export const PLAN_ORDER: PlanName[] = ["everyday", "vital", "thrive", "infinity"];
 const PLAN_PCT: Record<PlanName, number> = { everyday: 20, vital: 25, thrive: 30, infinity: 40 };
 const PLAN_LABEL: Record<PlanName, string> = {
   everyday: "Oxxy Everyday",

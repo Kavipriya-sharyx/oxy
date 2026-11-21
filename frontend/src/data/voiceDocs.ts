@@ -1,17 +1,19 @@
 // Integration guide for the client's VOICE AGENT developers (Admin > Developer > Voice agent API docs).
 // The voice agent talks to customers on the phone; when a customer wants the details on WhatsApp it hands the
-// conversation to the bot (StartConversation), and it can use the same customer actions as the CRM during the
+// conversation to the bot (StartConversation), sends the client's WhatsApp templates during the call
+// (SendTemplate), and it can use the same customer actions as the CRM during the
 // call. Endpoint details are shared with the CRM guide (data/apiDocs.ts ACTIONS); this file holds what is
 // specific to a voice agent. {{BASE}} is replaced with this server's address.
 import { ACTIONS, type DocEndpoint } from "./apiDocs";
 
-export const VOICE_DOC_VERSION = "1.0 (14 Nov 2026)";
+export const VOICE_DOC_VERSION = "1.2 (21 Nov 2026)";
 
 /** The calls a voice agent uses, in the order of a call */
 const ORDER = [
   "lookup-customer",
   "start-conversation",
   "get-official-plan",
+  "send-voice-template",
   "search-centres",
   "create-booking-request",
   "create-follow-up",
@@ -50,6 +52,11 @@ export const VOICE_FLOW: [string, string, string][] = [
     "2. During the call (only if needed)",
     "OfficialPlan · SearchCentres · BookingRequests · FollowUps · Escalations",
     "Quote a price only from OfficialPlan. Offer centres only from SearchCentres. A booking is always a request (pending confirmation), never confirmed on the call. A question that needs a person → Escalations.",
+  ],
+  [
+    "2a. The customer asks for the plan details or proof during the call",
+    "POST SendTemplate",
+    "Ask for consent on the call, then send template plan_recommendation_status (the plan you recommended and why, no price) or oxxy_verification_links (testimonials, policies, news). It reaches WhatsApp in a few seconds, while the call is still on, at any hour: tell the customer it has been sent. When the customer replies on WhatsApp, the bot carries on (price with GST, activation step).",
   ],
   [
     "3. The customer wants the details on WhatsApp",
@@ -134,9 +141,39 @@ export const VOICE_STATUS: [string, string, string][] = [
   ],
 ];
 
+/** What the voice agent says after SendTemplate (client, 21 Nov) */
+export const VOICE_TEMPLATE_STATUS: [string, string, string][] = [
+  [
+    '"status": "sent"',
+    "The template is on its way to the customer's WhatsApp.",
+    '"I have sent the details to your WhatsApp just now."',
+  ],
+  [
+    "409 duplicate",
+    "The same template went to this customer in the last 10 minutes: not sent again.",
+    '"I sent it a few minutes ago; please check your WhatsApp."',
+  ],
+  [
+    "422 invalid_params",
+    'A value was refused (problems says which): the plan is not one of the four, or requirement / reason has a price, "guaranteed" or a web address.',
+    "Fix the value and call again; never read a price from your own notes.",
+  ],
+  [
+    "403 opted_out / privacy_request_open",
+    "The customer said STOP before, or asked us to delete their data: nothing sent.",
+    "Do not promise a WhatsApp message.",
+  ],
+  [
+    "409 safety_event_open / template_not_usable, 503 not_configured",
+    "Nothing sent: an emergency is open, or the template or the server is not ready.",
+    '"Our team will share the details with you." (and Escalations if needed)',
+  ],
+];
+
 export const VOICE_RULES: string[] = [
-  'Ask for WhatsApp consent on the call before StartConversation, and send whatsapp_consent: true with consent_source: "voice_ai".',
+  'Ask for WhatsApp consent on the call before StartConversation or SendTemplate, and send whatsapp_consent: true with consent_source: "voice_ai".',
   "Quote prices, GST, renewal terms and links only from OfficialPlan. Never type them by hand.",
+  "SendTemplate params: the plan is one of everyday / vital / thrive / infinity; requirement and reason are short and plain, with no price, no \"guaranteed\" and no web address (the call is refused with 422 otherwise).",
   "Never call Oxxy insurance. Never promise a saving or a discount at a specific centre.",
   "One product per customer: if LookupCustomer shows an active product, never offer the other one.",
   "A booking made on the call is a request (pending_confirmation). Never tell the customer it is confirmed.",
@@ -174,6 +211,31 @@ async function handOverToWhatsApp(call) {
   if (r.status === "context_saved") return { say: "Please continue on WhatsApp; our assistant has your details." };
   return { say: "I have sent you a WhatsApp message just now." };
 }`,
+  sendTemplate: `// Node.js 18+: during the call, the customer asked for the plan details on WhatsApp
+async function sendPlanDetails(call, plan, reason) {
+  const res = await fetch("{{BASE}}/api/v1/Actions/SendTemplate", {
+    method: "POST",
+    headers: { "X-Api-Key": process.env.OXXY_VOICE_API_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      wa_number: call.phone,
+      template: "plan_recommendation_status",   // or "oxxy_verification_links" (no params needed)
+      params: {
+        customer_name: call.firstName,
+        requirement: call.need,                 // "OPD consultations for your parents"
+        plan,                                   // everyday | vital | thrive | infinity
+        reason,                                 // "it covers members up to 75 years" (no price)
+      },
+      whatsapp_consent: true,                   // the customer said yes on the call
+      consent_source: "voice_ai",
+      call_id: call.id,
+    }),
+  });
+  const r = await res.json();
+  if (res.ok) return { say: "I have sent the details to your WhatsApp just now." };
+  if (r.code === "duplicate") return { say: "I sent it a few minutes ago; please check your WhatsApp." };
+  if (r.code === "opted_out" || r.code === "privacy_request_open") return { say: null, error: r.code };
+  return { say: "Our team will share the details with you.", error: r.code, problems: r.problems };
+}`,
   python: `# Python 3: at the end of a call where the customer agreed to WhatsApp
 import os, requests
 
@@ -208,6 +270,7 @@ export const VOICE_CHECKLIST: string[] = [
   "Call LookupCustomer at the start of every call.",
   "Call StartConversation with context at the end of a call where the customer agreed; speak the line that matches the status.",
   "Use OfficialPlan for any price you say, SearchCentres for any centre you name.",
+  'During the call, test SendTemplate with your own phone: say the line that matches the answer, then reply "yes" on WhatsApp and check the bot sends the price and the activation step.',
   "Test with your own phone: a day call (message now), a night call (message at 9 am), STOP (OptOut).",
   "Go live with a new production key (never reuse the sandbox one).",
 ];

@@ -1,5 +1,5 @@
 // The Playbook 17.1 actions: lookup_customer, search_centres, create_booking_request, create_follow_up,
-// get_official_plan, send_approved_asset, create_escalation, set_opt_out. Used by the CRM, the voice AI and
+// get_official_plan, send_approved_asset, send_voice_template, create_escalation, set_opt_out. Used by the CRM, the voice AI and
 // the console through ActionsController. Every rule is checked here, never left to the caller.
 import { isPlaceholder, isRealLink, planReady } from "@Helper/GoLive";
 import {
@@ -10,9 +10,22 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
   UnprocessableEntityException,
 } from "@nestjs/common";
-import { DataSource, ILike, In } from "typeorm";
+import { DataSource, ILike, In, MoreThan } from "typeorm";
+import { message } from "@Database/Table/Oxxy/message";
+import { logoHeader } from "@Service/Oxxy/GuidedFlow";
+import {
+  PLAN_RECOMMENDATION,
+  VOICE_PLAN_PENDING,
+  VOICE_TEMPLATE_REPEAT_MS,
+  VOICE_TEMPLATES,
+  voiceTemplateLog,
+  voiceTemplateParams,
+  type VoiceTemplate,
+  type VoiceTemplateParams,
+} from "@Service/Oxxy/VoiceTemplates";
 import { customer } from "@Database/Table/Oxxy/customer";
 import { consent } from "@Database/Table/Oxxy/consent";
 import { conversation } from "@Database/Table/Oxxy/conversation";
@@ -34,7 +47,7 @@ import { TaskPriority } from "@Helper/Enum/TaskPriority";
 import { TaskStatus } from "@Helper/Enum/TaskStatus";
 import { ProductType } from "@Helper/Enum/ProductType";
 import { CrmAction } from "@Helper/Enum/CrmAction";
-import { QuietHoursError, WindowClosedError } from "@Helper/WhatsappErrors";
+import { InvalidMessageError, QuietHoursError, WindowClosedError } from "@Helper/WhatsappErrors";
 import { CrmOutboxService } from "./CrmOutbox.service";
 import { ConversationRepository } from "@Service/Oxxy/ConversationRepository.service";
 import { CentreSearchService } from "@Service/Oxxy/CentreSearch.service";
@@ -745,6 +758,188 @@ export class BotActionsService {
       code: a.code,
       kind: a.kind,
       wa_message_id: wamid,
+    };
+  }
+
+  // ---------------------------------------------------------------- send_voice_template
+
+  /**
+   * The client's voice-call templates (21 Nov): while the call is going on, the voice agent sends
+   * oxxy_verification_links or plan_recommendation_status (Service/Oxxy/VoiceTemplates.ts). Real time: no queue.
+   * Checked like every send: consent from the call, opt-out, privacy request, safety pause, Meta status of the
+   * template (not quiet hours: the customer asked for it on the call); the same template again within 10 minutes is not sent. What the agent fills in is
+   * checked too (one of the four plans, no price / guarantee / web address, Meta's variable rules).
+   */
+  async sendVoiceTemplate(body: {
+    customer_id?: string;
+    wa_number?: string;
+    template?: string;
+    params?: VoiceTemplateParams;
+    first_name?: string;
+    language?: string;
+    whatsapp_consent?: boolean;
+    consent_source?: string;
+    call_id?: string;
+    context?: unknown;
+    source?: string;
+  }) {
+    const template = String(body.template ?? "") as VoiceTemplate;
+    if (!VOICE_TEMPLATES.includes(template))
+      throw new BadRequestException({
+        message: `template must be one of ${VOICE_TEMPLATES.join(", ")}`,
+        code: "unknown_template",
+      });
+    if (body.whatsapp_consent !== true || !body.consent_source?.trim())
+      throw new BadRequestException({
+        message: "whatsapp_consent: true and consent_source are required (the customer asked for it on the call)",
+        code: "consent_required",
+      });
+    const source = sourceOf(body.source ?? "voice_ai");
+
+    // the caller may be new to the bot: made like StartConversation does
+    let c = await this.findCustomer(body);
+    if (!c) {
+      const wa = normaliseWa(body.wa_number);
+      if (!wa)
+        throw new BadRequestException({
+          message: body.customer_id ? "Customer not found" : "customer_id or wa_number is required",
+          code: body.customer_id ? "customer_not_found" : "customer_ref_required",
+        });
+      c = await customer.save(
+        customer.create({
+          wa_number: wa,
+          first_name: body.first_name?.trim() || null,
+          language: ["en", "hi", "hinglish"].includes(String(body.language)) ? body.language : "en",
+        } as any),
+      );
+    } else if (body.first_name?.trim() && !c.first_name) {
+      await customer.update(c.id, { first_name: body.first_name.trim() });
+      c.first_name = body.first_name.trim();
+    }
+
+    const checked = voiceTemplateParams(template, body.params ?? {}, c.first_name ?? null);
+    if ("problems" in checked)
+      throw new UnprocessableEntityException({
+        message: checked.problems.join("; "),
+        code: "invalid_params",
+        problems: checked.problems,
+      });
+
+    const cons =
+      (await consent.findOne({ where: { customer_id: c.id } })) ??
+      consent.create({ customer_id: c.id } as any);
+    if (cons.opt_out_at)
+      throw new ForbiddenException({ message: "The customer opted out", code: "opted_out" });
+    if (cons.privacy_request_at)
+      throw new ForbiddenException({ message: "Open privacy request", code: "privacy_request_open" });
+
+    const conv = await this.openConversation(c.id);
+    if (conv.state === ConversationState.Pause)
+      throw new ConflictException({
+        message: "Safety event open: no commercial content",
+        code: "safety_event_open",
+      });
+    const recent = await message.findOne({
+      where: {
+        conversation_id: conv.id,
+        direction: "out",
+        template_name: template,
+        message_status: In(["sent", "delivered", "read", "uncertain"]),
+        created_on: MoreThan(new Date(Date.now() - VOICE_TEMPLATE_REPEAT_MS)),
+      } as any,
+    });
+    if (recent)
+      throw new ConflictException({
+        message: "This template was sent to the customer in the last 10 minutes",
+        code: "duplicate",
+        wa_message_id: recent.wa_message_id,
+      });
+    const header = template === PLAN_RECOMMENDATION ? logoHeader() : undefined;
+    if (template === PLAN_RECOMMENDATION && !header)
+      throw new ServiceUnavailableException({
+        message: "The template has a logo header: set OXXY_WELCOME_IMAGE_URL (a public https picture) first",
+        code: "not_configured",
+      });
+
+    cons.whatsapp_consent = true;
+    cons.consent_source = body.consent_source.trim().slice(0, 120);
+    await cons.save();
+
+    let wamid: string;
+    try {
+      wamid = await this._Wa.send(
+        c.id,
+        {
+          kind: "template",
+          name: template,
+          languageCode: "en",
+          params: checked.params,
+          ...(header?.type === "image" ? { headerImage: header.link } : {}),
+          log: voiceTemplateLog(template, checked.params),
+        },
+        // the customer asked for it on the live call: an answer, not an outreach, so the 21:00-09:00 blackout
+        // for proactive messages does not hold it back (decided 21 Nov, the client left it to us)
+        "reply",
+      );
+    } catch (e) {
+      if (e instanceof QuietHoursError)
+        throw new ConflictException({
+          message: `Quiet hours (${hhmm(proactiveHours().until)}-${hhmm(proactiveHours().from)} IST)`,
+          code: "quiet_hours",
+          next_allowed_at: e.nextAllowedAt,
+        });
+      if (e instanceof WindowClosedError)
+        throw new ConflictException({ message: e.message, code: "window_closed" });
+      if (e instanceof InvalidMessageError)
+        throw new ConflictException({ message: e.message, code: "template_not_usable" });
+      throw e;
+    }
+
+    // the call's facts on the chat (so the bot does not ask again, and no "call in 60 seconds" follows)
+    const given = cleanCallContext(body.context);
+    const ctx = cleanCallContext({
+      ...(given ?? {}),
+      summary:
+        given?.summary ??
+        (checked.plan
+          ? `On the voice call the customer asked for the plan details; WhatsApp ${template} sent (${checked.params[2]}, because ${checked.params[3]}).`
+          : `On the voice call the customer asked for the verification links; WhatsApp ${template} sent.`),
+      ...(checked.plan
+        ? { need: given?.need ?? checked.params[1], selected_product: "oxxy", recommended_plan: checked.plan }
+        : {}),
+    });
+    if (ctx) await this.saveCallContext(conv, ctx, !!c.active_product);
+    const patch: Record<string, unknown> = {};
+    if (checked.plan && !c.active_product) {
+      patch.recommendation_reason = checked.params[3].slice(0, 500);
+      // the customer's "yes" gets the link step of this plan; a chat in the middle of another step keeps its step
+      if (!conv.pending_action || conv.pending_action.startsWith(VOICE_PLAN_PENDING))
+        patch.pending_action = `${VOICE_PLAN_PENDING}${checked.plan}`;
+    }
+    if (Object.keys(patch).length) await conversation.update(conv.id, patch);
+    // a brand-new chat opens without the chatbot's first cards (the customer is on the call)
+    if (conv.state === ConversationState.New) await this.moveTo(conv, ConversationState.IntentMenu, "voice template");
+
+    await this.logTrigger(c, conv, "VT", `voice call: ${template} sent`, source, {
+      cta: checked.plan ? `plan ${checked.plan}` : undefined,
+    });
+    await this._Outbox.emit?.(CrmAction.LogEvent, c.id, {
+      event: "voice_template_sent",
+      customer_id: c.id,
+      conversation_id: conv.id,
+      template,
+      call_id: body.call_id ? String(body.call_id).slice(0, 120) : null,
+      recommended_plan: checked.plan,
+      at: new Date().toISOString(),
+    });
+    return {
+      status: "sent",
+      customer_id: c.id,
+      conversation_id: conv.id,
+      template,
+      wa_message_id: wamid,
+      params: checked.params,
+      recommended_plan: checked.plan,
     };
   }
 

@@ -138,6 +138,24 @@ export function buildPostmanCollection(baseUrl = "https://your-bot-host") {
             "Sends one approved item on WhatsApp now. Once per journey; no proactive sends 21:00-09:00 IST.",
           ),
           post(
+            "send_voice_template",
+            "SendTemplate",
+            {
+              customer_id: "{{customer_id}}",
+              template: "plan_recommendation_status",
+              params: {
+                customer_name: "Ravi",
+                requirement: "dental treatment for your mother",
+                plan: "vital",
+                reason: "it covers members up to 75 years",
+              },
+              whatsapp_consent: true,
+              consent_source: "voice_ai",
+              call_id: "call_8f2a",
+            },
+            "During the call: the client's WhatsApp template at once (plan_recommendation_status or oxxy_verification_links). No price in params.",
+          ),
+          post(
             "create_escalation",
             "Escalations",
             {
@@ -273,6 +291,7 @@ const VOICE_CALLS = [
   "lookup_customer",
   "start_conversation",
   "get_official_plan",
+  "send_voice_template",
   "search_centres",
   "create_booking_request",
   "create_follow_up",

@@ -359,3 +359,47 @@ describe("chat-start options (Meta conversation starters, client 21 Nov)", () =>
     expect(t.generate).not.toHaveBeenCalled();
   });
 });
+
+describe("replies to the voice-call templates (client 21 Nov)", () => {
+  const prices = () =>
+    stub(plan_catalog, "find", async (...a) => {
+      const plan = (a[0] as { where: { plan: string } }).where?.plan ?? "vital";
+      return [
+        { plan, billing: "yearly", price: 20000 },
+        { plan, billing: "monthly", price: 1999 },
+      ];
+    });
+
+  it("'yes' after plan_recommendation_status -> that plan's cost card with the activate buttons, no Claude", async () => {
+    prices();
+    const t = setup({ state: S.IntentMenu, consented: false });
+    Object.assign(t.conv, { pending_action: "voice_plan:vital" });
+    await t.run("Yes, please share the link");
+    const card = last(t).msg as { kind: string; body: string; buttons: { id: string }[] };
+    expect(card.body).toMatch(/Oxxy Vital/);
+    expect(card.buttons.map((b) => b.id)).toEqual(["act_yearly", "act_monthly", "flow_family"]);
+    expect(t.conv).toMatchObject({ pending_action: "flow:close:0" });
+    expect(t.generate).not.toHaveBeenCalled();
+  });
+
+  it("the quick reply https://www.oxxy.in/#plan -> the four plans; News Articles -> the news page", async () => {
+    prices();
+    const t = setup({ state: S.IntentMenu });
+    await t.run("https://www.oxxy.in/#plan");
+    expect((last(t).msg as { kind: string }).kind).toBe("list");
+    await t.run("News Articles");
+    expect(JSON.stringify(last(t).msg)).toMatch(/media_article/);
+    expect(t.generate).not.toHaveBeenCalled();
+  });
+
+  it("a question after the plan template is answered normally and the plan step stays; 'no' ends it", async () => {
+    prices();
+    const t = setup({ state: S.IntentMenu });
+    Object.assign(t.conv, { pending_action: "voice_plan:vital" });
+    await t.run("Is this insurance?");
+    expect(String(last(t).text)).toMatch(/not insurance/);
+    expect((t.conv as { pending_action?: string }).pending_action).toBe("voice_plan:vital");
+    await t.run("No thanks");
+    expect((t.conv as { pending_action?: string }).pending_action).not.toBe("voice_plan:vital");
+  });
+});

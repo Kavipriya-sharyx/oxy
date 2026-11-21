@@ -17,6 +17,8 @@ export interface TemplateDef {
   urlButtons?: { text: string; url: string }[];
   /** picture header: a local image file uploaded to Meta as the example (scripts/submit-templates.ts) */
   headerImage?: string;
+  /** the web-address buttons come before the quick replies (the client's own templates, 21 Nov) */
+  urlFirst?: boolean;
 }
 
 // Official links (Q&A knowledge base 3, client's current bot). Overridable for staging.
@@ -218,6 +220,35 @@ export const TEMPLATES: TemplateDef[] = [
     footer: "Reply STOP to opt out",
     quickReplies: ["Calculate discount", "Activate Oxxy", "Main Menu"],
   },
+  // ---- Voice-call templates (client, 21 Nov): "the templates should be triggered based on the voice bot
+  // conversation": while the call is going on, the voice agent asks for one of these (POST /Actions/SendTemplate,
+  // Service/Crm/VoiceTemplates.ts). Word for word as the client made them in their Meta account (body 191 / 279
+  // characters, the button order of their editor). Not part of the chatbot flow.
+  {
+    name: "oxxy_verification_links",
+    language: "en",
+    category: "UTILITY",
+    body: "Oxxy HealthCare: Requested Verification Data\n\nHello {{1}},\n\nWe have received your query regarding Oxxy HealthCare services. The requested links and details are provided below for your review.",
+    examples: ["Customer's First Name"],
+    urlFirst: true,
+    urlButtons: [
+      { text: "Customer testimonials", url: OXXY_LINKS.stories },
+      { text: "View Policies", url: OXXY_LINKS.policies },
+    ],
+    quickReplies: ["News Articles"],
+  },
+  {
+    name: "plan_recommendation_status",
+    language: "en",
+    category: "UTILITY",
+    headerImage: LOGO_FILE,
+    body: "Hello {{1}},\n\nThank you for sharing your requirements regarding {{2}}. Based on your preferences, the recommended option for you is {{3}} because {{4}}.\n\nPlease let us know if you would like us to share the secure plan link to complete the process.\n\nRegards,\nTeam Oxxy HealthCare",
+    examples: ["Customer Name", "Service/Requirement Type", "Recommended Plan Name", "System Reason/Justification"],
+    urlFirst: true,
+    urlButtons: [{ text: "Website", url: "http://www.oxxy.in/" }],
+    // the client's quick reply label is the address itself: a tap sends this text back (VoiceTemplates reads it)
+    quickReplies: ["https://www.oxxy.in/#plan"],
+  },
 ];
 
 /**
@@ -238,10 +269,9 @@ export function metaTemplateBody(t: TemplateDef, headerHandle?: string) {
     ...(t.examples?.length ? { example: { body_text: [t.examples] } } : {}),
   });
   if (t.footer) components.push({ type: "FOOTER", text: t.footer });
-  const buttons = [
-    ...(t.quickReplies ?? []).map((text) => ({ type: "QUICK_REPLY", text })),
-    ...(t.urlButtons ?? []).map((b) => ({ type: "URL", text: b.text, url: b.url })),
-  ];
+  const quick = (t.quickReplies ?? []).map((text) => ({ type: "QUICK_REPLY", text }));
+  const urls = (t.urlButtons ?? []).map((b) => ({ type: "URL", text: b.text, url: b.url }));
+  const buttons = t.urlFirst ? [...urls, ...quick] : [...quick, ...urls];
   if (buttons.length) components.push({ type: "BUTTONS", buttons });
   return { name: t.name, language: t.language, category: t.category, components };
 }

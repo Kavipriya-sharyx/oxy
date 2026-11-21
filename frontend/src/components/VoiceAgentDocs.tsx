@@ -12,6 +12,7 @@ import {
   VOICE_FLOW,
   VOICE_RULES,
   VOICE_STATUS,
+  VOICE_TEMPLATE_STATUS,
 } from "../data/voiceDocs";
 
 const SECTIONS: [string, string][] = [
@@ -20,6 +21,7 @@ const SECTIONS: [string, string][] = [
   ["consent", "WhatsApp consent"],
   ["context", "Call context"],
   ["status", "What to say"],
+  ["template-status", "After SendTemplate"],
   ["auth", "Authentication"],
   ["calls", "API calls"],
   ["code", "Example code"],
@@ -46,7 +48,8 @@ export default function VoiceAgentDocs({
         For the developers of the voice agent that calls Oxxy customers. When a customer on the
         phone wants the details on WhatsApp, the voice agent hands the conversation to the Oxxy
         WhatsApp bot with one API call, and tells the bot what was already said so the customer is
-        not asked again. Server: <code>{base}</code>
+        not asked again. When the customer asks for the plan details during the call, one more call
+        sends the client's WhatsApp template while the call is still on. Server: <code>{base}</code>
       </p>
       <nav className="toc" aria-label="Contents">
         {SECTIONS.map(([id, label]) => (
@@ -63,6 +66,11 @@ export default function VoiceAgentDocs({
           The voice agent talks to the customer. It can look the customer up, read the official
           price, find verified centres and record a booking request through the same API the CRM
           uses.
+        </div>
+        <div>
+          <b>WhatsApp during the call</b>
+          The customer asks for the plan details or proof. One call to <code>SendTemplate</code>: the
+          client's WhatsApp template reaches the customer while the call is still on.
         </div>
         <div>
           <b>Hand over to WhatsApp</b>
@@ -110,6 +118,12 @@ export default function VoiceAgentDocs({
         rows={VOICE_STATUS.map(([a, m, s]) => [<code key="a">{a}</code>, m, s])}
       />
 
+      <h2 id={`${P}template-status`}>What to say after SendTemplate</h2>
+      <Table
+        head={["Answer", "Meaning", "The voice agent says"]}
+        rows={VOICE_TEMPLATE_STATUS.map(([a, m, s]) => [<code key="a">{a}</code>, m, s])}
+      />
+
       <h2 id={`${P}auth`}>Authentication and conventions</h2>
       <ul>
         <li>
@@ -134,14 +148,15 @@ export default function VoiceAgentDocs({
       <h2 id={`${P}calls`}>API calls the voice agent uses</h2>
       <div className="note">
         The phone number is enough: every call below takes <code>wa_number</code>. You never need
-        the bot's <code>customer_id</code>; it comes back from LookupCustomer and StartConversation
+        the bot's <code>customer_id</code>; it comes back from LookupCustomer, StartConversation and SendTemplate
         if you want to keep it. LookupCustomer answering 404 <code>customer_not_found</code> just
-        means a new lead: StartConversation creates the customer.
+        means a new lead: StartConversation (or SendTemplate) creates the customer.
       </div>
       <Endpoints list={VOICE_ACTIONS} code={code} prefix={P} />
 
       <h2 id={`${P}code`}>Example code</h2>
       {code(VOICE_CODE.node)}
+      {code(VOICE_CODE.sendTemplate)}
       {code(VOICE_CODE.python)}
 
       <h2 id={`${P}errors`}>Errors</h2>

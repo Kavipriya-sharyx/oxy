@@ -127,6 +127,7 @@ import {
   readBookingFor,
   writeAppt,
 } from "./BookCard";
+import { isNewsTap, isPlanLinkTap, pendingVoicePlan, wantsPlanLink } from "./VoiceTemplates";
 import { isQuietHours, nextAllowedAt } from "./WhatsappRules";
 import { oneQuestion } from "@Helper/OneQuestion";
 import { singleExpenseSignal } from "@Helper/NeedSignals";
@@ -2188,6 +2189,44 @@ export class ChatPipelineService {
    * Oxxy; Activate Oxxy -> the four plans -> the picked plan with price + GST (then the flow's close step does
    * the activation). Code only, no LLM. false = not for this card (the normal conversation answers).
    */
+  /**
+   * The customer's answer to a voice-call template (client, 21 Nov; Service/Oxxy/VoiceTemplates.ts):
+   * - plan_recommendation_status: "yes" / "share the link" -> that plan's cost card with Activate Yearly /
+   *   Monthly (the usual activation steps follow); its quick reply "https://www.oxxy.in/#plan" -> the four plans;
+   * - oxxy_verification_links: its quick reply "News Articles" -> the news page.
+   * Anything else is not taken here (a question is answered normally; the plan step stays for a later "yes").
+   */
+  private async handleVoiceTemplate(m: Inbound, s: Saved): Promise<boolean> {
+    const text = (m.text || "").trim();
+    if (isNewsTap(text)) {
+      await this.sendAndSave(s.customer.id, proofLinkCard("news"), m.waMessageId);
+      return true;
+    }
+    if (isPlanLinkTap(text)) {
+      await this.sendPlansList(s, m.waMessageId);
+      return true;
+    }
+    const plan = pendingVoicePlan(s.conversation.pending_action);
+    if (!plan) return false;
+    if (!wantsPlanLink(text)) {
+      if (/^(no|nope|not now|later|nahi|nahin|vendam)\b/i.test(text)) await this.setPending(s, null);
+      return false;
+    }
+    if (s.customer.active_product) {
+      await this.setPending(s, null);
+      await this.sendAndSave(s.customer.id, await this.blockOtherProduct(s), m.waMessageId);
+      return true;
+    }
+    await this.setPending(s, "flow:close:0");
+    await this.sendAndSave(
+      s.customer.id,
+      pickedPlanCard(plan, await this.flowPrice(plan), s.customer.language),
+      m.waMessageId,
+    );
+    await this.recordTrigger(s, "E", `plan ${plan} link asked after the voice-call template`);
+    return true;
+  }
+
   private async handleBillCard(m: Inbound, s: Saved): Promise<boolean> {
     const text = (m.text || "").trim();
     const id = text.toLowerCase();
@@ -3336,6 +3375,8 @@ export class ChatPipelineService {
     const consentStatus = healthConsentStatus(cons);
     // Playbook 4.1 / 4.5 and FOLLOW_UP_TIME: steps with no health question run before the consent gate
     if (await this.handleLead(m, s, consentStatus, cons)) return;
+    // replies to the client's voice-call templates (21 Nov): before the chatbot cards
+    if (await this.handleVoiceTemplate(m, s)) return;
     if (s.conversation.pending_action === "follow_up_time" && (await this.handleFollowUpTime(m, s)))
       return;
     // client, 17 Nov: the voice-aligned button flow (welcome card, who, service, ... plan and price)

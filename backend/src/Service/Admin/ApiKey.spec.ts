@@ -192,6 +192,7 @@ describe("Voice agent Postman collection", () => {
       "lookup_customer",
       "start_conversation",
       "get_official_plan",
+      "send_voice_template", // client 21 Nov: the WhatsApp template during the call
       "search_centres",
       "create_booking_request",
       "create_follow_up",

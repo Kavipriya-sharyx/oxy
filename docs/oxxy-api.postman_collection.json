@@ -266,6 +266,45 @@
           }
         },
         {
+          "name": "send_voice_template",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/Actions/SendTemplate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "Actions",
+                "SendTemplate"
+              ],
+              "query": []
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"template\": \"plan_recommendation_status\",\n  \"params\": {\n    \"customer_name\": \"Ravi\",\n    \"requirement\": \"dental treatment for your mother\",\n    \"plan\": \"vital\",\n    \"reason\": \"it covers members up to 75 years\"\n  },\n  \"whatsapp_consent\": true,\n  \"consent_source\": \"voice_ai\",\n  \"call_id\": \"call_8f2a\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "During the call: the client's WhatsApp template at once (plan_recommendation_status or oxxy_verification_links). No price in params."
+          }
+        },
+        {
           "name": "create_escalation",
           "request": {
             "method": "POST",
