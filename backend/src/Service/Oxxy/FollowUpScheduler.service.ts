@@ -1,5 +1,5 @@
 import { FrequencyCapError } from "@Helper/WhatsappErrors";
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Queue, Worker } from "bullmq";
 import { consent } from "@Database/Table/Oxxy/consent";
 import { conversation } from "@Database/Table/Oxxy/conversation";
@@ -15,6 +15,12 @@ import { ActivationStatus } from "@Helper/Enum/ActivationStatus";
 import { PaymentStatus } from "@Helper/Enum/PaymentStatus";
 import { MAX_RESCUES, RESCUE_TEMPLATES, rescueDelayMs } from "./RecoveryFlow";
 import { overpayCard } from "./BookCard";
+import {
+  e164,
+  SharyxCallResult,
+  sharyxData,
+  SharyxVoiceService,
+} from "@Service/Voice/SharyxVoice.service";
 
 const QUEUE = "scheduled";
 
@@ -27,7 +33,9 @@ export type FollowUpKind =
   | "lead_intro"
   // a booking / payment status message (booking confirmed, rescheduled, cancelled; payment verified) that came in
   // during quiet hours: sent at 09:00 IST instead of being dropped
-  | "status_update";
+  | "status_update"
+  // client general rule (20 Nov): the SharyX voice AI calls the customer 60 seconds after a new enquiry
+  | "voice_call";
 
 export interface FollowUpJob {
   customerId: string;
@@ -58,7 +66,43 @@ export class FollowUpSchedulerService implements OnModuleInit, OnModuleDestroy {
   private queue: Queue | null = null;
   private worker: Worker | null = null;
 
-  constructor(private readonly _Wa: WhatsappClient) {}
+  constructor(
+    private readonly _Wa: WhatsappClient,
+    @Optional() private readonly _Voice?: SharyxVoiceService,
+  ) {}
+
+  /**
+   * The 60-second voice call (client general rule, 20 Nov): SharyX POST /calls with what the chat knows, so the
+   * agent opens with the WhatsApp enquiry. contact.data comes back in the result (customer_id, conversation_id).
+   * Opt-out, privacy, safety pause and quiet hours were checked above, like every follow-up.
+   */
+  private async placeVoiceCall(job: FollowUpJob): Promise<void> {
+    if (!this._Voice?.enabled) return this.finish(job, "skipped", "voice_off");
+    const cust = await customer.findOne({ where: { id: job.customerId } });
+    if (!cust?.wa_number) return this.finish(job, "skipped", "no_number");
+    const res = await this._Voice.callNow({
+      phone: e164(cust.wa_number),
+      name: (cust as any).first_name ?? null,
+      data: sharyxData({
+        customer_id: cust.id,
+        conversation_id: job.conversationId,
+        source: "whatsapp",
+        language: cust.language ?? "en",
+        enquiry: job.params?.[0] ?? "WhatsApp enquiry",
+      }),
+      // the Oxxy agent (Aalia) speaks Hindi / Hinglish first; an English WhatsApp chat gets the English line
+      openingLine:
+        cust.language === "en"
+          ? "Hello {name}, this is Aalia from Oxxy Health. You just messaged us on WhatsApp. May I take two minutes to help you?"
+          : "नमस्ते {name} जी, मैं आलिया Oxxy Health से बोल रही हूँ। आपने अभी WhatsApp पर हमें मैसेज किया था, क्या दो मिनट बात हो सकती है?",
+      purpose:
+        "The customer has just messaged Oxxy on WhatsApp. Understand their healthcare need, explain how Oxxy reduces medical bills, help with a booking request or the right Oxxy plan, and agree the next step.",
+    });
+    if (res.ok === true) return this.finish(job, "sent", `sharyx ${res.contactId}`.slice(0, 60));
+    const fail = res as Extract<SharyxCallResult, { ok: false }>;
+    this.logger.warn(`voice call not placed (${fail.reason}): ${fail.detail ?? ""}`);
+    return this.finish(job, "skipped", `voice_${fail.reason}`.slice(0, 60));
+  }
 
   async onModuleInit() {
     if (process.env.NODE_ENV === "test") return;
@@ -241,6 +285,8 @@ export class FollowUpSchedulerService implements OnModuleInit, OnModuleDestroy {
       await this.schedule(job, nextAllowedAt(new Date()).getTime() - Date.now());
       return;
     }
+    // client general rule (20 Nov): the SharyX voice AI calls the customer (no WhatsApp message here)
+    if (job.kind === "voice_call") return this.placeVoiceCall(job);
 
     try {
       // client general rule (20 Nov): "send the messages again". Inside the 24-hour window a rescue sends the

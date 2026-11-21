@@ -1,3 +1,6 @@
+import { SharyxWebhookController } from "@Controller/Voice/SharyxWebhook.controller";
+import { SharyxVoiceService } from "@Service/Voice/SharyxVoice.service";
+import { SharyxWebhookService } from "@Service/Voice/SharyxWebhook.service";
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { ServeStaticModule } from "@nestjs/serve-static";
 import { ConfigModule, ConfigService } from "@nestjs/config";
@@ -143,6 +146,7 @@ import { HealthController, HealthDetailsController } from "./Controller/Ops/Heal
     BookingController,
     WhatsappDevSendController,
     CrmWebhookController,
+    SharyxWebhookController,
     CrmAdminController,
     ConsoleController,
     ActionsController,
@@ -203,6 +207,8 @@ import { HealthController, HealthDetailsController } from "./Controller/Ops/Heal
     TemplatesService,
     GoLiveService,
     GoogleMapsService,
+    SharyxVoiceService,
+    SharyxWebhookService,
     MonitoringService,
     UrgentAlertService,
     ActionsApiKeyGuard,

@@ -5,6 +5,7 @@ import {
   billResultCard,
   billCompareCard,
   pickedPlanCard,
+  planFeaturesCard,
   plansListCard,
   readBillAmount,
   readPlanPick,
@@ -70,5 +71,19 @@ describe("bill card helpers (client sequence 1)", () => {
     expect(readPlanPick("plan_thrive")).toBe("thrive");
     expect(readPlanPick("Oxxy Infinity")).toBe("infinity");
     expect(readPlanPick("tell me about the price of medicines today please")).toBeNull();
+  });
+});
+
+describe("View Plan Features (client, 21 Nov)", () => {
+  it("is the last row of the plans list and shows all four plans with Choose a Plan / Main Menu", () => {
+    const list = plansListCard({}) as { rows: { id: string; title: string }[] };
+    expect(list.rows.at(-1)).toMatchObject({ id: "plan_features", title: "View Plan Features" });
+    for (const lg of ["en", "hi", "hinglish"]) {
+      const c = planFeaturesCard(lg) as any;
+      expect(validateMessage(c)).toBeUndefined();
+      expect(c.body.length).toBeLessThanOrEqual(1024);
+      for (const p of ["Everyday", "Vital", "Thrive", "Infinity"]) expect(c.body).toContain(`Oxxy ${p}`);
+      expect(c.buttons.map((b: { id: string }) => b.id)).toEqual(["bill_activate", "flow_menu"]);
+    }
   });
 });

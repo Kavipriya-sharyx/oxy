@@ -432,7 +432,14 @@ first. Code: `Service/Oxxy/BillCard.ts` (texts, readers) + `handleBillCard` in t
 
 Code: `Service/Oxxy/BookCard.ts` (texts, readers) + `handleAppointment` / `apptWhere` / `apptOptions` /
 `apptName` / `apptFinish` in the pipeline (no LLM). Spec: `ChatPipeline.appointment.spec.ts`, `BookCard.spec.ts`.
-- **Sequence 3 = the first card** now (greeting, WhatsApp welcome event, Main Menu): picture
+- **Client changes 21 Nov:** (1) a new chat / Main Menu now gets TWO cards: first the sequence 1 bill card
+  ("Reduce Your Medical Bill Now"), then the Why Overpay card (`startGuidedFlow`; a repeated delivery sends
+  neither); the in-window rescue still resends Why Overpay only. (2) The book card (and template
+  `oxxy_book_appointment`, resubmit at Meta) lists 📍 Select Centre / 📅 Appointment Date / ⏰ Appointment Time
+  above the button. (3) Date and time questions: a blank line, the example on its own line. Arial font is not
+  possible: WhatsApp has no font choice. (4) The plans list ("View plans") has a last row **View Plan Features**
+  (`plan_features`) -> `planFeaturesCard` (four plans from `PLAN_DETAILS`, [Choose a Plan] [Main Menu]).
+- **Sequence 3 = the second first card** (was the only one 20 Nov) (greeting, WhatsApp welcome event, Main Menu): picture
   `frontend/public/oxxy-overpay-card.jpg` (or `OXXY_OVERPAY_IMAGE_URL`) + "Why Overpay Your Medical Bills?" +
   **① Reduce My Bill** (`home_reduce` -> the sequence 1 bill card) and **② Book Appointment** (`home_book` -> the
   sequence 2 card). The sketch only drew "①>" "②>": taken as links to sequences 1 and 2 [CONFIRM].
@@ -467,6 +474,25 @@ Code: `Service/Oxxy/BookCard.ts` (texts, readers) + `handleAppointment` / `apptW
 - Templates `oxxy_why_overpay`, `oxxy_book_appointment` (picture + text + quick replies); migration
   `AppointmentTemplates1794780000000`.
 - Deploy: both pictures are in the frontend build; deploy the frontend with the backend.
+
+## SharyX Voice AI: the 60-second call (20 Nov)
+
+Client general rule "for any enquiry, AI bot call in 60 seconds", built on the SharyX Voice AI API guide
+(Downloads/sharyx voice API.pdf, 5 Nov 2026). Code: `Service/Voice/SharyxVoice.service.ts` (POST /calls, GET
+/ping, signature), `Service/Voice/SharyxWebhook.service.ts` + `Controller/Voice/SharyxWebhook.controller.ts`.
+- **Out:** the first card of a new chat (`requestVoiceCall`) still sends the CRM event `voice_call_requested` and,
+  with `SHARYX_ENABLED=true`, schedules a follow-up of kind `voice_call` at +60 s (or 09:00 IST in the blackout).
+  At send time the scheduler checks opt-out / privacy / safety pause / quiet hours like every follow-up, then
+  SharyX `POST /calls` (agent `SHARYX_AGENT_ID`, phone +91…, opening line and purpose about the WhatsApp enquiry,
+  data = customer_id, conversation_id, language, enquiry). 409 (already waiting / do-not-call) = never resent. Not
+  for a chat the voice AI itself started (call_context set).
+- **In:** `POST /api/v1/Voice/Sharyx/Webhook` (give this https address to SharyX; signing secret
+  `SHARYX_WEBHOOK_SECRET`; v1 HMAC of timestamp.METHOD.path.body, 5-minute window; repeated
+  x-sharyx-delivery = no work). An answered call's outcome, summary, next step and collected data become the
+  chat's `call_context` (encrypted, shown to the LLM for 7 days, so WhatsApp does not ask again); a positive /
+  follow-up outcome adds one human_handoff task (`crm_task_id = sharyx:<call id>`). Unanswered calls change nothing.
+- **Settings:** Configuration page, group Voice AI: on/off, API address, key (sx_live_…, "Read and add people
+  to call"), agent id, signing secret. Off by default; needs the client's SharyX key and agent id [CONFIRM].
 
 ## Review of the 17-19 Nov work (20 Nov)
 

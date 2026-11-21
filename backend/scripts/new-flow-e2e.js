@@ -7,6 +7,8 @@ const B = "http://localhost:8777/api/v1";
 const STUB = "http://localhost:8799";
 const SECRET = "e2esecret";
 const OUT = process.env.E2E_OUT || "new-flow-e2e.txt";
+// a new prefix per run keeps the customers of an earlier run out of the way (same DB)
+const PFX = process.env.E2E_PFX || "9198000004";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = [];
 const P = (s) => { console.log(s); log.push(s); };
@@ -86,13 +88,14 @@ const tasksOf = (wa) => sql(`select coalesce(string_agg(t.type||':'||t.task_stat
   const token = JSON.stringify(login).match(/"(ey[^"]+)"/)?.[1];
   check("console login", !!token, JSON.stringify(login).slice(0, 200));
   const c1 = await api("POST", "/Console/Centres", token, { name: "Velachery Care Hospital", branch: "", locality: "Velachery", city: "Chennai", address: "2 Main Road, Velachery", centre_type: "multispeciality", specialisations: ["general"], is_private: true, verified: true, active: true, latitude: 12.982, longitude: 80.219 });
-  check("directory centre saved", !!(c1?.id || c1?.Data?.id), JSON.stringify(c1).slice(0, 200));
+  check("directory centre saved (or already there from an earlier run)", !!(c1?.id || c1?.Data?.id) || /already exists/.test(JSON.stringify(c1)), JSON.stringify(c1).slice(0, 200));
 
   // ===== 1. first card (sequence 3) -> sequence 1 -> calculator -> Learn More -> plans -> link
   P("\n==================== 1. Why Overpay -> Reduce My Bill -> calculator -> Learn More -> plan -> activation link ====================");
-  const A = "919800000401";
+  const A = PFX + "01";
   let out = await say(A, text("Hi"), "Hi");
-  check("1.1 first card: Why Overpay, picture, 2 buttons", /Why Overpay Your Medical Bills\?/.test(all(out)) && last(out)?.interactive?.header?.type === "image" && buttonsOf(last(out)).join() === "Reduce My Bill,Book Appointment", show(last(out)));
+  check("1.1 (21 Nov) FIRST card: Reduce Your Medical Bill Now, picture, 3 buttons", out.length === 2 && /Reduce Your Medical Bill Now/.test(bodyOf(out[0])) && out[0]?.interactive?.header?.type === "image" && buttonsOf(out[0]).join() === "Calculate discount,Learn More,Activate Oxxy", show(out[0] || { type: "x" }));
+  check("1.1a (21 Nov) SECOND card: Why Overpay, picture, 2 buttons", /Why Overpay Your Medical Bills\?/.test(bodyOf(out[1] || { type: "x" })) && out[1]?.interactive?.header?.type === "image" && buttonsOf(out[1]).join() === "Reduce My Bill,Book Appointment", show(out[1] || { type: "x" }));
   check("1.1b no health notice on the first message", !/Before sharing health details/.test(all(out)), all(out));
   const rescue = sql(`select f.kind||'|'||round(extract(epoch from (f.scheduled_for - now()))/60) from follow_up f join customer u on u.id=f.customer_id where u.wa_number='${A}' order by f.created_on desc limit 1`);
   check("1.1c general rule: a resend scheduled about 30 min after the first card", /^rescue\|(2[5-9]|30)$/.test(rescue), rescue || "(none)");
@@ -105,7 +108,12 @@ const tasksOf = (wa) => sql(`select coalesce(string_agg(t.type||':'||t.task_stat
   out = await say(A, button("bill_learn", "Learn More"), "tap Learn More");
   check("1.5 Learn More: comparison picture + keep your insurance", !!last(out)?.interactive?.header?.image?.link?.endsWith("/oxxy-compare-card.jpg") && /please keep it/.test(all(out)) && /Oxxy is not insurance/.test(all(out)), JSON.stringify(last(out)?.interactive?.header) + " " + show(last(out)).slice(0, 200));
   out = await say(A, button("bill_activate", "Activate Oxxy"), "tap Activate Oxxy");
-  check("1.6 four plans with yearly price incl. GST", rowsOf(last(out)).map((r) => r.id).join() === "plan_everyday,plan_vital,plan_thrive,plan_infinity" && /₹35,400/.test(JSON.stringify(rowsOf(last(out)))), show(last(out)));
+  check("1.6 four plans with yearly price incl. GST", rowsOf(last(out)).map((r) => r.id).join() === "plan_everyday,plan_vital,plan_thrive,plan_infinity,plan_features" && /₹35,400/.test(JSON.stringify(rowsOf(last(out)))), show(last(out)));
+  check("1.6a (21 Nov) last row: View Plan Features", rowsOf(last(out)).at(-1)?.title === "View Plan Features", show(last(out)));
+  out = await say(A, tap("plan_features", "View Plan Features"), "tap View Plan Features");
+  check("1.6b (21 Nov) features of all four plans + Choose a Plan / Main Menu", /Oxxy Plan Features/.test(all(out)) && ["Everyday", "Vital", "Thrive", "Infinity"].every((p) => all(out).includes(`Oxxy ${p}`)) && /no age limit/.test(all(out)) && buttonsOf(last(out)).join() === "Choose a Plan,Main Menu", show(last(out)));
+  out = await say(A, button("bill_activate", "Choose a Plan"), "tap Choose a Plan");
+  check("1.6c Choose a Plan: the plans list again", rowsOf(last(out)).length === 5, show(last(out)));
   out = await say(A, tap("plan_thrive", "Oxxy Thrive"), "tap Oxxy Thrive");
   check("1.7 picked plan: yearly + monthly with GST, Activate buttons", /₹35,400/.test(all(out)) && /₹3,539/.test(all(out)) && buttonsOf(last(out)).join() === "Activate Yearly,Activate Monthly,Add Family Member", show(last(out)));
   out = await say(A, button("act_yearly", "Activate Yearly"), "tap Activate Yearly");
@@ -118,10 +126,11 @@ const tasksOf = (wa) => sql(`select coalesce(string_agg(t.type||':'||t.task_stat
 
   // ===== 2. Book Appointment with a pin (sequence 2)
   P("\n==================== 2. Book Appointment: pin -> list -> pick -> for -> date -> time -> Later ====================");
-  const Bk = "919800000402";
+  const Bk = PFX + "02";
   out = await say(Bk, text("Hi"), "Hi");
   out = await say(Bk, button("home_book", "Book Appointment"), "tap Book Appointment (first card)");
   check("2.1 booking card: picture + Book Appointment", /\*Book Appointment\*/.test(all(out)) && !!last(out)?.interactive?.header?.image?.link?.endsWith("/oxxy-book-card.jpg") && buttonsOf(last(out)).join() === "Book Appointment", show(last(out)));
+  check("2.1b (21 Nov) Select Centre / Appointment Date / Appointment Time above the button", /Select Centre\n.*Appointment Date\n.*Appointment Time$/.test(bodyOf(last(out))), bodyOf(last(out)));
   out = await say(Bk, button("appt_start", "Book Appointment"), "tap Book Appointment");
   check("2.2 location request (pin or typed area)", last(out)?.interactive?.type === "location_request_message", show(last(out)));
   out = await say(Bk, pin(12.9815, 80.218), "share a pin in Velachery");
@@ -132,11 +141,13 @@ const tasksOf = (wa) => sql(`select coalesce(string_agg(t.type||':'||t.task_stat
   out = await say(Bk, tap("appt_opt_0", "Velachery Care Hospital"), "pick Velachery Care Hospital");
   check("2.4 booking for: Myself / Family member", /Who is this booking for\?/.test(all(out)) && buttonsOf(last(out)).join() === "Myself,Family member", show(last(out)));
   out = await say(Bk, button("appt_family", "Family member"), "tap Family member");
+  check("2.5a (21 Nov) date question: blank line, example on its own line", all(out).includes("When do you want to go?\n\nPlease type the date.\nFor example: "), JSON.stringify(all(out)));
   check("2.5 no health consent: no specialisation question, the date next", /When do you want to go\?/.test(all(out)) && !/specialisation/.test(all(out)), all(out));
   out = await say(Bk, text("tomorrow"), "type tomorrow");
   check("2.6 tomorrow refused (3-day rule), earliest date said", /3-day|at least 3|on or after/i.test(all(out)), all(out));
   out = await say(Bk, text(inDays(10)), `type ${inDays(10)}`);
   check("2.7 date taken, time asked", /What time suits you\?/.test(all(out)), all(out));
+  check("2.7a (21 Nov) time question spaced, example on its own line", /\n\nWhat time suits you\?\nFor example: 11 am/.test(all(out)), JSON.stringify(all(out)));
   out = await say(Bk, text("11 am"), "type 11 am");
   check("2.8 Trigger H: recorded, pending confirmation + one soft suggestion, Activate / Later", /Your booking request has been made for .+Velachery Care Hospital/.test(all(out)) && /pending confirmation/.test(all(out)) && /There is no pressure; your booking request is already recorded/.test(all(out)) && buttonsOf(last(out)).join() === "Activate,Later", all(out));
   const br = sql(`select b.booking_status||'|'||b.preferred_time from booking_request b join customer u on u.id=b.customer_id where u.wa_number='${Bk}'`);
@@ -146,11 +157,11 @@ const tasksOf = (wa) => sql(`select coalesce(string_agg(t.type||':'||t.task_stat
   check("2.11 Later: decline reply, only Main Menu, no second pitch", /^Absolutely, no problem. Your booking request is recorded/.test(bodyOf(last(out))) && buttonsOf(last(out)).join() === "Main Menu", show(last(out)));
   check("2.12 activation follow-up closed after the decline", /activation_follow_up:done/.test(tasksOf(Bk)), tasksOf(Bk));
   out = await say(Bk, button("flow_menu", "Main Menu"), "tap Main Menu");
-  check("2.13 Main Menu: the first card again", /Why Overpay Your Medical Bills\?/.test(all(out)), all(out));
+  check("2.13 Main Menu: both first cards again, bill card first", out.length === 2 && /Reduce Your Medical Bill Now/.test(bodyOf(out[0])) && /Why Overpay Your Medical Bills\?/.test(bodyOf(out[1] || { type: "x" })), all(out));
 
   // ===== 3. typed booking
   P("\n==================== 3. 'I want to book' -> typed area -> Other hospital -> typed name ====================");
-  const Cn = "919800000403";
+  const Cn = PFX + "03";
   out = await say(Cn, text("Hi"), "Hi");
   out = await say(Cn, text("I want to book"), "type I want to book");
   check("3.1 'I want to book' starts the booking flow", last(out)?.interactive?.type === "location_request_message", show(last(out)));
@@ -166,11 +177,11 @@ const tasksOf = (wa) => sql(`select coalesce(string_agg(t.type||':'||t.task_stat
   check("3.5 not in the directory: the team checks the centre first, pending", /Our team will first check the centre and branch/.test(all(out)) && /pending confirmation/.test(all(out)), all(out));
   check("3.6 directory-verification task, no booking row", /directory_verification/.test(tasksOf(Cn)) && sql(`select count(*) from booking_request b join customer u on u.id=b.customer_id where u.wa_number='${Cn}'`) === "0", tasksOf(Cn));
   out = await say(Cn, button("appt_activate", "Activate"), "tap Activate");
-  check("3.7 Activate after booking -> the four plans", rowsOf(last(out)).length === 4, show(last(out)));
+  check("3.7 Activate after booking -> the four plans + View Plan Features", rowsOf(last(out)).length === 5, show(last(out)));
 
   // ===== 4. safety and opt-out inside the new flows
   P("\n==================== 4. emergency / STOP inside the new flows ====================");
-  const D = "919800000404";
+  const D = PFX + "04";
   out = await say(D, text("Hi"), "Hi");
   out = await say(D, button("home_book", "Book Appointment"), "tap Book Appointment");
   out = await say(D, button("appt_start", "Book Appointment"), "tap Book Appointment");

@@ -141,7 +141,7 @@ describe("welcome + opening list through the pipeline", () => {
   it("the customer opens the chat for the first time (WhatsApp welcome event): the welcome + options at once", async () => {
     const t = setup({ state: S.New });
     await t.run("", "wamid.W1", "request_welcome");
-    expect(t.out).toHaveLength(1);
+    expect(t.out).toHaveLength(2); // client order, 21 Nov: the bill card, then Why Overpay
     expect((last(t).msg as { kind: string }).kind).toBe("buttons"); // the client's welcome card (17 Nov)
     expect(t.conv.state).toBe(S.IntentMenu);
     expect(t.generate).not.toHaveBeenCalled();
@@ -196,7 +196,7 @@ describe("welcome + opening list through the pipeline", () => {
       expect(t.conv.state).toBe(S.IntentMenu);
       await t.run(row.id);
       expect(t.conv.state).toBe(row.state);
-      expect(t.out).toHaveLength(2);
+      expect(t.out).toHaveLength(3); // two first cards + the row's reply
     }
   });
 
@@ -224,7 +224,7 @@ describe("welcome + opening list through the pipeline", () => {
     const t = setup();
     await t.run("hi", "wamid.SAME");
     await t.run("hi", "wamid.SAME");
-    expect(t.out).toHaveLength(1);
+    expect(t.out).toHaveLength(2); // the two first cards once, nothing for the repeat
   });
 
   it("safety still wins: an emergency tapped or typed in the menu is not routed as a row", async () => {
@@ -285,6 +285,17 @@ describe("client sequence 1: the Reduce Your Medical Bill card (20 Nov)", () => 
     expect(body).toMatch(/Oxxy is not insurance/);
   });
 
+  it("View Plan Features (21 Nov) -> the features card; a plan tap still works after it", async () => {
+    prices();
+    const t = setup({ state: S.IntentMenu });
+    await t.run("bill_activate");
+    await t.run("plan_features");
+    expect(String(last(t).text)).toMatch(/Oxxy Plan Features/);
+    expect(t.generate).not.toHaveBeenCalled();
+    await t.run("plan_vital");
+    expect(String(last(t).text)).toMatch(/Vital/);
+  });
+
   it("Activate Oxxy -> the four plans -> the picked plan with price + GST and the activate buttons", async () => {
     prices();
     const t = setup({ state: S.IntentMenu });
@@ -296,6 +307,7 @@ describe("client sequence 1: the Reduce Your Medical Bill card (20 Nov)", () => 
       "plan_vital",
       "plan_thrive",
       "plan_infinity",
+      "plan_features",
     ]);
     expect(list.rows[1].description).toBe("Up to 25% off bills · ₹23,600/year incl. GST");
     await t.run("plan_vital");

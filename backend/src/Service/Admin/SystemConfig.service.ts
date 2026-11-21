@@ -6,7 +6,7 @@ export interface ConfigFieldDef {
   key: string;
   configPath: string;
   label: string;
-  group: "whatsapp" | "ai" | "crm" | "maps" | "timings";
+  group: "whatsapp" | "ai" | "crm" | "maps" | "timings" | "voice";
   secret?: boolean;
   /** read the current value from process.env (values the services read live, not ConfigService) */
   fromEnv?: boolean;
@@ -269,6 +269,49 @@ export const CONFIG_FIELDS: ConfigFieldDef[] = [
     label: "CRM Webhook Secret",
     group: "crm",
     secret: true,
+  },
+  // SharyX Voice AI (client general rule, 20 Nov: "for any enquiry, AI bot call in 60 seconds"). Read live.
+  {
+    key: "SHARYX_ENABLED",
+    configPath: "Sharyx.Enabled",
+    label: "Call every new WhatsApp enquiry (60 seconds after the first message)",
+    group: "voice",
+    type: "boolean",
+    fromEnv: true,
+  },
+  {
+    key: "SHARYX_API_BASE",
+    configPath: "Sharyx.ApiBase",
+    label: "SharyX API address",
+    group: "voice",
+    fromEnv: true,
+    placeholder: "https://app.sharyx.org/api/v1",
+    check: (v) =>
+      /^https:\/\/\S+$/i.test(v) ? null : "The SharyX address must start with https://",
+  },
+  {
+    key: "SHARYX_API_KEY",
+    configPath: "Sharyx.ApiKey",
+    label: "SharyX API key (Read and add people to call, sx_live_…)",
+    group: "voice",
+    secret: true,
+    fromEnv: true,
+    check: (v) => (/^sx_(live|test)_\S+$/.test(v) ? null : "A SharyX key starts with sx_live_"),
+  },
+  {
+    key: "SHARYX_AGENT_ID",
+    configPath: "Sharyx.AgentId",
+    label: "SharyX agent id (GET /agents)",
+    group: "voice",
+    fromEnv: true,
+  },
+  {
+    key: "SHARYX_WEBHOOK_SECRET",
+    configPath: "Sharyx.WebhookSecret",
+    label: "SharyX signing secret (Integrations → Show signing secret)",
+    group: "voice",
+    secret: true,
+    fromEnv: true,
   },
   ...TIMINGS,
 ];

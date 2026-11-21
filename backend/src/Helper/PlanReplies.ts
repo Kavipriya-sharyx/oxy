@@ -519,7 +519,7 @@ export function wantsPlanDetails(text: string): boolean {
 }
 
 // Playbook 7 "best-fit description" per plan: what the plan is for (no saving figure: that is the illustration)
-const PLAN_DETAILS: Record<string, L> = {
+export const PLAN_DETAILS: Record<string, L> = {
   everyday: {
     en: "routine OPD visits, new illnesses, and eye and dental check-ups, for eligible bills up to ₹10 lakh; for ages up to 70",
     hi: "नियमित OPD, नई बीमारियाँ और आँख व दाँत की जाँच, ₹10 लाख तक के योग्य बिलों के लिए; 70 वर्ष तक की उम्र",

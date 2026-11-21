@@ -9,7 +9,7 @@
 // (client: "timer delay: minimise"). Hindi / Hinglish are drafts for a native-speaker review.
 import { InteractiveHeader, ListRow, OutboundMessage } from "@Helper/WhatsappMessage";
 import { say } from "@Helper/Lang";
-import { spendAnswer } from "@Helper/PlanReplies";
+import { PLAN_DETAILS, spendAnswer } from "@Helper/PlanReplies";
 import { firstPlan, firstPlanLines } from "@Helper/PlanPricing";
 import { PLAN_DETAILS_URL, PlanName } from "./GuidedFlow";
 
@@ -21,6 +21,8 @@ export const BILL_IDS = {
   calc: "bill_calc",
   learn: "bill_learn",
   activate: "bill_activate",
+  /** the plans list's "View Plan Features" row (client, 21 Nov) */
+  features: "plan_features",
   menu: "flow_menu",
 } as const;
 /** pending_action while the bill amount is awaited */
@@ -315,6 +317,17 @@ export function plansListCard(
     ].join(" · ");
     return { id: planRowId(p), title: PLAN_LABEL[p], description: desc.slice(0, 72) };
   });
+  // client, 21 Nov: "View Plan Features" under View Plans (a list has one button, so it is the last row)
+  rows.push({
+    id: BILL_IDS.features,
+    title: tr(l, "View Plan Features", "प्लान की सुविधाएँ देखें", "Plan features dekhein"),
+    description: tr(
+      l,
+      "What each plan includes",
+      "हर प्लान में क्या शामिल है",
+      "Har plan mein kya shaamil hai",
+    ),
+  });
   return {
     kind: "list",
     body: tr(
@@ -325,6 +338,32 @@ export function plansListCard(
     ),
     buttonLabel: tr(l, "View plans", "प्लान देखें", "Plans dekhein"),
     rows,
+  };
+}
+
+/**
+ * "View Plan Features" (client, 21 Nov): what each of the four plans includes (Playbook 7 plan descriptions,
+ * Helper/PlanReplies PLAN_DETAILS), then [Choose a Plan] (the plans list again) and [Main Menu].
+ */
+export function planFeaturesCard(l?: Lg): OutboundMessage {
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const blocks = PLAN_ORDER.map((p) =>
+    [
+      `*${PLAN_LABEL[p]}*: ${tr(l, `up to ${PLAN_PCT[p]}% off`, `${PLAN_PCT[p]}% तक छूट`, `${PLAN_PCT[p]}% tak off`)}`,
+      cap(say(PLAN_DETAILS[p], l)),
+    ].join("\n"),
+  );
+  const body = [
+    tr(l, "*Oxxy Plan Features*", "*Oxxy प्लान की सुविधाएँ*", "*Oxxy Plan Features*"),
+    ...blocks,
+  ].join("\n\n");
+  return {
+    kind: "buttons",
+    body: body.slice(0, 1024),
+    buttons: [
+      { id: BILL_IDS.activate, title: tr(l, "Choose a Plan", "प्लान चुनें", "Plan chunein") },
+      { id: BILL_IDS.menu, title: tr(l, "Main Menu", "मुख्य मेनू", "Main Menu") },
+    ],
   };
 }
 

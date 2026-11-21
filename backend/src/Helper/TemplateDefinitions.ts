@@ -204,7 +204,7 @@ export const TEMPLATES: TemplateDef[] = [
     language: "en",
     category: "MARKETING",
     headerImage: BOOK_IMAGE_FILE,
-    body: "*Book Appointment*\n\nBook your visit to a hospital or diagnostic centre near you, and get a medical discount on your bill with Oxxy.",
+    body: "*Book Appointment*\n\nBook your visit to a hospital or diagnostic centre near you, and get a medical discount on your bill with Oxxy.\n\n📍 Select Centre\n📅 Appointment Date\n⏰ Appointment Time",
     footer: "Reply STOP to opt out",
     quickReplies: ["Book Appointment"],
   },

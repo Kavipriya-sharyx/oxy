@@ -107,6 +107,11 @@ export const BOOK_CARD_TEXT = (l?: Lg): string =>
       "अपने पास के अस्पताल या डायग्नोस्टिक सेंटर में विज़िट बुक करें और Oxxy के साथ अपने बिल पर मेडिकल छूट पाएँ।",
       "Apne paas ke hospital ya diagnostic centre mein visit book karein aur Oxxy ke saath apne bill par medical discount paayein.",
     ),
+    "",
+    // client, 21 Nov: the three steps below the picture text, above the button
+    tr(l, "📍 Select Centre", "📍 सेंटर चुनें", "📍 Centre chunein"),
+    tr(l, "📅 Appointment Date", "📅 अपॉइंटमेंट की तारीख", "📅 Appointment date"),
+    tr(l, "⏰ Appointment Time", "⏰ अपॉइंटमेंट का समय", "⏰ Appointment time"),
   ].join("\n");
 
 export function bookCard(l?: Lg): OutboundMessage {
@@ -291,18 +296,19 @@ export function readBookingFor(text: string): "self" | "family" | null {
 export const apptDateAsk = (l?: Lg): string =>
   tr(
     l,
-    "When do you want to go? Please type the date, for example: 25 Nov",
-    "आप कब जाना चाहते हैं? कृपया तारीख लिखें, जैसे: 25 Nov",
-    "Aap kab jaana chahte hain? Please date likhein, jaise: 25 Nov",
+    // client, 21 Nov: space between the lines, the example on its own line
+    "When do you want to go?\n\nPlease type the date.\nFor example: 25 Nov",
+    "आप कब जाना चाहते हैं?\n\nकृपया तारीख लिखें।\nजैसे: 25 Nov",
+    "Aap kab jaana chahte hain?\n\nPlease date likhein.\nJaise: 25 Nov",
   );
 
 /** Step 5: the time */
 export const apptTimeAsk = (date: string, l?: Lg): string =>
   tr(
     l,
-    `Date: ${showDate(date)}\nWhat time suits you? For example: 11 am, or morning / evening`,
-    `तारीख: ${showDate(date)}\nकौन सा समय ठीक रहेगा? जैसे: सुबह 11 बजे, या सुबह / शाम`,
-    `Date: ${showDate(date)}\nKaunsa time theek rahega? Jaise: 11 am, ya morning / evening`,
+    `Date: ${showDate(date)}\n\nWhat time suits you?\nFor example: 11 am, or morning / evening`,
+    `तारीख: ${showDate(date)}\n\nकौन सा समय ठीक रहेगा?\nजैसे: सुबह 11 बजे, या सुबह / शाम`,
+    `Date: ${showDate(date)}\n\nKaunsa time theek rahega?\nJaise: 11 am, ya morning / evening`,
   );
 
 /** "11 am", "5:30 pm", "17:00", "morning", "evening": a time or a window; null = not a time */

@@ -4,6 +4,7 @@ import { assertTransition } from "./ConversationStateMachine";
 import { ConversationState as S } from "@Helper/Enum/ConversationState";
 import { fixedReply, NOTICE_VERSION } from "@Helper/FixedReplies";
 import { OVERPAY_CARD_TEXT } from "./BookCard";
+import { BILL_CARD_TEXT } from "./BillCard";
 import { WELCOME } from "@Helper/OpeningMenu";
 import { message } from "@Database/Table/Oxxy/message";
 import { consent } from "@Database/Table/Oxxy/consent";
@@ -144,10 +145,10 @@ const texts = (t: { out: Record<string, unknown>[] }) => t.out.map((o) => o.text
 afterEach(() => jest.restoreAllMocks());
 
 describe("DPDP health-data consent gate", () => {
-  it("0. a brand-new chat gets the client's first card (Why Overpay, 20 Nov), no notice and no health question", async () => {
+  it("0. a brand-new chat gets the client's first cards (Reduce bill, then Why Overpay, 21 Nov), no notice and no health question", async () => {
     const t = setup({ state: S.New });
     await t.run("hi");
-    expect(texts(t)).toEqual([OVERPAY_CARD_TEXT("en")]); // the first card since 20 Nov (sequence 3)
+    expect(texts(t)).toEqual([BILL_CARD_TEXT("en"), OVERPAY_CARD_TEXT("en")]); // client order, 21 Nov
     expect(t.conv.pending_action).toBe("flow:start");
     expect(t.conv.state).toBe(S.IntentMenu);
     expect(t.cons.notice_sent_at).toBeNull();

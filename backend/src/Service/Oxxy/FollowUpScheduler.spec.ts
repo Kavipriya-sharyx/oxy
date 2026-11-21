@@ -118,6 +118,42 @@ describe("conversation rescue (Playbook 15: at most two in a row)", () => {
     expect(Math.round((next - Date.now()) / 3600000)).toBe(6);
   });
 
+  it("voice_call: SharyX places the call (no WhatsApp message); off = skipped", async () => {
+    const { wa } = setup();
+    const callNow = jest.fn().mockResolvedValue({ ok: true, contactId: "4b0e", status: "pending" });
+    const svc = new FollowUpSchedulerService(wa as never, { enabled: true, callNow } as never);
+    jest
+      .spyOn(customer, "findOne")
+      .mockResolvedValue({ id: "c1", wa_number: "919840012345", language: "en" } as never);
+    await svc.execute({
+      customerId: "c1",
+      conversationId: "v1",
+      kind: "voice_call",
+      templateName: "sharyx_voice_call",
+      params: ["new WhatsApp enquiry"],
+    });
+    expect(wa.send).not.toHaveBeenCalled();
+    expect(callNow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phone: "+919840012345",
+        data: expect.objectContaining({
+          customer_id: "c1",
+          conversation_id: "v1",
+          enquiry: "new WhatsApp enquiry",
+        }),
+      }),
+    );
+    const off = new FollowUpSchedulerService(wa as never, { enabled: false, callNow } as never);
+    callNow.mockClear();
+    await off.execute({
+      customerId: "c1",
+      conversationId: "v1",
+      kind: "voice_call",
+      templateName: "sharyx_voice_call",
+    });
+    expect(callNow).not.toHaveBeenCalled();
+  });
+
   it("a third is never sent", async () => {
     const { svc, wa } = setup();
     jest

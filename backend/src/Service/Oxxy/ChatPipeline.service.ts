@@ -88,6 +88,7 @@ import {
   billCompareCard,
   billResultCard,
   pickedPlanCard,
+  planFeaturesCard,
   plansListCard,
   readBillAmount,
   readPlanPick,
@@ -1815,15 +1816,21 @@ export class ChatPipelineService {
    * card (welcomeCard) is no longer sent; its button ids still work for chats that already have it.
    */
   private async startGuidedFlow(m: Inbound, s: Saved) {
-    // client sequence 3 (20 Nov): "Why Overpay Your Medical Bills?" with ① Reduce My Bill (sequence 1, the bill
-    // card) and ② Book Appointment (sequence 2); handleAppointment reads both
-    await this.sendAndSave(s.customer.id, overpayCard(s.customer.language), m.waMessageId);
+    // client order (21 Nov): first "Reduce Your Medical Bill Now" (sequence 1: Calculate discount / Learn More /
+    // Activate Oxxy, read by handleBillCard), then "Why Overpay Your Medical Bills?" (sequence 3: Reduce My Bill /
+    // Book Appointment, read by handleAppointment)
+    const firstSent = !(await this.alreadyReplied(m.waMessageId));
+    await this.sendAndSave(s.customer.id, billCard(s.customer.language), m.waMessageId);
+    if (firstSent)
+      await this._Wa
+        .send(s.customer.id, overpayCard(s.customer.language), "reply")
+        .catch((e) => this.logger.warn(`second card not sent: ${(e as Error).message}`));
     await this.setPending(s, "flow:start");
     if (s.conversation.state === ConversationState.New) {
       await this.setState(s, [ConversationState.IntentMenu]);
       await this.requestVoiceCall(s, "new WhatsApp enquiry");
     }
-    await this.recordTrigger(s, "W", "why overpay your medical bills card");
+    await this.recordTrigger(s, "W", "reduce your medical bill + why overpay cards");
   }
 
   /**
@@ -1843,6 +1850,19 @@ export class ChatPipelineService {
         reason,
         language: s.customer.language ?? "en",
       });
+      // SharyX Voice AI configured: the bot queues the call itself (the scheduler places it at call_at, after
+      // checking opt-out, a safety pause and the 21:00-09:00 blackout again; SharyX POST /calls)
+      if (this._Scheduler && process.env.SHARYX_ENABLED === "true")
+        await this._Scheduler.create({
+          customerId: s.customer.id,
+          conversationId: s.conversation.id,
+          kind: "voice_call",
+          scheduledFor: callAt,
+          templateName: "sharyx_voice_call",
+          params: [reason],
+          reason: `voice AI call: ${reason}`,
+          source: "whatsapp_inbound",
+        });
     } catch (e) {
       this.logger.warn(`voice call request not sent: ${(e as Error).message}`);
     }
@@ -2181,6 +2201,15 @@ export class ChatPipelineService {
     }
     if (id === BILL_IDS.activate || id === "activate oxxy") {
       await this.sendPlansList(s, m.waMessageId);
+      return true;
+    }
+    if (
+      id === BILL_IDS.features ||
+      (pending === BILL_PLAN && /^(view )?(plan )?features?$/i.test(id))
+    ) {
+      // the plans list stays open: a typed plan name or a tap on a plan still works after the features
+      await reply(planFeaturesCard(l));
+      await this.recordTrigger(s, "B", "plan features (plans list)");
       return true;
     }
     const plan = id.startsWith("plan_") || pending === BILL_PLAN ? readPlanPick(text) : null;

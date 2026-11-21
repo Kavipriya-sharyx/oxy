@@ -1,10 +1,12 @@
 import {
+  apptDateAsk,
   apptDoneCard,
   apptForAsk,
   apptListCard,
   apptThanks,
   apptWhereAsk,
   bookCard,
+  BOOK_CARD_TEXT,
   cardImage,
   overpayCard,
   readApptTime,
@@ -93,5 +95,14 @@ describe("sequence 2 and 3 cards (client, 20 Nov)", () => {
     });
     expect(readAppt("flow:start")).toBeNull();
     expect(readAppt("appt:{bad")).toBeNull();
+  });
+});
+
+describe("client changes, 21 Nov", () => {
+  it("the book card lists Select Centre / Appointment Date / Appointment Time above the button", () => {
+    expect(BOOK_CARD_TEXT("en")).toMatch(/Select Centre\n.*Appointment Date\n.*Appointment Time$/);
+  });
+  it("the date question has a blank line and the example on its own line", () => {
+    expect(apptDateAsk("en")).toBe("When do you want to go?\n\nPlease type the date.\nFor example: 25 Nov");
   });
 });

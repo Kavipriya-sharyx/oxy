@@ -11,6 +11,8 @@ const GROUP_TITLES: Record<SettingItem["group"], string> = {
   crm: "CRM push (optional; off = the client's CRM uses the Oxxy API)",
   timings: "Timings (applied at once; empty = default) [CONFIRM with Oxxy]",
   maps: "Maps (Google Maps Platform: nearby centres, distance, address lookup)",
+  voice:
+    "Voice AI (SharyX): a call 60 seconds after every new enquiry. Result webhook: /api/v1/Voice/Sharyx/Webhook",
 };
 
 export default function Settings() {
@@ -71,7 +73,7 @@ export default function Settings() {
     }
   };
 
-  const groups: SettingItem["group"][] = ["whatsapp", "ai", "timings", "crm", "maps"];
+  const groups: SettingItem["group"][] = ["whatsapp", "ai", "timings", "voice", "crm", "maps"];
 
   // the AI model really in use (Claude, OpenAI or Gemini), from the saved settings below
   const val = (k: string) => String(items.find((i) => i.key === k)?.value ?? "");

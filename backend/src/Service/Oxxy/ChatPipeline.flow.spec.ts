@@ -181,7 +181,8 @@ describe("17 Nov: welcome card, then the voice-call questions with buttons, then
     });
     await t.run("hi");
     expect(t.sent[0]).toMatchObject({ kind: "buttons" });
-    expect(t.out[0]).toContain("Why Overpay Your Medical Bills?"); // the first card since 20 Nov (sequence 3)
+    expect(t.out[0]).toContain("Reduce Your Medical Bill Now"); // client order, 21 Nov: bill card, then Why Overpay
+    expect(t.out[1]).toContain("Why Overpay Your Medical Bills?");
     expect(t.conv.pending_action).toBe("flow:start");
 
     await t.run("flow_start");
