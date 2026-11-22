@@ -5,6 +5,7 @@
 //
 //   cd backend
 //   npx ts-node -r tsconfig-paths/register --transpile-only scripts/submit-templates.ts [--dry-run]
+//   ... scripts/submit-templates.ts --update=oxxy_learn_more,oxxy_book_appointment [--dry-run]   (edit existing)
 import "dotenv/config";
 import { readFileSync } from "fs";
 import { basename, resolve } from "path";
@@ -19,12 +20,21 @@ async function main() {
   const url = `https://graph.facebook.com/${version}/${encodeURIComponent(waba)}/message_templates`;
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
 
+  // --update=a,b: edit those templates that already exist (Meta: POST /{template id} with the new components;
+  // an approved template goes back to review; Meta allows about one edit a day per template)
+  const update = new Set(
+    (process.argv.find((a) => a.startsWith("--update="))?.slice(9) ?? "").split(",").filter(Boolean),
+  );
   const existing = new Set<string>();
-  for (let next: string | null = `${url}?fields=name,language&limit=100`; next; ) {
+  const ids = new Map<string, string>();
+  for (let next: string | null = `${url}?fields=id,name,language&limit=100`; next; ) {
     const r = await fetch(next, { headers });
     const j: any = await r.json();
     if (!r.ok) throw new Error(`listing failed: ${j?.error?.message ?? r.status}`);
-    for (const t of j.data ?? []) existing.add(`${t.name}|${t.language}`);
+    for (const t of j.data ?? []) {
+      existing.add(`${t.name}|${t.language}`);
+      ids.set(`${t.name}|${t.language}`, t.id);
+    }
     next = j.paging?.next ?? null;
   }
 
@@ -55,7 +65,35 @@ async function main() {
   }
 
   for (const t of TEMPLATES) {
-    if (existing.has(`${t.name}|${t.language}`)) {
+    const key = `${t.name}|${t.language}`;
+    if (update.size) {
+      if (!update.has(t.name)) continue;
+      const id = ids.get(key);
+      if (!id) {
+        console.log(`skip    ${t.name} (${t.language}): not in Meta, run without --update to create it`);
+        continue;
+      }
+      if (t.headerImage && !appId) {
+        console.log(`skip    ${t.name} (${t.language}): picture header needs WHATSAPP_APP_ID in backend/.env`);
+        continue;
+      }
+      if (dry) {
+        console.log(`would update ${t.name} (${t.language}, id ${id})`);
+        continue;
+      }
+      const handle = t.headerImage ? await headerHandle(t.headerImage) : undefined;
+      const { components } = metaTemplateBody(t, handle ?? undefined);
+      const r = await fetch(`https://graph.facebook.com/${version}/${id}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ components }),
+      });
+      const j: any = await r.json();
+      if (r.ok) console.log(`updated ${t.name} (${t.language}): ${JSON.stringify(j)}`);
+      else console.log(`FAILED  ${t.name} (${t.language}): ${j?.error?.error_user_msg || j?.error?.message} (code ${j?.error?.code})`);
+      continue;
+    }
+    if (existing.has(key)) {
       console.log(`skip    ${t.name} (${t.language}): already in Meta`);
       continue;
     }

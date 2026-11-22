@@ -155,6 +155,33 @@ describe("a failed draft is replaced by the fixed template and logged", () => {
     expect(JSON.stringify(warn.mock.calls)).toMatch(/plan name not in catalog: platinum/);
   });
 
+  it("the second draft fails only for savings wording: those sentences go, the answer goes out (23 Nov)", async () => {
+    const bad =
+      "Yes, your child can be added as a family member on an Oxxy plan. You will save 30% on every bill. The Vital plan is a good fit for families.";
+    const t = setup([draft(bad), draft(bad)]);
+    await t.run("is oxxy good for a family like mine");
+    expect(t.out.map((o) => o.text)).toEqual([
+      "Yes, your child can be added as a family member on an Oxxy plan. The Vital plan is a good fit for families.",
+    ]);
+    expect(t.tasks.map((x) => x.type)).not.toContain("holding_message");
+  });
+
+  it("the live question 'i have child 4 years he also can apply?' gets the approved age answer, no LLM (23 Nov)", async () => {
+    const t = setup([]);
+    await t.run("i have child 4 years he also can apply?");
+    expect(t.out.map((o) => o.text)).toEqual([
+      "Yes. Oxxy plans have an upper age limit only: Everyday up to 70 years, Vital up to 75, Thrive up to 80, and Infinity has no age limit. A child can be added as a family member when you activate a plan.",
+    ]);
+    expect(t.generate).not.toHaveBeenCalled();
+  });
+
+  it("savings wording plus another problem: still the holding message", async () => {
+    const bad = "It works like health insurance. You will save 30% on every bill.";
+    const t = setup([draft(bad), draft(bad)]);
+    await t.run();
+    expect(t.out.map((o) => o.text)).toEqual([HOLDING_MESSAGE]);
+  });
+
   it("a clean draft goes out unchanged", async () => {
     const t = setup([draft("The Vital plan is a good fit. Which city are you in?")]);
     await t.run();

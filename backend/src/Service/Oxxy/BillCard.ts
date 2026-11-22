@@ -99,6 +99,11 @@ export const billAmountAgain = (l?: Lg): string =>
 export function readBillAmount(text: string): number | null {
   const t = (text || "").trim();
   if (!t || t.split(/\s+/).length > 6) return null;
+  // "1.5" after "for example 10000 or 1.5 lakh" (client's live chat, 22 Nov: refused): a bare decimal below 100
+  // is lakh (no bill is ₹1.5); the result card shows the full amount, so a wrong reading is seen at once.
+  // A bare whole number below 100 ("60") stays unread: asked again.
+  const lakh = t.match(/^₹?\s*(\d{1,2}\.\d{1,2})$/);
+  if (lakh) return Math.round(Number(lakh[1]) * 100000);
   // a bill is one amount: "per month" must not multiply it (spendAnswer reads a yearly spend)
   const n = spendAnswer(t.replace(/\b(per\s+)?(month|monthly|mahina|mahine)\b/gi, " "));
   return n != null && n >= 100 ? n : null;

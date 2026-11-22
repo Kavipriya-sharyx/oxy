@@ -216,7 +216,8 @@ export const TEMPLATES: TemplateDef[] = [
     language: "en",
     category: "MARKETING",
     headerImage: COMPARE_IMAGE_FILE,
-    body: "*Why Choose Oxxy Medical Discount Plans?*\n\nOxxy gives instant discounts on hospital stays, diagnostics, medicines, doctor consultations, surgeries and health packages across India. Oxxy is not insurance: it works alongside any insurance you already have, so please keep your insurance.",
+    // 22 Nov: the picture's rows, the same text as billCompareCard("en") (client: the old text was different)
+    body: "*Why Choose Oxxy Medical Discount Plans?*\n✅ Oxxy   ❌ Regular health insurance\n\n*Cost to you*\n✅ Low, fixed subscription (monthly or annual)\n❌ Higher premiums (annual, increases with age)\n\n*Coverage*\n✅ Instant discounts on hospitals, diagnostics, medicines, consultations & procedures\n❌ Pays part of hospital bills (after approval & documents)\n\n*Waiting period*\n✅ Only 3–5 working days (for activation)\n❌ Often 30 days – 4 years (for certain conditions)\n\n*Age limit*\n✅ No age limit\n❌ Entry age limits (usually 60–65 years)\n\n*Pre-existing conditions*\n✅ Included\n❌ Often excluded or covered after a waiting period\n\n*Usage limit*\n✅ Unlimited use (as often as you need)\n❌ Limited to sum assured (e.g. ₹5–50 lakhs)\n\n*Network*\n✅ Leading hospitals & labs PAN-India\n❌ Cashless only at specific hospitals\n\n*Claims*\n✅ No claims, no paperwork: show your Oxxy code, get the discounted price\n❌ Claim filing, documents and approval (can take days/weeks)\n\nOxxy is not insurance; keep your insurance, Oxxy works alongside it.",
     footer: "Reply STOP to opt out",
     quickReplies: ["Calculate discount", "Activate Oxxy", "Main Menu"],
   },

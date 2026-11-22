@@ -303,7 +303,7 @@ import { ProductType } from "@Helper/Enum/ProductType";
 import { BillingCycle } from "@Helper/Enum/BillingCycle";
 import { GuardrailService, GuardrailHit, isOptIn } from "./Guardrail.service";
 import { AnswerReading, AnswerStep, LlmService, ChatTurn, LlmResult } from "./Llm.service";
-import { ReplyValidatorService } from "./ReplyValidator.service";
+import { promisesSavings, ReplyValidatorService } from "./ReplyValidator.service";
 import { WhatsappClient } from "./WhatsappClient.service";
 import { ValueCheckService } from "./ValueCheck.service";
 import { CentreSearchService, FoundCentre } from "./CentreSearch.service";
@@ -3625,7 +3625,30 @@ export class ChatPipelineService {
         }
         // prices and plan names only from plan_catalog; nothing about a second product
         const lockedProduct = s.customer.active_product || s.conversation.selected_product || null;
-        const v = await this._Validator.validate(draft.reply_text, { lockedProduct });
+        let v = await this._Validator.validate(draft.reply_text, { lockedProduct });
+        // the second draft fails ONLY for savings wording: its savings sentences go, the rest of the answer stays
+        // (live chat, 23 Nov: "i have child 4 years he also can apply?" got the holding message because both
+        // drafts said something about discounts)
+        if (
+          !v.ok &&
+          attempt === 1 &&
+          v.reasons.length === 1 &&
+          v.reasons[0] === "promises savings or discounts"
+        ) {
+          const kept = draft.reply_text
+            .trim()
+            .split(/(?<=[.!?।])\s+/)
+            .filter((x) => !promisesSavings(x))
+            .join(" ")
+            .trim();
+          if (kept.length >= 20 && kept !== draft.reply_text.trim()) {
+            const again = await this._Validator.validate(kept, { lockedProduct });
+            if (again.ok) {
+              draft.reply_text = kept;
+              v = again;
+            }
+          }
+        }
         if (v.ok && draft.reply_text) result = draft;
         else {
           feedback = v.reasons.join("; ") || "empty reply";

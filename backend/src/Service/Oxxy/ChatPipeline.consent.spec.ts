@@ -443,6 +443,14 @@ describe("DPDP health-data consent gate", () => {
     }
   });
 
+  it("12d. no consent yet: 'i have child 4 years he also can apply?' is answered (age FAQ), then the notice (23 Nov)", async () => {
+    const t = setup();
+    await t.run("i have child 4 years he also can apply?");
+    expect(texts(t)[0]).toMatch(/^Yes\. Oxxy plans have an upper age limit only/);
+    expect(texts(t)[1]).toBe(fixedReply("health_notice", "en"));
+    expect(t.generate).not.toHaveBeenCalled();
+  });
+
   it("12c. 'Hi' from a returning customer (consent given, chat in DISCOVERY) gets the cards, not the LLM (22 Nov)", async () => {
     // live chat 22 Nov 08:48: "Hi" -> "Got it! How can I assist you today?" instead of the two first cards
     const t = setup({

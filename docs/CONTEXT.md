@@ -509,9 +509,18 @@ Hindi cards, repeated delivery, rescue timing, STOP / START, a random first ques
   bill card is among the last 3 bot messages, it asks the bill amount (pending `bill_amount`); from a template
   tap with no card shown it is still the bill card. (3) Learn More text differed from the client's picture: the
   body is now the picture's 8 rows (`COMPARE_ROWS` in BillCard.ts, en/hi/hinglish, each body <= 1024 chars).
-  The Meta template `oxxy_learn_more` keeps its approved body until it is edited at Meta. (4) "The button
+  23 Nov: `oxxy_learn_more` (same body, test in BillCard.spec.ts) and `oxxy_book_appointment` (the 📍/📅/⏰
+  lines) were edited at Meta with `scripts/submit-templates.ts --update=...` (new option): both PENDING review. (4) "The button
   sequence on the first template is different": their message was cut off; the user chose (22 Nov) to keep the
   sketch's order Calculate discount / Learn More / Activate Oxxy (Talk to Us: no 4th button on WhatsApp).
+  (5) "1.5" to the bill amount question was refused: a bare decimal below 100 is now read as lakh
+  (`readBillAmount`); a bare whole number below 100 ("60") is still asked again.
+- Live chat 23 Nov 00:37 (read-only check): "i have child 4 years he also can apply?" got the holding message +
+  callback times. Cause: both LLM drafts were rejected by the validator for "promises savings or discounts"
+  (task holding_message). Fixes: (a) FAQ `oxxy_age` (FaqReplies.ts, no LLM): upper age per plan from oxxy.in
+  (Everyday 70, Vital 75, Thrive 80, Infinity none; no minimum age is published) + a child is added as a family
+  member; (b) when the SECOND draft fails only for savings wording, its savings sentences are dropped and the
+  rest goes out if it then passes (>= 20 chars), instead of the holding message (`ChatPipeline.validator.spec`).
 - Seen, by design: a rescue booked for 00:05 is moved to 09:00 IST when due.
 - `scripts/new-flow-e2e.js` uses fixed numbers: on a reused DB run it with a fresh `E2E_PFX`.
 - Not testable here: the LLM's answers (random questions from oxxy.in, the knowledge base) need a real LLM key.

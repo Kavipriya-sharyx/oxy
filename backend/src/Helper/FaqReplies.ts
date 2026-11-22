@@ -15,6 +15,7 @@ export type FaqKey =
   | "activation_time"
   | "after_paying"
   | "cmb_age"
+  | "oxxy_age"
   | "both_products"
   | "guarantee"
   | "booking_confirmed"
@@ -64,6 +65,12 @@ const MATCHERS: [FaqKey, RegExp][] = [
   [
     "cmb_age",
     /\b(age limit|age bar|age restriction|umar|umr)\b[^?.!]{0,40}\bcut medi bills\b|\bcut medi bills\b[^?.!]{0,40}\b(age limit|age bar|any age|age restriction|umar|umr)\b|cut medi bills[^?.!]{0,40}उम्र/iu,
+  ],
+  [
+    // "i have child 4 years he also can apply?" (live chat, 23 Nov: the LLM's answer was rejected for its
+    // discount wording and a holding message went out). After cmb_age: the Cut Medi Bills question wins there.
+    "oxxy_age",
+    /\b(age limit|age bar|age restriction|any age|minimum age|max(imum)? age|umar|umr)\b|\b(child|children|kids?|baby|babies|infant|son|daughter|beta|beti|father|mother|parents?|grand(father|mother|parents?)|senior citizens?)\b[^?.!]{0,40}\b(apply|eligible|eligibility|join|enrol|enroll|covered|included|added|allowed|can (also )?(use|get|take))\b|\b(apply|eligible|join|covered|add|allowed)\b[^?.!]{0,40}\b(child|children|kids?|baby|son|daughter|beta|beti)\b|\b\d{1,3}\s*(years?|yrs?|saal)( old)?\b[^?.!]{0,30}\b(apply|eligible|join|covered|allowed)\b|उम्र (सीमा|की सीमा)|बच्च[ेा][^?.!]{0,30}(जुड़|शामिल|ले सकते)/iu,
   ],
   [
     "guarantee",
@@ -187,6 +194,19 @@ const CMB_AGE: L = {
   en: "No. Cut Medi Bills has no age limit.",
   hi: "नहीं। Cut Medi Bills की कोई उम्र सीमा नहीं है।",
   hinglish: "Nahi. Cut Medi Bills ki koi age limit nahi hai.",
+};
+
+// oxxy.in (read 21 Nov, WebsiteKnowledge 10-15): each plan's upper age; no minimum age is published
+const OXXY_AGE: L = {
+  en:
+    "Yes. Oxxy plans have an upper age limit only: Everyday up to 70 years, Vital up to 75, Thrive up to 80, and " +
+    "Infinity has no age limit. A child can be added as a family member when you activate a plan.",
+  hi:
+    "हाँ। Oxxy प्लान में सिर्फ़ ऊपरी उम्र सीमा है: Everyday 70 साल तक, Vital 75 तक, Thrive 80 तक, और Infinity में कोई उम्र " +
+    "सीमा नहीं है। प्लान एक्टिवेट करते समय बच्चे को परिवार के सदस्य के रूप में जोड़ा जा सकता है।",
+  hinglish:
+    "Haan. Oxxy plans mein sirf upper age limit hai: Everyday 70 saal tak, Vital 75 tak, Thrive 80 tak, aur Infinity " +
+    "mein koi age limit nahi hai. Plan activate karte waqt bachche ko family member ke roop mein add kiya ja sakta hai.",
 };
 
 const BOTH: L = {
@@ -325,6 +345,8 @@ export function faqAnswer(key: FaqKey, ctx: FaqContext, l?: string | null): stri
       return cmb ? `${say(AFTER_PAYING, l)} ${say(AFTER_PAYING_CMB, l)}` : say(AFTER_PAYING, l);
     case "cmb_age":
       return say(CMB_AGE, l);
+    case "oxxy_age":
+      return cmb ? say(CMB_AGE, l) : say(OXXY_AGE, l);
     case "both_products":
       return say(BOTH, l);
     case "guarantee":

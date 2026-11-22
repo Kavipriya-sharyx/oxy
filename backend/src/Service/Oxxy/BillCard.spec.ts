@@ -60,6 +60,19 @@ describe("bill card helpers (client sequence 1)", () => {
     expect(readBillAmount("20000 per month")).toBe(20000); // one bill, never x12
     expect(readBillAmount("hmm")).toBeNull();
     expect(readBillAmount("60")).toBeNull();
+    // client's live chat, 22 Nov: "1.5" after "for example 10000 or 1.5 lakh"
+    expect(readBillAmount("1.5")).toBe(150000);
+    expect(readBillAmount("2.25")).toBe(225000);
+    expect(readBillAmount("₹ 1.5")).toBe(150000);
+    expect(readBillAmount("1500.50")).toBe(1501); // a normal amount, not lakh
+  });
+
+  it("the Meta template oxxy_learn_more has the same text as the Learn More card (22 Nov)", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { TEMPLATES } = require("@Helper/TemplateDefinitions");
+    const t = TEMPLATES.find((x: { name: string }) => x.name === "oxxy_learn_more");
+    expect(t.body).toBe((billCompareCard("en") as { body: string }).body);
+    expect(t.body.length).toBeLessThanOrEqual(1024);
   });
 
   it("30% of the bill, whole rupees", () => {
