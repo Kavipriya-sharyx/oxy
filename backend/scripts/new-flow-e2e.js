@@ -100,13 +100,13 @@ const tasksOf = (wa) => sql(`select coalesce(string_agg(t.type||':'||t.task_stat
   const rescue = sql(`select f.kind||'|'||round(extract(epoch from (f.scheduled_for - now()))/60) from follow_up f join customer u on u.id=f.customer_id where u.wa_number='${A}' order by f.created_on desc limit 1`);
   check("1.1c general rule: a resend scheduled about 30 min after the first card", /^rescue\|(2[5-9]|30)$/.test(rescue), rescue || "(none)");
   out = await say(A, button("home_reduce", "Reduce My Bill"), "tap Reduce My Bill");
-  check("1.2 bill card: picture + 3 buttons, no Talk to us", /Reduce Your Medical Bill Now/.test(all(out)) && buttonsOf(last(out)).join() === "Calculate discount,Learn More,Activate Oxxy" && !/Talk to us/.test(all(out)), show(last(out)));
+  check("1.2 (22 Nov) the bill card is already above: Reduce My Bill asks the bill amount, not the same card again", /enter your bill amount/i.test(all(out)) && !/Reduce Your Medical Bill Now/.test(all(out)), all(out));
   out = await say(A, button("bill_calc", "Calculate discount"), "tap Calculate discount");
   check("1.3 asks the bill amount", /enter your bill amount/i.test(all(out)), all(out));
   out = await say(A, text("1.5 lakh"), "type 1.5 lakh");
   check("1.4 estimate 30% of 1,50,000 = 45,000, pay 1,05,000, illustration note", /₹1,50,000/.test(all(out)) && /− ₹45,000/.test(all(out)) && /₹1,05,000/.test(all(out)) && /illustration only/.test(all(out)), all(out));
   out = await say(A, button("bill_learn", "Learn More"), "tap Learn More");
-  check("1.5 Learn More: comparison picture + keep your insurance", !!last(out)?.interactive?.header?.image?.link?.endsWith("/oxxy-compare-card.jpg") && /please keep it/.test(all(out)) && /Oxxy is not insurance/.test(all(out)), JSON.stringify(last(out)?.interactive?.header) + " " + show(last(out)).slice(0, 200));
+  check("1.5 Learn More: comparison picture + keep your insurance", !!last(out)?.interactive?.header?.image?.link?.endsWith("/oxxy-compare-card.jpg") && /keep your insurance/.test(all(out)) && /Oxxy is not insurance/.test(all(out)), JSON.stringify(last(out)?.interactive?.header) + " " + show(last(out)).slice(0, 200));
   out = await say(A, button("bill_activate", "Activate Oxxy"), "tap Activate Oxxy");
   check("1.6 four plans with yearly price incl. GST", rowsOf(last(out)).map((r) => r.id).join() === "plan_everyday,plan_vital,plan_thrive,plan_infinity,plan_features" && /₹35,400/.test(JSON.stringify(rowsOf(last(out)))), show(last(out)));
   check("1.6a (21 Nov) last row: View Plan Features", rowsOf(last(out)).at(-1)?.title === "View Plan Features", show(last(out)));

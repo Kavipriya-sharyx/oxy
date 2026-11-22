@@ -235,6 +235,18 @@ describe("client sequence 3: the Why Overpay first card (20 Nov)", () => {
 });
 
 describe("client sequence 2: Book Appointment (20 Nov)", () => {
+  it("another option in the middle of the booking leaves it: Talk to Us is never read as an area", async () => {
+    const t = setup({ state: S.IntentMenu });
+    await t.run("appt_start");
+    expect(msg<{ kind: string }>(t).kind).toBe("location_request");
+    await t.run("Talk to Us");
+    expect(String(last(t).text)).toMatch(/advisor/i);
+    expect(String(last(t).text)).not.toMatch(/could not find that place/i);
+    await t.run("appt_start");
+    await t.run("Calculate Your Savings");
+    expect(String(last(t).text)).toMatch(/bill amount/i);
+  });
+
   it("typed area -> directory first, then Google places, no tie-up word -> pick -> for -> specialisation -> date -> time -> saved -> Later", async () => {
     const t = setup({ state: S.IntentMenu });
     await t.run("appt_start");

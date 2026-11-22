@@ -491,6 +491,31 @@ Code: `Service/Oxxy/BookCard.ts` (texts, readers) + `handleAppointment` / `apptW
   `AppointmentTemplates1794780000000`.
 - Deploy: both pictures are in the frontend build; deploy the frontend with the backend.
 
+## Scenario check of the client's 20-21 Nov requirements (21 Nov night)
+
+`scripts/client-scenarios-e2e.js` (31 checks) next to new-flow (59) and voice-template (23): welcome event (two
+cards, once), the templates' quick-reply taps as a first message, calculator inputs (50k, 1.5 lakh, ₹25,000, abc),
+Hindi cards, repeated delivery, rescue timing, STOP / START, a random first question, typed plan answers.
+- Fixed: an option of the cards / chat-start list in the middle of a booking ("Talk to Us", "Activate Oxxy Plan",
+  "Calculate Your Savings", a button id) was read as the area ("I could not find that place"); it now leaves the
+  booking and that option answers (`handleAppointment`, spec in `ChatPipeline.appointment.spec.ts`).
+- Changed 22 Nov (user's choice): "hi" (any greeting) in the middle of a chat brings back the two first cards
+  (pending `flow:start`), never the health notice or the current step's question; not while the activation
+  link / payment answer waits. The notice now comes with a health detail or a health row (`handleGuidedFlow`,
+  test 12b in `ChatPipeline.consent.spec.ts`, J3 in `scripts/client-scenarios-e2e.js`).
+- Client's live chat 22 Nov (number ...8181, read-only check of the live DB): (1) 08:48 "Hi" in an old chat
+  (consent given) got the LLM's "Got it! How can I assist you today?": now the two cards (test 12c). (2) "Same
+  flow again and again": Reduce My Bill right after the two cards sent the same bill card again; now, when the
+  bill card is among the last 3 bot messages, it asks the bill amount (pending `bill_amount`); from a template
+  tap with no card shown it is still the bill card. (3) Learn More text differed from the client's picture: the
+  body is now the picture's 8 rows (`COMPARE_ROWS` in BillCard.ts, en/hi/hinglish, each body <= 1024 chars).
+  The Meta template `oxxy_learn_more` keeps its approved body until it is edited at Meta. (4) "The button
+  sequence on the first template is different": their message was cut off; the user chose (22 Nov) to keep the
+  sketch's order Calculate discount / Learn More / Activate Oxxy (Talk to Us: no 4th button on WhatsApp).
+- Seen, by design: a rescue booked for 00:05 is moved to 09:00 IST when due.
+- `scripts/new-flow-e2e.js` uses fixed numbers: on a reused DB run it with a fresh `E2E_PFX`.
+- Not testable here: the LLM's answers (random questions from oxxy.in, the knowledge base) need a real LLM key.
+
 ## Voice-call templates: WhatsApp during the call (21 Nov)
 
 Client: "the WA trigger messages are different from this chatbot flow: the templates should be triggered based on
@@ -958,7 +983,7 @@ editions (our REVISED 6 Nov ones are newer). The client's current bot (92173 815
   cost; breakdown card; on Activate an Activation task "Add N family member(s) … at 30% off" (the link is still
   one plan). Activate = the existing disclosure -> YES -> official link, then the T&C card.
 - A tap sends the row id; typed answers are read when short; a question or a long sentence goes to the normal
-  conversation and the step stays (the next tap still works). "hi" mid-flow shows the current question again.
+  conversation and the step stays (the next tap still works). "hi" mid-flow brings back the two first cards (22 Nov).
 - **Sender**: interactive messages can carry a header (image or text) and a footer; new kind `cta_url` (one
   link button). **Templates** (`TemplateDefinitions.ts`, migration `VoiceFlowTemplates1794730000000`):
   oxxy_welcome, oxxy_verify_services, oxxy_savings_calculator, oxxy_plan_recommendation, oxxy_terms (URL

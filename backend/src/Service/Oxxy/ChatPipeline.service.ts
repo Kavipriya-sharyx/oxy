@@ -1540,7 +1540,6 @@ export class ChatPipelineService {
     if (s.conversation.pending_action?.startsWith("send_activation_link:")) return false;
     // YES / NO ("ok", "sari" too, to the notice's own question): the notice, or the answer to it
     if (parseConsentAnswer(text, status === "awaiting") !== "unclear") return true;
-    if (isGreeting(text)) return true; // "hi" again: the notice (the welcome and options came first)
     // health detail is never sent to the LLM before the consent (DPDP): the notice first, the answer after YES
     if (sharesHealthDetail(text)) return true;
     const row = matchMenuRow(text);
@@ -1900,6 +1899,22 @@ export class ChatPipelineService {
       return true;
     }
     if (asksReduceBill(text)) {
+      // the bill card is already on the screen (the two first cards came together): not the same card again
+      // (client, 22 Nov: "same flow coming again and again"); its first step, the bill amount, instead
+      const recent = await message
+        .find({
+          where: { conversation_id: s.conversation.id, direction: "out" } as any,
+          order: { created_on: "DESC" } as any,
+          take: 3,
+        })
+        .catch(() => [] as message[]);
+      const shown = (billCard(l) as { body: string }).body;
+      if (recent.some((r) => r.body === shown)) {
+        await this.setPending(s, BILL_AMOUNT);
+        await reply(billAmountAsk(l));
+        await this.recordTrigger(s, "W", "reduce my bill -> bill amount (the bill card was just shown)");
+        return true;
+      }
       await this.setPending(s, "flow:start");
       await reply(billCard(l));
       await this.recordTrigger(s, "W", "reduce your medical bill card (from the first card)");
@@ -1951,6 +1966,18 @@ export class ChatPipelineService {
 
     const d = readAppt(pending);
     if (!d) return false;
+    // another option of the cards or the chat-start list ("Talk to Us", "Activate Oxxy Plan", a button id) in the
+    // middle of the booking leaves it: that option answers, never read as an area / a name (client scenario, 21 Nov)
+    const id = text.toLowerCase();
+    if (
+      !m.location &&
+      (asksAdvisor(text) ||
+        /^(activate oxxy( plan)?|calculate( my| your)? (discount|savings?)|learn more|view plans?)$/i.test(text) ||
+        /^(bill|plan|flow|home|talk|verify)_[a-z_]+$/.test(id))
+    ) {
+      await this.setPending(s, null);
+      return false;
+    }
     const save = (next: ApptDraft) => this.setPending(s, writeAppt(next));
     // a question in the middle is answered normally (the step stays, the next tap still works)
     const aside = () => !m.location && (looksLikeQuestion(text) || text.split(/\s+/).length > 10);
@@ -2334,6 +2361,18 @@ export class ChatPipelineService {
     const text = (m.text || "").trim();
     const id = text.toLowerCase();
     if (asksMainMenu(text)) {
+      await this.startGuidedFlow(m, s);
+      return true;
+    }
+    // "hi" in the middle of the chat (22 Nov): the two first cards again, never the health notice or the step's
+    // question. Not while the activation link / payment answer is waiting (that YES / DONE must not be lost).
+    if (
+      isGreeting(text) &&
+      !m.location &&
+      s.conversation.state !== ConversationState.New &&
+      s.conversation.state !== ConversationState.AwaitingPayment &&
+      !s.conversation.pending_action?.startsWith("send_activation_link:")
+    ) {
       await this.startGuidedFlow(m, s);
       return true;
     }

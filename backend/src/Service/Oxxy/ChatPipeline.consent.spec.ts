@@ -141,6 +141,7 @@ function setup(
 }
 
 const texts = (t: { out: Record<string, unknown>[] }) => t.out.map((o) => o.text);
+const HEALTH = "my mother needs a knee surgery"; // health detail: the notice first (a "hi" gets the first cards)
 
 afterEach(() => jest.restoreAllMocks());
 
@@ -223,9 +224,9 @@ describe("DPDP health-data consent gate", () => {
     expect(t.cons.health_data_consent).toBe(false);
   });
 
-  it("1. the next message gets the notice, and nothing else in that turn", async () => {
+  it("1. a health detail gets the notice, and nothing else in that turn", async () => {
     const t = setup();
-    await t.run("hi");
+    await t.run(HEALTH);
     expect(texts(t)).toEqual([fixedReply("health_notice", "en")]);
     expect(t.cons.notice_sent_version).toBe(NOTICE_VERSION);
     expect(t.cons.notice_sent_at).toBeInstanceOf(Date);
@@ -234,7 +235,7 @@ describe("DPDP health-data consent gate", () => {
 
   it("1b. the notice follows the customer's language", async () => {
     const t = setup({ language: "hinglish" });
-    await t.run("hello");
+    await t.run("meri maa ko knee surgery chahiye");
     expect(texts(t)).toEqual([fixedReply("health_notice", "hinglish")]);
   });
 
@@ -251,7 +252,7 @@ describe("DPDP health-data consent gate", () => {
 
   it("3-5. YES saves consent = true, the current notice version, the timestamp and the wamid", async () => {
     const t = setup();
-    await t.run("hi");
+    await t.run(HEALTH);
     await t.run("YES", "wamid.YES1");
     expect(t.cons.health_data_consent).toBe(true);
     expect(t.cons.notice_version).toBe(NOTICE_VERSION);
@@ -272,7 +273,7 @@ describe("DPDP health-data consent gate", () => {
 
   it("after YES, the next message reaches Claude and health questions are allowed", async () => {
     const t = setup();
-    await t.run("hi");
+    await t.run(HEALTH);
     await t.run("yes");
     await t.run("I need help for my mother's knee");
     expect(t.generate).toHaveBeenCalledTimes(1);
@@ -281,7 +282,7 @@ describe("DPDP health-data consent gate", () => {
 
   it("6-7. NO saves the refusal and the closing message offers non-health help only", async () => {
     const t = setup();
-    await t.run("hi");
+    await t.run(HEALTH);
     await t.run("No", "wamid.NO1");
     expect(t.cons.health_data_consent).toBe(false);
     expect(t.cons.health_refused_at).toBeInstanceOf(Date);
@@ -318,7 +319,7 @@ describe("DPDP health-data consent gate", () => {
     '8b. %s to the notice ("Is that okay?") is a YES (Tanglish / Tamil too)',
     async (word) => {
       const t = setup();
-      await t.run("hi");
+      await t.run(HEALTH);
       await t.run(word);
       expect(t.cons.health_data_consent).toBe(true);
     },
@@ -326,7 +327,7 @@ describe("DPDP health-data consent gate", () => {
 
   it("8c. illa / vendam is a NO", async () => {
     const t = setup();
-    await t.run("hi");
+    await t.run(HEALTH);
     await t.run("illa");
     expect(t.cons.health_data_consent).toBe(false);
     expect(t.cons.health_refused_at).toBeInstanceOf(Date);
@@ -334,7 +335,7 @@ describe("DPDP health-data consent gate", () => {
 
   it("8. unclear answers repeat the YES/NO question and never ask for health information", async () => {
     const t = setup();
-    await t.run("hi");
+    await t.run(HEALTH);
     // not a question, or health detail: asked again (a real question is answered: test 0e)
     for (const msg of ["maybe", "hmm", "I have a heart problem"]) await t.run(msg);
     expect(texts(t).slice(1)).toEqual(Array(3).fill(fixedReply("health_consent_unclear", "en")));
@@ -363,7 +364,7 @@ describe("DPDP health-data consent gate", () => {
     const t = setup({
       cons: { health_refused_at: new Date(), health_refused_version: "dpdp-health-v0" },
     });
-    await t.run("hello");
+    await t.run(HEALTH);
     expect(texts(t)).toEqual([fixedReply("health_notice", "en")]);
   });
 
@@ -376,7 +377,7 @@ describe("DPDP health-data consent gate", () => {
       },
       state: S.Discovery, // past the opening list
     });
-    await t.run("hi");
+    await t.run("I need help for my mother's knee");
     expect(t.generate).toHaveBeenCalledTimes(1);
     expect(texts(t)).toEqual(["Hello! How can I help?"]);
   });
@@ -422,13 +423,35 @@ describe("DPDP health-data consent gate", () => {
 
   it("12. repeated messages do not get past the gate", async () => {
     const t = setup();
-    await t.run("hi", "wamid.A");
-    await t.run("hi", "wamid.A"); // same message delivered twice: still one reply
+    await t.run(HEALTH, "wamid.A");
+    await t.run(HEALTH, "wamid.A"); // same message delivered twice: still one reply
     expect(texts(t)).toEqual([fixedReply("health_notice", "en")]);
-    await t.run("hi", "wamid.B");
-    await t.run("hi", "wamid.C");
+    await t.run(HEALTH, "wamid.B");
+    await t.run(HEALTH, "wamid.C");
     expect(t.generate).not.toHaveBeenCalled();
     expect(t.cons.health_data_consent).toBe(false);
+  });
+
+  it("12b. 'hi' in the middle of the chat brings back the two first cards, never the notice (22 Nov)", async () => {
+    for (const cons of [{}, { notice_sent_at: new Date(), notice_sent_version: NOTICE_VERSION }]) {
+      const t = setup({ cons });
+      await t.run("hi");
+      expect(texts(t)).toEqual([BILL_CARD_TEXT("en"), OVERPAY_CARD_TEXT("en")]);
+      expect(t.conv.pending_action).toBe("flow:start");
+      expect(t.cons.health_data_consent).toBe(false);
+      expect(t.generate).not.toHaveBeenCalled();
+    }
+  });
+
+  it("12c. 'Hi' from a returning customer (consent given, chat in DISCOVERY) gets the cards, not the LLM (22 Nov)", async () => {
+    // live chat 22 Nov 08:48: "Hi" -> "Got it! How can I assist you today?" instead of the two first cards
+    const t = setup({
+      cons: { health_data_consent: true, notice_version: NOTICE_VERSION, consent_timestamp: new Date() },
+      state: S.Discovery,
+    });
+    await t.run("Hi");
+    expect(texts(t)).toEqual([BILL_CARD_TEXT("en"), OVERPAY_CARD_TEXT("en")]);
+    expect(t.generate).not.toHaveBeenCalled();
   });
 
   it("silence or an unrelated message is never read as YES", async () => {

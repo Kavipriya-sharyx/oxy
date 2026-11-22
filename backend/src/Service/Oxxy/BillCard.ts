@@ -1,7 +1,7 @@
 // Client sequence 1 (19-20 Nov 2026, hand sketch "Reduce Your Medical Bill Now"): the first card of a chat.
 //   image (client's picture) + "up to 40% discount"
 //   [Calculate discount] -> "Enter your bill amount" -> the discount at 30%
-//   [Learn More]         -> "Regular Health Insurance vs Oxxy" (the points published on www.oxxy.in)
+//   [Learn More]         -> the client's comparison picture + its rows as text (22 Nov)
 //   [Activate Oxxy]      -> the plans -> the chosen plan card (price + GST) -> the existing activation steps
 //   "Talk to Us" (the sketch's fourth item) is left out for now; WhatsApp shows at most three reply buttons and
 //   the call link in the text was dropped on 20 Nov, to be added somewhere else later
@@ -161,10 +161,6 @@ export function billResultCard(amount: number, l?: Lg): OutboundMessage {
 }
 
 /**
- * "Regular Health Insurance vs Oxxy": the six points published on www.oxxy.in ("Where Oxxy scores better than
- * health insurances"). WhatsApp has no table, so the two columns are two blocks. Oxxy is never called insurance.
- */
-/**
  * Learn More's picture: the client's "Why Choose Oxxy Medical Discount Plans?" comparison (20 Nov), from
  * OXXY_COMPARE_IMAGE_URL, else oxxy-compare-card.jpg next to the welcome image; no link = text only.
  */
@@ -175,81 +171,86 @@ export function compareImageHeader(): InteractiveHeader | undefined {
   return origin ? { type: "image", link: `${origin}/oxxy-compare-card.jpg` } : undefined;
 }
 
+/**
+ * The rows of the client's picture "Why Choose Oxxy Medical Discount Plans?" (oxxy-compare-card.jpg), in its
+ * order and words (client, 22 Nov: the text under the picture was different from it). [topic, Oxxy, insurance]
+ */
+const COMPARE_ROWS: [string, string, string][] = [
+  ["Cost to you", "Low, fixed subscription (monthly or annual)", "Higher premiums (annual, increases with age)"],
+  [
+    "Coverage",
+    "Instant discounts on hospitals, diagnostics, medicines, consultations & procedures",
+    "Pays part of hospital bills (after approval & documents)",
+  ],
+  ["Waiting period", "Only 3–5 working days (for activation)", "Often 30 days – 4 years (for certain conditions)"],
+  ["Age limit", "No age limit", "Entry age limits (usually 60–65 years)"],
+  ["Pre-existing conditions", "Included", "Often excluded or covered after a waiting period"],
+  ["Usage limit", "Unlimited use (as often as you need)", "Limited to sum assured (e.g. ₹5–50 lakhs)"],
+  [
+    "Network",
+    "Leading hospitals & labs PAN-India",
+    "Cashless only at specific hospitals",
+  ],
+  [
+    "Claims",
+    "No claims, no paperwork: show your Oxxy code, get the discounted price",
+    "Claim filing, documents and approval (can take days/weeks)",
+  ],
+];
+const COMPARE_ROWS_HI: [string, string, string][] = [
+  ["आपका खर्च", "कम, तय सब्सक्रिप्शन (मासिक या सालाना)", "ज़्यादा प्रीमियम (सालाना, उम्र के साथ बढ़ता है)"],
+  [
+    "कवरेज",
+    "अस्पताल, जांच, दवाइयों, परामर्श और प्रक्रियाओं पर तुरंत छूट",
+    "अस्पताल बिल का एक हिस्सा (मंज़ूरी और कागज़ात के बाद)",
+  ],
+  ["इंतज़ार", "सिर्फ़ 3–5 कार्य दिवस (एक्टिवेशन के लिए)", "अक्सर 30 दिन – 4 साल (कुछ बीमारियों के लिए)"],
+  ["उम्र सीमा", "कोई उम्र सीमा नहीं", "प्रवेश की उम्र सीमा (आमतौर पर 60–65 साल तक)"],
+  ["पुरानी बीमारियाँ", "शामिल", "अक्सर बाहर या इंतज़ार के बाद कवर"],
+  ["इस्तेमाल की सीमा", "असीमित इस्तेमाल (जितनी बार ज़रूरत हो)", "बीमा राशि तक सीमित (जैसे ₹5–50 लाख)"],
+  ["नेटवर्क", "पूरे भारत में प्रमुख अस्पताल और लैब", "सीमित नेटवर्क (कैशलेस सिर्फ़ कुछ अस्पतालों में)"],
+  [
+    "क्लेम",
+    "कोई क्लेम या कागज़ नहीं: अपना Oxxy कोड दिखाएँ और छूट वाली कीमत पाएँ",
+    "क्लेम, कागज़ात और मंज़ूरी ज़रूरी (दिन/हफ़्ते लग सकते हैं)",
+  ],
+];
+const COMPARE_ROWS_HINGLISH: [string, string, string][] = [
+  ["Aapka kharcha", "Kam, fixed subscription (monthly ya annual)", "Zyada premium (annual, umar ke saath badhta hai)"],
+  [
+    "Coverage",
+    "Hospital, tests, medicines, consultation, procedures par instant discount",
+    "Hospital bill ka hissa (approval ke baad)",
+  ],
+  ["Waiting", "Sirf 3–5 working days (activation ke liye)", "Aksar 30 din – 4 saal (kuch conditions ke liye)"],
+  ["Age limit", "Koi age limit nahi", "Entry age limit (aam taur par 60–65 saal tak)"],
+  ["Pre-existing conditions", "Included", "Aksar excluded ya waiting period ke baad cover"],
+  ["Usage limit", "Unlimited use (jitni baar zaroorat ho)", "Sum assured tak limited (jaise ₹5–50 lakh)"],
+  ["Network", "PAN-India leading hospitals aur labs", "Cashless sirf kuch hospitals mein"],
+  [
+    "Claims",
+    "No claim, no paperwork: Oxxy code dikhayein, discounted price paayein",
+    "Claim, documents aur approval (din/hafte lagte hain)",
+  ],
+];
+
 export function billCompareCard(l?: Lg): OutboundMessage {
+  const rows = l === "hi" ? COMPARE_ROWS_HI : l === "hinglish" ? COMPARE_ROWS_HINGLISH : COMPARE_ROWS;
   const body = [
     tr(
       l,
-      "*Regular Health Insurance vs Oxxy*",
-      "*सामान्य हेल्थ इंश्योरेंस बनाम Oxxy*",
-      "*Regular Health Insurance vs Oxxy*",
+      "*Why Choose Oxxy Medical Discount Plans?*",
+      "*Oxxy मेडिकल डिस्काउंट प्लान क्यों चुनें?*",
+      "*Oxxy Medical Discount Plans kyun chunein?*",
     ),
-    "",
-    tr(l, "🛡️ *Health insurance*", "🛡️ *हेल्थ इंश्योरेंस*", "🛡️ *Health insurance*"),
-    tr(
-      l,
-      "• Payout capped at the sum insured",
-      "• भुगतान बीमा राशि तक सीमित",
-      "• Payout sum insured tak limited",
-    ),
-    tr(
-      l,
-      "• 2–4 year waiting period for pre-existing diseases",
-      "• पुरानी बीमारियों के लिए 2–4 साल इंतज़ार",
-      "• Pre-existing bimariyon ke liye 2–4 saal waiting",
-    ),
-    tr(l, "• Age cut-offs apply", "• उम्र की सीमा लागू", "• Age limit lagu hoti hai"),
-    tr(l, "• No booking help", "• बुकिंग में कोई मदद नहीं", "• Booking mein koi help nahi"),
-    tr(
-      l,
-      "• Home medicine delivery not included",
-      "• घर पर दवा डिलीवरी शामिल नहीं",
-      "• Ghar par medicine delivery shamil nahi",
-    ),
-    tr(l, "• Fixed usage limits", "• इस्तेमाल की तय सीमा", "• Fixed usage limit"),
-    "",
-    tr(l, "💚 *Oxxy*", "💚 *Oxxy*", "💚 *Oxxy*"),
-    tr(
-      l,
-      "• No cap on your bill (₹5,000 to ₹5 crore+)",
-      "• बिल पर कोई सीमा नहीं (₹5,000 से ₹5 करोड़+)",
-      "• Bill par koi limit nahi (₹5,000 se ₹5 crore+)",
-    ),
-    tr(
-      l,
-      "• Works on pre-existing diseases from day one on Thrive & Infinity",
-      "• Thrive और Infinity पर पहले दिन से पुरानी बीमारियों पर भी लागू",
-      "• Thrive aur Infinity par pehle din se pre-existing bimariyon par bhi lagu",
-    ),
-    tr(
-      l,
-      "• No age limit (0 to 120 years)",
-      "• कोई उम्र सीमा नहीं (0 से 120 साल)",
-      "• Koi age limit nahi (0 se 120 saal)",
-    ),
-    tr(
-      l,
-      "• Express appointment booking at partner hospitals",
-      "• पार्टनर अस्पतालों में एक्सप्रेस अपॉइंटमेंट",
-      "• Partner hospitals mein express appointment",
-    ),
-    tr(
-      l,
-      "• Discounted medicine delivery at home",
-      "• घर पर छूट वाली दवा डिलीवरी",
-      "• Ghar par discount wali medicine delivery",
-    ),
-    tr(
-      l,
-      "• Unlimited use on tests, treatments and surgeries",
-      "• टेस्ट, इलाज और सर्जरी पर असीमित इस्तेमाल",
-      "• Tests, treatment aur surgery par unlimited use",
-    ),
+    tr(l, "✅ Oxxy   ❌ Regular health insurance", "✅ Oxxy   ❌ सामान्य हेल्थ इंश्योरेंस", "✅ Oxxy   ❌ Regular health insurance"),
+    ...rows.flatMap(([topic, oxxy, other]) => ["", `*${topic}*`, `✅ ${oxxy}`, `❌ ${other}`]),
     "",
     tr(
       l,
-      "Oxxy is not insurance: it lowers your medical bills and works alongside any insurance you already have. Your insurance remains valuable, so please keep it.",
-      "Oxxy इंश्योरेंस नहीं है: यह आपके मेडिकल बिल कम करता है और आपके मौजूदा इंश्योरेंस के साथ काम करता है। आपका इंश्योरेंस ज़रूरी है, कृपया उसे जारी रखें।",
-      "Oxxy insurance nahi hai: yeh aapke medical bills kam karta hai aur aapke existing insurance ke saath kaam karta hai. Aapka insurance zaroori hai, please use jaari rakhein.",
+      "Oxxy is not insurance; keep your insurance, Oxxy works alongside it.",
+      "Oxxy इंश्योरेंस नहीं है। कृपया अपना इंश्योरेंस जारी रखें; Oxxy उसके साथ काम करता है।",
+      "Oxxy insurance nahi hai; apna insurance rakhein, Oxxy saath mein kaam karta hai.",
     ),
   ].join("\n");
   return {

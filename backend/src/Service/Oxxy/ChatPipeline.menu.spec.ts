@@ -276,11 +276,13 @@ describe("client sequence 1: the Reduce Your Medical Bill card (20 Nov)", () => 
     expect(last(t).text).not.toMatch(/could not read an amount/);
   });
 
-  it("Learn More: insurance vs Oxxy from oxxy.in, Oxxy never called insurance", async () => {
+  it("Learn More: the rows of the client's comparison picture (22 Nov), Oxxy never called insurance", async () => {
     const t = setup({ state: S.IntentMenu });
     await t.run("bill_learn");
     const body = String(last(t).text);
-    expect(body).toMatch(/Regular Health Insurance vs Oxxy/);
+    expect(body).toMatch(/Why Choose Oxxy Medical Discount Plans\?/);
+    expect(body).toContain("*Claims*\n✅ No claims, no paperwork");
+    expect(body.length).toBeLessThanOrEqual(1024);
     expect(body).toMatch(/No age limit/);
     expect(body).toMatch(/Oxxy is not insurance/);
   });
@@ -322,7 +324,7 @@ describe("client sequence 1: the Reduce Your Medical Bill card (20 Nov)", () => 
     prices();
     const t = setup({ state: S.IntentMenu });
     await t.run("Learn More");
-    expect(last(t).text).toMatch(/Regular Health Insurance vs Oxxy/);
+    expect(last(t).text).toMatch(/Why Choose Oxxy Medical Discount Plans/);
     await t.run("Activate Oxxy");
     expect((last(t).msg as { kind: string }).kind).toBe("list");
     await t.run("Calculate discount");

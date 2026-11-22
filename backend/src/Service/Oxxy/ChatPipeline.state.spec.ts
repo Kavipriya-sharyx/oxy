@@ -105,7 +105,7 @@ describe("the pipeline changes state only through ConversationRepository", () =>
     };
     const t = setup({ claude, state: S.IntentMenu });
     await t.pipeline.process(
-      { waNumber: "919800000001", waMessageId: "wamid.IN2", text: "hi" },
+      { waNumber: "919800000001", waMessageId: "wamid.IN2", text: "I need help for my mother's knee" },
       t.saved,
     );
     expect(t.transition).toHaveBeenCalledWith("v1", S.Discovery);
