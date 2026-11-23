@@ -230,7 +230,7 @@ describe("client sequence 3: the Why Overpay first card (20 Nov)", () => {
     await t.run("home_book");
     const card = msg<{ body: string; buttons: { id: string }[] }>(t);
     expect(card.body).toMatch(/\*Book Appointment\*/);
-    expect(card.buttons.map((b) => b.id)).toEqual(["appt_start"]);
+    expect(card.buttons.map((b) => b.id)).toEqual(["appt_centre", "appt_date", "appt_time"]);
   });
 });
 

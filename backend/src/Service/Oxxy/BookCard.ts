@@ -23,7 +23,10 @@ const tr = (l: Lg, en: string, hi: string, hinglish: string) => say({ en, hi, hi
 export const BOOK_IDS = {
   reduce: "home_reduce", // sequence 3 ① -> the bill card
   book: "home_book", // sequence 3 ② -> the booking card
-  start: "appt_start", // the booking card's button
+  start: "appt_start", // legacy start
+  centre: "appt_centre", // "Select Centre"
+  date: "appt_date", // "Appointment Date"
+  time: "appt_time", // "Appointment Time"
   other: "appt_other", // "Other hospital": type the name
   self: "appt_self",
   family: "appt_family",
@@ -102,10 +105,10 @@ export const CHAT_STARTERS = [
 /** "Why Overpay Your Medical Bills" (typed, or a template quick reply): the Why Overpay card */
 export const asksOverpayCard = (text: string) =>
   /^why overpay( your)?( medical)? bills?\s*[?.!]?$/i.test((text || "").trim());
-/** ② on the first card; the booking card's own button is appt_start */
+/** ② on the first card; the booking card's own buttons are appt_centre / appt_date / appt_time */
 export const asksBookCard = (text: string) => (text || "").trim().toLowerCase() === BOOK_IDS.book;
 export const asksStartBooking = (text: string) =>
-  /^(appt_start|book appointment|book an appointment|book a appointment)\s*[.!]?$/i.test(
+  /^(appt_start|appt_centre|appt_date|appt_time|select centre|select center|centre chunein|सेंटर चुनें|appointment date|appointment ki date|अपॉइंटमेंट तारीख|तारीख चुनें|appointment time|appointment ka time|अपॉइंटमेंट समय|समय चुनें|book appointment|book an appointment|book a appointment)\s*[.!]?$/i.test(
     (text || "").trim(),
   );
 
@@ -135,8 +138,16 @@ export function bookCard(l?: Lg): OutboundMessage {
     body: BOOK_CARD_TEXT(l),
     buttons: [
       {
-        id: BOOK_IDS.start,
-        title: tr(l, "Book Appointment", "अपॉइंटमेंट बुक करें", "Appointment book"),
+        id: BOOK_IDS.centre,
+        title: tr(l, "Select Centre", "सेंटर चुनें", "Select Centre"),
+      },
+      {
+        id: BOOK_IDS.date,
+        title: tr(l, "Appointment Date", "अपॉइंटमेंट तारीख", "Appointment Date"),
+      },
+      {
+        id: BOOK_IDS.time,
+        title: tr(l, "Appointment Time", "अपॉइंटमेंट समय", "Appointment Time"),
       },
     ],
   };

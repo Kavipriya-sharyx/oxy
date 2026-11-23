@@ -208,7 +208,7 @@ export const TEMPLATES: TemplateDef[] = [
     headerImage: BOOK_IMAGE_FILE,
     body: "*Book Appointment*\n\nBook your visit to a hospital or diagnostic centre near you, and get a medical discount on your bill with Oxxy.\n\n📍 Select Centre\n📅 Appointment Date\n⏰ Appointment Time",
     footer: "Reply STOP to opt out",
-    quickReplies: ["Book Appointment"],
+    quickReplies: ["Select Centre", "Appointment Date", "Appointment Time"],
   },
   // Learn More (20 Nov): the client's comparison picture; inside the window the same card is billCompareCard
   {
