@@ -1812,26 +1812,19 @@ export class ChatPipelineService {
   // ---- The voice-aligned button flow (client, 17 Nov; Service/Oxxy/GuidedFlow.ts) ----
 
   /**
-   * The first card of a chat and "Main Menu": the client's "Reduce Your Medical Bill Now" card (sequence 1,
-   * 20 Nov; Service/Oxxy/BillCard.ts). Its buttons are read by handleBillCard (Trigger W). The 17 Nov welcome
-   * card (welcomeCard) is no longer sent; its button ids still work for chats that already have it.
+   * The first card of a chat and "Main Menu": the client's "Why Overpay Your Medical Bills?" card
+   * (unified starting card matching outbound flow). Its buttons are:
+   * [Reduce My Bill] -> sequence 1 (the bill card)
+   * [Book Appointment] -> sequence 2 (the booking card)
    */
   private async startGuidedFlow(m: Inbound, s: Saved) {
-    // client order (21 Nov): first "Reduce Your Medical Bill Now" (sequence 1: Calculate discount / Learn More /
-    // Activate Oxxy, read by handleBillCard), then "Why Overpay Your Medical Bills?" (sequence 3: Reduce My Bill /
-    // Book Appointment, read by handleAppointment)
-    const firstSent = !(await this.alreadyReplied(m.waMessageId));
-    await this.sendAndSave(s.customer.id, billCard(s.customer.language), m.waMessageId);
-    if (firstSent)
-      await this._Wa
-        .send(s.customer.id, overpayCard(s.customer.language), "reply")
-        .catch((e) => this.logger.warn(`second card not sent: ${(e as Error).message}`));
+    await this.sendAndSave(s.customer.id, overpayCard(s.customer.language), m.waMessageId);
     await this.setPending(s, "flow:start");
     if (s.conversation.state === ConversationState.New) {
       await this.setState(s, [ConversationState.IntentMenu]);
       await this.requestVoiceCall(s, "new WhatsApp enquiry");
     }
-    await this.recordTrigger(s, "W", "reduce your medical bill + why overpay cards");
+    await this.recordTrigger(s, "W", "why overpay card (guided flow start)");
   }
 
   /**
@@ -1892,10 +1885,8 @@ export class ChatPipelineService {
       this.sendAndSave(s.customer.id, msg, m.waMessageId);
     const pending = s.conversation.pending_action;
 
-    if (asksOverpayCard(text)) {
-      await this.setPending(s, "flow:start");
-      await reply(overpayCard(l));
-      await this.recordTrigger(s, "W", "why overpay card (typed / chat-start option)");
+    if (asksOverpayCard(text) || (!m.location && (isGreeting(text) || asksMainMenu(text)))) {
+      await this.startGuidedFlow(m, s);
       return true;
     }
     if (asksReduceBill(text)) {

@@ -146,10 +146,10 @@ const HEALTH = "my mother needs a knee surgery"; // health detail: the notice fi
 afterEach(() => jest.restoreAllMocks());
 
 describe("DPDP health-data consent gate", () => {
-  it("0. a brand-new chat gets the client's first cards (Reduce bill, then Why Overpay, 21 Nov), no notice and no health question", async () => {
+  it("0. a brand-new chat gets the client's first card (Why Overpay, matching outbound), no notice and no health question", async () => {
     const t = setup({ state: S.New });
     await t.run("hi");
-    expect(texts(t)).toEqual([BILL_CARD_TEXT("en"), OVERPAY_CARD_TEXT("en")]); // client order, 21 Nov
+    expect(texts(t)).toEqual([OVERPAY_CARD_TEXT("en")]); // unified inbound/outbound flow
     expect(t.conv.pending_action).toBe("flow:start");
     expect(t.conv.state).toBe(S.IntentMenu);
     expect(t.cons.notice_sent_at).toBeNull();
@@ -432,11 +432,11 @@ describe("DPDP health-data consent gate", () => {
     expect(t.cons.health_data_consent).toBe(false);
   });
 
-  it("12b. 'hi' in the middle of the chat brings back the two first cards, never the notice (22 Nov)", async () => {
+  it("12b. 'hi' in the middle of the chat brings back the first card, never the notice (22 Nov)", async () => {
     for (const cons of [{}, { notice_sent_at: new Date(), notice_sent_version: NOTICE_VERSION }]) {
       const t = setup({ cons });
       await t.run("hi");
-      expect(texts(t)).toEqual([BILL_CARD_TEXT("en"), OVERPAY_CARD_TEXT("en")]);
+      expect(texts(t)).toEqual([OVERPAY_CARD_TEXT("en")]);
       expect(t.conv.pending_action).toBe("flow:start");
       expect(t.cons.health_data_consent).toBe(false);
       expect(t.generate).not.toHaveBeenCalled();
@@ -458,7 +458,7 @@ describe("DPDP health-data consent gate", () => {
       state: S.Discovery,
     });
     await t.run("Hi");
-    expect(texts(t)).toEqual([BILL_CARD_TEXT("en"), OVERPAY_CARD_TEXT("en")]);
+    expect(texts(t)).toEqual([OVERPAY_CARD_TEXT("en")]);
     expect(t.generate).not.toHaveBeenCalled();
   });
 
