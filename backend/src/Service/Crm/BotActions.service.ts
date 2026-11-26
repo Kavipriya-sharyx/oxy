@@ -10,6 +10,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from "@nestjs/common";
@@ -55,6 +56,9 @@ import { BookingService } from "@Service/Oxxy/Booking.service";
 import { DateWindowService } from "@Service/Oxxy/DateWindow.service";
 import { FollowUpSchedulerService } from "@Service/Oxxy/FollowUpScheduler.service";
 import { WhatsappClient } from "@Service/Oxxy/WhatsappClient.service";
+import { GoogleMapsService } from "@Service/Maps/GoogleMaps.service";
+import { distanceKm } from "@Service/Oxxy/CentreSearch.service";
+import { looksGovernment } from "@Service/Oxxy/BookCard";
 import {
   hhmm,
   isQuietHours,
@@ -132,6 +136,7 @@ export class BotActionsService {
     private readonly _DateWindow: DateWindowService,
     private readonly _Scheduler: FollowUpSchedulerService,
     private readonly _Wa: WhatsappClient,
+    @Optional() private readonly _Maps?: GoogleMapsService,
   ) {}
 
   // ---------------------------------------------------------------- helpers
@@ -334,28 +339,108 @@ export class BotActionsService {
         await n.save();
       }
     }
+
+    const partnerCentres: Array<{
+      centre_id: string | null;
+      name: string;
+      branch: string | null;
+      locality: string | null;
+      city: string | null;
+      type: string | null;
+      specialisations: string[];
+      distance_km: number | null;
+      private_status_verified: boolean;
+      is_partner: boolean;
+      option_type: "oxxy_partner" | "nearby_private_option";
+      address?: string | null;
+      maps_url?: string | null;
+      verified_at: Date | string | null;
+      verification_source: string | null;
+    }> = list.map((c) => ({
+      centre_id: c.id,
+      name: c.name,
+      branch: c.branch ?? null,
+      locality: c.locality ?? null,
+      city: c.city,
+      type: c.centre_type ?? null,
+      specialisations: c.specialisations ?? [],
+      distance_km: c.distance_km != null ? Math.round(c.distance_km * 10) / 10 : null,
+      private_status_verified: !!c.is_private && !!c.verified,
+      is_partner: true,
+      option_type: "oxxy_partner",
+      verified_at: c.verified_at ?? null,
+      verification_source: c.verification_source ?? null,
+    }));
+
+    // Fallback: When the directory is empty or has fewer than 5 verified centres,
+    // fetch real nearby private clinics/hospitals from Google Maps Places API as "nearby private options" (not partners)
+    if (partnerCentres.length < 5 && this._Maps?.enabled) {
+      let origin: { latitude: number; longitude: number } | null =
+        lat != null && lon != null ? { latitude: lat, longitude: lon } : null;
+      if (!origin && (q.locality || q.city)) {
+        const placeQuery = [q.locality, q.city].filter(Boolean).join(", ");
+        const geo = await this._Maps.geocode(placeQuery).catch(() => null);
+        if (geo?.latitude != null && geo?.longitude != null) {
+          origin = { latitude: geo.latitude, longitude: geo.longitude };
+        }
+      }
+      if (origin) {
+        const knownNames = new Set(partnerCentres.map((c) => c.name.trim().toLowerCase()));
+        const places = await this._Maps.nearbyCandidates(origin, radius).catch(() => []);
+        for (const p of places) {
+          if (partnerCentres.length >= 5) break;
+          if (!p.name || knownNames.has(p.name.trim().toLowerCase()) || looksGovernment(p.name)) continue;
+          knownNames.add(p.name.trim().toLowerCase());
+          const shortAddr = p.address ? p.address.split(",").slice(0, 2).join(",").trim() : null;
+          const dist =
+            p.latitude != null && p.longitude != null && origin
+              ? Math.round(distanceKm(origin.latitude, origin.longitude, p.latitude, p.longitude) * 10) / 10
+              : null;
+          partnerCentres.push({
+            centre_id: null,
+            name: p.name,
+            branch: null,
+            locality: shortAddr || q.locality || null,
+            city: q.city ?? null,
+            type: "clinic",
+            specialisations: q.specialisation ? [q.specialisation] : ["general"],
+            distance_km: dist,
+            private_status_verified: false,
+            is_partner: false,
+            option_type: "nearby_private_option",
+            address: p.address ?? null,
+            maps_url: p.maps_url ?? null,
+            verified_at: null,
+            verification_source: "google_places",
+          });
+        }
+      }
+    }
+
+    const hasPartners = partnerCentres.some((c) => c.is_partner);
+    const hasUnverified = partnerCentres.some((c) => !c.is_partner);
+    let note: string | null = null;
+    let source = "oxxy_directory";
+
+    if (!hasPartners && hasUnverified) {
+      source = "google_places";
+      note = `No Oxxy partner centres in directory for ${q.city || "this area"}. Showing ${partnerCentres.length} nearby private options (not Oxxy partners).`;
+    } else if (hasPartners && hasUnverified) {
+      source = "mixed";
+      note = `Showing verified Oxxy partner(s) and nearby private options from Google search.`;
+    } else if (!hasPartners && !hasUnverified) {
+      note = "No verified option in that area. Ask to widen the radius or name a centre.";
+    } else if (partnerCentres.length < 5) {
+      note = `Only ${partnerCentres.length} verified option(s) found.`;
+    }
+
     return {
-      count: list.length,
+      count: partnerCentres.length,
       radius_km: radius,
-      note:
-        list.length === 0
-          ? "No verified option in that area. Ask to widen the radius or name a centre."
-          : list.length < 5
-            ? `Only ${list.length} verified option(s) found.`
-            : null,
-      centres: list.map((c) => ({
-        centre_id: c.id,
-        name: c.name,
-        branch: c.branch ?? null,
-        locality: c.locality ?? null,
-        city: c.city,
-        type: c.centre_type ?? null,
-        specialisations: c.specialisations ?? [],
-        distance_km: c.distance_km != null ? Math.round(c.distance_km * 10) / 10 : null,
-        private_status_verified: !!c.is_private && !!c.verified,
-        verified_at: c.verified_at ?? null,
-        verification_source: c.verification_source ?? null,
-      })),
+      source,
+      is_directory_partner: hasPartners,
+      note,
+      centres: partnerCentres,
     };
   }
 

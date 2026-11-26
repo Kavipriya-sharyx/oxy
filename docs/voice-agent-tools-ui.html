@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oxxy Voice Agent Tools - Interactive UI Documentation</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --primary: #0284c7;
+      --primary-hover: #0369a1;
+    }
+    pre {
+      scrollbar-width: thin;
+    }
+    .tab-active {
+      border-bottom: 2px solid #0284c7;
+      color: #0284c7;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen font-sans antialiased p-4 sm:p-6 md:p-8">
+
+  <!-- Header Banner -->
+  <header class="max-w-6xl mx-auto mb-8 bg-gradient-to-r from-sky-600 to-indigo-700 rounded-2xl p-6 sm:p-8 text-white shadow-lg">
+    <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-400/30 text-white border border-white/20">Oxxy Voice AI v1.0</span>
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-400/30 text-white border border-white/20">Live Server Connected</span>
+        </div>
+        <h1 class="text-2xl sm:text-3xl font-bold tracking-tight">Oxxy Voice Agent Tools & API Documentation</h1>
+        <p class="text-sky-100 text-sm sm:text-base mt-1 max-w-2xl">
+          Voice AI provider-ku (Vapi, Retell, LiveKit, SharyX) tools config pandradhukana complete UI guide. Inbound & Outbound real-time tool calling details.
+        </p>
+      </div>
+      <div class="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+        <div class="bg-black/20 backdrop-blur rounded-xl p-3 text-xs border border-white/10">
+          <div class="text-sky-200 font-mono">Base API Endpoint</div>
+          <div class="font-semibold font-mono text-white mt-0.5">https://oxxy.sharyx.ai/api/v1/Actions</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto">
+
+    <!-- Navigation Tabs -->
+    <div class="flex border-b border-slate-200 mb-6 overflow-x-auto space-x-6 text-sm">
+      <button onclick="switchTab('tools')" id="tab-btn-tools" class="tab-btn py-3 px-1 border-b-2 font-medium tab-active transition whitespace-nowrap">
+        🛠️ All Tools (8 Tools)
+      </button>
+      <button onclick="switchTab('search')" id="tab-btn-search" class="tab-btn py-3 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-800 font-medium transition whitespace-nowrap">
+        🏥 search_centres Deep-Dive
+      </button>
+      <button onclick="switchTab('simulator')" id="tab-btn-simulator" class="tab-btn py-3 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-800 font-medium transition whitespace-nowrap">
+        ⚡ Live Voice Simulator
+      </button>
+      <button onclick="switchTab('flows')" id="tab-btn-flows" class="tab-btn py-3 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-800 font-medium transition whitespace-nowrap">
+        🔄 Inbound / Outbound Flows
+      </button>
+      <button onclick="switchTab('provider')" id="tab-btn-provider" class="tab-btn py-3 px-1 border-b-2 border-transparent text-slate-500 hover:text-slate-800 font-medium transition whitespace-nowrap">
+        ⚙️ Provider Setup (Vapi / Retell)
+      </button>
+    </div>
+
+    <!-- TAB 1: ALL TOOLS -->
+    <section id="tab-tools" class="tab-content space-y-6">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div>
+          <h2 class="font-semibold text-base text-slate-900">Registered Voice Tools</h2>
+          <p class="text-xs text-slate-500">Total 8 tools configured for Oxxy Voice Assistant</p>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="filterTools('all')" class="filter-chip px-3 py-1 text-xs rounded-full bg-sky-100 text-sky-800 font-medium">All (8)</button>
+          <button onclick="filterTools('lead')" class="filter-chip px-3 py-1 text-xs rounded-full bg-slate-100 text-slate-600">Lead & Info</button>
+          <button onclick="filterTools('hospital')" class="filter-chip px-3 py-1 text-xs rounded-full bg-slate-100 text-slate-600">Centres & Booking</button>
+          <button onclick="filterTools('whatsapp')" class="filter-chip px-3 py-1 text-xs rounded-full bg-slate-100 text-slate-600">WhatsApp & OTP</button>
+        </div>
+      </div>
+
+      <!-- Tools Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="tools-container">
+
+        <!-- Tool 1: check_existing_lead -->
+        <div class="tool-card bg-white rounded-xl p-5 border border-slate-200 shadow-sm hover:shadow transition flex flex-col justify-between" data-category="lead">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-bold text-sky-600">check_existing_lead</span>
+              <span class="px-2 py-0.5 text-xs font-semibold rounded bg-blue-100 text-blue-700">GET</span>
+            </div>
+            <p class="text-xs text-slate-600 mb-3">
+              Caller ID (phone number) vechu already lead irukka, avanga name, previous appointment irukkanu check pannum.
+            </p>
+            <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-xs space-y-1 mb-3">
+              <div class="flex justify-between text-slate-500">
+                <span>When to call:</span>
+                <span class="text-slate-800 font-medium">First 5 seconds of the call</span>
+              </div>
+              <div class="flex justify-between text-slate-500">
+                <span>Endpoint:</span>
+                <span class="font-mono text-slate-700">/Actions/CheckLead?phone=...</span>
+              </div>
+            </div>
+          </div>
+          <button onclick="showToolModal('check_existing_lead')" class="w-full py-1.5 px-3 text-xs font-medium rounded-lg bg-sky-50 text-sky-600 hover:bg-sky-100 transition border border-sky-200 flex items-center justify-center gap-1">
+            <span>View Full Schema & Code</span> ➔
+          </button>
+        </div>
+
+        <!-- Tool 2: search_centres -->
+        <div class="tool-card bg-white rounded-xl p-5 border-2 border-sky-400 shadow-md flex flex-col justify-between" data-category="hospital">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-1.5">
+                <span class="font-mono text-sm font-bold text-sky-600">search_centres</span>
+                <span class="px-1.5 py-0.5 text-[10px] bg-amber-100 text-amber-800 rounded font-bold uppercase">Critical</span>
+              </div>
+              <span class="px-2 py-0.5 text-xs font-semibold rounded bg-blue-100 text-blue-700">GET</span>
+            </div>
+            <p class="text-xs text-slate-600 mb-3">
+              Caller request panna city, locality, and doctor specialization-ku verified private hospitals and clinics list fetch pannum (&lt;50ms).
+            </p>
+            <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-xs space-y-1 mb-3">
+              <div class="flex justify-between text-slate-500">
+                <span>When to call:</span>
+                <span class="text-slate-800 font-medium">Caller asks for hospital / clinic / discount</span>
+              </div>
+              <div class="flex justify-between text-slate-500">
+                <span>Endpoint:</span>
+                <span class="font-mono text-slate-700">/Actions/SearchCentres?city=...</span>
+              </div>
+            </div>
+          </div>
+          <button onclick="switchTab('search')" class="w-full py-1.5 px-3 text-xs font-medium rounded-lg bg-sky-600 text-white hover:bg-sky-700 transition flex items-center justify-center gap-1 shadow-sm">
+            <span>Explore Deep Dive & Simulator</span> ➔
+          </button>
+        </div>
+
+        <!-- Tool 3: create_or_update_lead -->
+        <div class="tool-card bg-white rounded-xl p-5 border border-slate-200 shadow-sm hover:shadow transition flex flex-col justify-between" data-category="lead">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-bold text-sky-600">create_or_update_lead</span>
+              <span class="px-2 py-0.5 text-xs font-semibold rounded bg-emerald-100 text-emerald-700">POST</span>
+            </div>
+            <p class="text-xs text-slate-600 mb-3">
+              Caller kitta irundhu name, city, medical requirement collect aanavudane CRM lead create/update pannum.
+            </p>
+            <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-xs space-y-1 mb-3">
+              <div class="flex justify-between text-slate-500">
+                <span>When to call:</span>
+                <span class="text-slate-800 font-medium">As soon as Name / City is known</span>
+              </div>
+              <div class="flex justify-between text-slate-500">
+                <span>Endpoint:</span>
+                <span class="font-mono text-slate-700">/Actions/CreateLead</span>
+              </div>
+            </div>
+          </div>
+          <button onclick="showToolModal('create_or_update_lead')" class="w-full py-1.5 px-3 text-xs font-medium rounded-lg bg-sky-50 text-sky-600 hover:bg-sky-100 transition border border-sky-200 flex items-center justify-center gap-1">
+            <span>View Full Schema & Code</span> ➔
+          </button>
+        </div>
+
+        <!-- Tool 4: book_appointment -->
+        <div class="tool-card bg-white rounded-xl p-5 border border-slate-200 shadow-sm hover:shadow transition flex flex-col justify-between" data-category="hospital">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-bold text-sky-600">book_appointment</span>
+              <span class="px-2 py-0.5 text-xs font-semibold rounded bg-emerald-100 text-emerald-700">POST</span>
+            </div>
+            <p class="text-xs text-slate-600 mb-3">
+              Customer hospital & date/time confirm pannavudane direct-ah appointment slot book panni confirmation ID tharum.
+            </p>
+            <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-xs space-y-1 mb-3">
+              <div class="flex justify-between text-slate-500">
+                <span>When to call:</span>
+                <span class="text-slate-800 font-medium">Caller confirms centre & time slot</span>
+              </div>
+              <div class="flex justify-between text-slate-500">
+                <span>Endpoint:</span>
+                <span class="font-mono text-slate-700">/Actions/BookAppointment</span>
+              </div>
+            </div>
+          </div>
+          <button onclick="showToolModal('book_appointment')" class="w-full py-1.5 px-3 text-xs font-medium rounded-lg bg-sky-50 text-sky-600 hover:bg-sky-100 transition border border-sky-200 flex items-center justify-center gap-1">
+            <span>View Full Schema & Code</span> ➔
+          </button>
+        </div>
+
+        <!-- Tool 5: send_whatsapp_consent -->
+        <div class="tool-card bg-white rounded-xl p-5 border border-slate-200 shadow-sm hover:shadow transition flex flex-col justify-between" data-category="whatsapp">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-bold text-sky-600">send_whatsapp_consent</span>
+              <span class="px-2 py-0.5 text-xs font-semibold rounded bg-emerald-100 text-emerald-700">POST</span>
+            </div>
+            <p class="text-xs text-slate-600 mb-3">
+              WhatsApp-la appointment details & discounts anuppa customer kitta consent ketu verification OTP anuppum.
+            </p>
+            <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-xs space-y-1 mb-3">
+              <div class="flex justify-between text-slate-500">
+                <span>When to call:</span>
+                <span class="text-slate-800 font-medium">Customer agrees to receive WhatsApp</span>
+              </div>
+              <div class="flex justify-between text-slate-500">
+                <span>Endpoint:</span>
+                <span class="font-mono text-slate-700">/Actions/SendWhatsAppConsent</span>
+              </div>
+            </div>
+          </div>
+          <button onclick="showToolModal('send_whatsapp_consent')" class="w-full py-1.5 px-3 text-xs font-medium rounded-lg bg-sky-50 text-sky-600 hover:bg-sky-100 transition border border-sky-200 flex items-center justify-center gap-1">
+            <span>View Full Schema & Code</span> ➔
+          </button>
+        </div>
+
+        <!-- Tool 6: verify_whatsapp_otp -->
+        <div class="tool-card bg-white rounded-xl p-5 border border-slate-200 shadow-sm hover:shadow transition flex flex-col justify-between" data-category="whatsapp">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-bold text-sky-600">verify_whatsapp_otp</span>
+              <span class="px-2 py-0.5 text-xs font-semibold rounded bg-emerald-100 text-emerald-700">POST</span>
+            </div>
+            <p class="text-xs text-slate-600 mb-3">
+              Customer call-la solra 6-digit OTP-a verify panni, WhatsApp communication-ku permanent consent record pannum.
+            </p>
+            <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-xs space-y-1 mb-3">
+              <div class="flex justify-between text-slate-500">
+                <span>When to call:</span>
+                <span class="text-slate-800 font-medium">Customer dictates the received OTP</span>
+              </div>
+              <div class="flex justify-between text-slate-500">
+                <span>Endpoint:</span>
+                <span class="font-mono text-slate-700">/Actions/VerifyWhatsAppOtp</span>
+              </div>
+            </div>
+          </div>
+          <button onclick="showToolModal('verify_whatsapp_otp')" class="w-full py-1.5 px-3 text-xs font-medium rounded-lg bg-sky-50 text-sky-600 hover:bg-sky-100 transition border border-sky-200 flex items-center justify-center gap-1">
+            <span>View Full Schema & Code</span> ➔
+          </button>
+        </div>
+
+        <!-- Tool 7: send_whatsapp_summary -->
+        <div class="tool-card bg-white rounded-xl p-5 border border-slate-200 shadow-sm hover:shadow transition flex flex-col justify-between" data-category="whatsapp">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-bold text-sky-600">send_whatsapp_summary</span>
+              <span class="px-2 py-0.5 text-xs font-semibold rounded bg-emerald-100 text-emerald-700">POST</span>
+            </div>
+            <p class="text-xs text-slate-600 mb-3">
+              Call mudiyum bodhu, confirmed hospital address, slot details, and discount pass link-a WhatsApp message-ah anuppum.
+            </p>
+            <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-xs space-y-1 mb-3">
+              <div class="flex justify-between text-slate-500">
+                <span>When to call:</span>
+                <span class="text-slate-800 font-medium">End of the call before hanging up</span>
+              </div>
+              <div class="flex justify-between text-slate-500">
+                <span>Endpoint:</span>
+                <span class="font-mono text-slate-700">/Actions/SendWhatsAppSummary</span>
+              </div>
+            </div>
+          </div>
+          <button onclick="showToolModal('send_whatsapp_summary')" class="w-full py-1.5 px-3 text-xs font-medium rounded-lg bg-sky-50 text-sky-600 hover:bg-sky-100 transition border border-sky-200 flex items-center justify-center gap-1">
+            <span>View Full Schema & Code</span> ➔
+          </button>
+        </div>
+
+        <!-- Tool 8: emergency_escalate -->
+        <div class="tool-card bg-white rounded-xl p-5 border border-rose-300 shadow-sm hover:shadow transition flex flex-col justify-between" data-category="lead">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-bold text-rose-600">emergency_escalate</span>
+              <span class="px-2 py-0.5 text-xs font-semibold rounded bg-rose-100 text-rose-700">POST</span>
+            </div>
+            <p class="text-xs text-slate-600 mb-3">
+              Severe chest pain, breathlessness, accident madhiri emergency symptoms sonnal, call-a live doctor/supervisor-ku transfer pannum.
+            </p>
+            <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-xs space-y-1 mb-3">
+              <div class="flex justify-between text-slate-500">
+                <span>When to call:</span>
+                <span class="text-slate-800 font-medium">Emergency symptoms detected</span>
+              </div>
+              <div class="flex justify-between text-slate-500">
+                <span>Endpoint:</span>
+                <span class="font-mono text-slate-700">/Actions/EmergencyEscalate</span>
+              </div>
+            </div>
+          </div>
+          <button onclick="showToolModal('emergency_escalate')" class="w-full py-1.5 px-3 text-xs font-medium rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 transition border border-rose-200 flex items-center justify-center gap-1">
+            <span>View Full Schema & Code</span> ➔
+          </button>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- TAB 2: search_centres DEEP DIVE -->
+    <section id="tab-search" class="tab-content hidden space-y-6">
+      
+      <!-- Top Overview Card -->
+      <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 class="text-xl font-bold font-mono text-sky-600">search_centres</h2>
+              <span class="px-2 py-0.5 text-xs font-semibold rounded bg-sky-100 text-sky-800">GET Request</span>
+              <span class="px-2 py-0.5 text-xs font-semibold rounded bg-emerald-100 text-emerald-800">Latency &lt; 50ms</span>
+            </div>
+            <p class="text-sm text-slate-600 mt-1">
+              Live Voice Call-la customer kitta irundhu City, Locality, Doctor Specialisation kettu verified hospitals list fetch pannum core engine.
+            </p>
+          </div>
+          <div class="bg-slate-100 px-4 py-2 rounded-xl text-xs font-mono">
+            <span class="text-slate-400">URL: </span>
+            <span class="text-sky-600 font-bold">https://oxxy.sharyx.ai/api/v1/Actions/SearchCentres</span>
+          </div>
+        </div>
+
+        <!-- 4 Steps Visual Flow -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div class="w-7 h-7 rounded-full bg-sky-600 text-white font-bold text-xs flex items-center justify-center mb-2">1</div>
+            <h4 class="font-semibold text-xs text-slate-900 mb-1">Customer Speech</h4>
+            <p class="text-xs text-slate-500">"Anna Nagar-la dental clinic irukka, discount kedaikkuma?"</p>
+          </div>
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div class="w-7 h-7 rounded-full bg-indigo-600 text-white font-bold text-xs flex items-center justify-center mb-2">2</div>
+            <h4 class="font-semibold text-xs text-slate-900 mb-1">LLM Function Trigger</h4>
+            <p class="text-xs text-slate-500 font-mono">search_centres(city="Chennai", locality="Anna Nagar", specialisation="dental")</p>
+          </div>
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div class="w-7 h-7 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center mb-2">3</div>
+            <h4 class="font-semibold text-xs text-slate-900 mb-1">Oxxy DB + Google Fallback</h4>
+            <p class="text-xs text-slate-500">Directory check pannum. Empty-ah irundha Google Maps Places-la irundhu nearby private clinics fetch aagum.</p>
+          </div>
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div class="w-7 h-7 rounded-full bg-purple-600 text-white font-bold text-xs flex items-center justify-center mb-2">4</div>
+            <h4 class="font-semibold text-xs text-slate-900 mb-1">Natural Voice Output</h4>
+            <p class="text-xs text-slate-500">"Kandippa sir, Anna Nagar-la Apollo Clinic irukku. Oxxy discount kedaikkum..."</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Parameters Table & Response Preview -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        <!-- Parameters Card -->
+        <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+          <h3 class="font-semibold text-sm text-slate-900 mb-3 flex items-center gap-2">
+            <span>Query Parameters Breakdown</span>
+          </h3>
+          <div class="overflow-x-auto text-xs">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="border-b border-slate-200 text-slate-400">
+                  <th class="py-2">Field</th>
+                  <th class="py-2">Type</th>
+                  <th class="py-2">Status</th>
+                  <th class="py-2">Example / Auto-Synonyms</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr>
+                  <td class="py-2.5 font-mono font-bold text-sky-600">city</td>
+                  <td class="py-2.5 font-mono text-slate-500">string</td>
+                  <td class="py-2.5"><span class="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[10px] font-bold">Required</span></td>
+                  <td class="py-2.5 text-slate-600">Chennai, Delhi, Mumbai, Bengaluru</td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 font-mono font-bold text-sky-600">locality</td>
+                  <td class="py-2.5 font-mono text-slate-500">string</td>
+                  <td class="py-2.5"><span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">Optional</span></td>
+                  <td class="py-2.5 text-slate-600">Anna Nagar, Malviya Nagar, Koramangala</td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 font-mono font-bold text-sky-600">specialisation</td>
+                  <td class="py-2.5 font-mono text-slate-500">string</td>
+                  <td class="py-2.5"><span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">Optional</span></td>
+                  <td class="py-2.5 text-slate-600">dental (teeth, tooth), eye (ophthalmology), general</td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 font-mono font-bold text-sky-600">radius_km</td>
+                  <td class="py-2.5 font-mono text-slate-500">number</td>
+                  <td class="py-2.5"><span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">Default 10</span></td>
+                  <td class="py-2.5 text-slate-600">5, 10, 20</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+            <strong>Important Private-Only Rule:</strong> Oxxy Centre Search engine automatically enforces <code>verified=true</code> and <code>is_private=true</code>. Government hospitals are never recommended in voice calls.
+          </div>
+        </div>
+
+        <!-- Sample Live JSON Response -->
+        <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-semibold text-sm text-slate-900">API Live Response (JSON)</h3>
+              <button onclick="copyToClipboard('sample-search-res')" class="text-xs text-sky-600 hover:underline">Copy JSON</button>
+            </div>
+            <pre id="sample-search-res" class="bg-slate-950 text-slate-200 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-72"><code>{
+  "count": 3,
+  "radius_km": 10,
+  "source": "google_places",
+  "is_directory_partner": false,
+  "note": "No Oxxy partner centres in directory for Chennai. Showing 3 nearby private options (not Oxxy partners).",
+  "centres": [
+    {
+      "centre_id": null,
+      "name": "Dental Junction Clinic",
+      "branch": null,
+      "locality": "Anna Nagar West Extn",
+      "city": "Chennai",
+      "type": "clinic",
+      "specialisations": ["general"],
+      "distance_km": 0,
+      "private_status_verified": false,
+      "is_partner": false,
+      "option_type": "nearby_private_option",
+      "address": "Anna Nagar West Extn, Chennai, Tamil Nadu",
+      "verification_source": "google_places"
+    }
+  ]
+}</code></pre>
+          </div>
+          <div class="mt-3 text-xs text-slate-500">
+            <strong>Prompt Rule:</strong> When <code>is_partner: false</code>, Voice Agent calls them <em>"nearby private options"</em> (never Oxxy partners): <em>"Andha area-la direct Oxxy partners illai, aana ungalukku nearby private option-ah Dental Junction Clinic irukku..."</em>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Live Voice Dialogue Simulation -->
+      <div class="bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-xl p-6 shadow-md">
+        <h3 class="text-sm font-semibold text-sky-400 uppercase tracking-wider mb-4">Sample Voice Conversation Script (Tanglish)</h3>
+        <div class="space-y-4 text-xs sm:text-sm">
+          <div class="flex gap-3 items-start">
+            <span class="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-bold text-xs uppercase shrink-0 mt-0.5">Caller</span>
+            <p class="text-slate-200">"Vanakkam, enaku Anna Nagar Chennai kitta oru nalla dental clinic solla mudiyuma? Anga Oxxy discount kedaikkuma?"</p>
+          </div>
+          <div class="flex gap-3 items-start">
+            <span class="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 font-bold text-xs uppercase shrink-0 mt-0.5">Agent Brain</span>
+            <p class="font-mono text-purple-200 text-xs">⚡ Triggers search_centres(city="Chennai", locality="Anna Nagar", specialisation="dental") ➔ Oxxy API replies with 2 verified clinics in 28ms.</p>
+          </div>
+          <div class="flex gap-3 items-start">
+            <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold text-xs uppercase shrink-0 mt-0.5">Oxxy Bot</span>
+            <p class="text-emerald-100 font-medium">"Kandippa sir, Chennai Anna Nagar-la 2.4 km distance-la <strong>Apollo Clinic</strong> and <strong>Smile Dental Studio</strong> irukku. Rendulayume Oxxy verified discount kedaikkum. Ungalukku Apollo Clinic-la appointment book pannattuma?"</p>
+          </div>
+          <div class="flex gap-3 items-start">
+            <span class="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-bold text-xs uppercase shrink-0 mt-0.5">Caller</span>
+            <p class="text-slate-200">"Sari, Apollo-laye book pannidunga. Nalaikku morning 10 AM-ku mudiyuma?"</p>
+          </div>
+          <div class="flex gap-3 items-start">
+            <span class="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 font-bold text-xs uppercase shrink-0 mt-0.5">Agent Brain</span>
+            <p class="font-mono text-purple-200 text-xs">⚡ Triggers book_appointment(centre_id="2bea8038-...", appointment_date="2026-11-27", appointment_time="10:00 AM")</p>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- TAB 3: LIVE SIMULATOR -->
+    <section id="tab-simulator" class="tab-content hidden space-y-6">
+      <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+        <h2 class="text-lg font-bold text-slate-900 mb-1">Interactive Voice Agent Tool Simulator</h2>
+        <p class="text-xs text-slate-500 mb-6">
+          Keezha irukra sample voice phrases-a click pannunga or unga own text type pannunga. Tool trigger, API execution, and bot voice speech epidi nadakumnu live-ah simulate pannalam.
+        </p>
+
+        <!-- Quick Preset Buttons -->
+        <div class="flex flex-wrap gap-2 mb-4">
+          <button onclick="simulateIntent('dental')" class="px-3 py-1.5 text-xs rounded-lg bg-sky-100 hover:bg-sky-200 text-sky-800 transition">
+            🦷 "Anna Nagar dental clinic paathu sollu"
+          </button>
+          <button onclick="simulateIntent('lead_check')" class="px-3 py-1.5 text-xs rounded-lg bg-indigo-100 hover:bg-indigo-200 text-indigo-800 transition">
+            👤 "Enoda phone number 9876543210"
+          </button>
+          <button onclick="simulateIntent('book')" class="px-3 py-1.5 text-xs rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition">
+            📅 "Nalaikku 10 AM-ku Apollo-la book pannu"
+          </button>
+          <button onclick="simulateIntent('emergency')" class="px-3 py-1.5 text-xs rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-800 transition">
+            🚨 "Nenju vali romba athigama irukku!"
+          </button>
+        </div>
+
+        <!-- Custom Input -->
+        <div class="flex gap-2 mb-6">
+          <input type="text" id="sim-input" value="Chennai Anna Nagar-la dental clinic irukka?" class="w-full text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50 text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="Type caller utterance in Tanglish / English...">
+          <button onclick="runSimulation()" class="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-medium text-xs sm:text-sm rounded-xl transition shrink-0 flex items-center gap-1.5 shadow-sm">
+            <span>Run Tool</span> ⚡
+          </button>
+        </div>
+
+        <!-- Simulator Output Display -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
+          
+          <!-- Box 1: Detected Intent & Tool Call -->
+          <div class="bg-slate-950 text-slate-200 rounded-xl p-4 border border-slate-800 flex flex-col justify-between">
+            <div>
+              <div class="text-[10px] text-sky-400 font-bold uppercase tracking-wider mb-2">1. LLM Tool Call Triggered</div>
+              <div id="sim-tool-name" class="font-bold text-amber-400 text-sm mb-1">search_centres</div>
+              <div class="text-[10px] text-slate-400 mb-2">Payload Parameters:</div>
+              <pre id="sim-tool-args" class="text-[11px] text-slate-300 overflow-x-auto whitespace-pre-wrap">{\n  "city": "Chennai",\n  "locality": "Anna Nagar",\n  "specialisation": "dental"\n}</pre>
+            </div>
+            <div class="text-[10px] text-slate-500 mt-2">HTTP GET /api/v1/Actions/SearchCentres</div>
+          </div>
+
+          <!-- Box 2: Oxxy API Response -->
+          <div class="bg-slate-950 text-slate-200 rounded-xl p-4 border border-slate-800 flex flex-col justify-between">
+            <div>
+              <div class="text-[10px] text-emerald-400 font-bold uppercase tracking-wider mb-2">2. Oxxy Server API Response</div>
+              <div class="flex items-center gap-2 mb-2">
+                <span class="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px]">200 OK</span>
+                <span class="text-slate-400 text-[10px]">Latency: 24ms</span>
+              </div>
+              <pre id="sim-api-res" class="text-[11px] text-emerald-300 overflow-x-auto max-h-48 whitespace-pre-wrap">{\n  "count": 2,\n  "centres": [\n    {\n      "name": "Apollo Clinic",\n      "branch": "Anna Nagar",\n      "distance_km": 2.4\n    }\n  ]\n}</pre>
+            </div>
+            <div class="text-[10px] text-slate-500 mt-2">Verified Private Hospital Filter: Active</div>
+          </div>
+
+          <!-- Box 3: Bot Spoken Reply -->
+          <div class="bg-gradient-to-br from-indigo-950 to-slate-950 text-white rounded-xl p-4 border border-indigo-900 flex flex-col justify-between">
+            <div>
+              <div class="text-[10px] text-indigo-300 font-bold uppercase tracking-wider mb-2">3. Voice Agent Audio Speech (TTS)</div>
+              <p id="sim-voice-reply" class="text-sm font-sans font-medium text-indigo-100 leading-relaxed mb-3">
+                "Kandippa sir, Anna Nagar-la 2.4 km distance-la Apollo Clinic irukku. Anga dental care-ku Oxxy discount kedaikkum. Appointment book pannattuma?"
+              </p>
+            </div>
+            <div class="flex items-center gap-1.5 text-[10px] text-indigo-400">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>Natural Tamil / Tanglish TTS Rendered</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: INBOUND & OUTBOUND FLOWS -->
+    <section id="tab-flows" class="tab-content hidden space-y-6">
+      
+      <!-- Flow 1: Inbound Call -->
+      <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <span class="px-2.5 py-1 rounded bg-sky-100 text-sky-800 font-bold text-xs uppercase">Flow 1</span>
+            <h3 class="text-base font-bold text-slate-900">Inbound Call (Customer calls Oxxy Helpline)</h3>
+          </div>
+          <span class="text-xs text-slate-500">Typical duration: 90 - 150 secs</span>
+        </div>
+        
+        <div class="space-y-3 text-xs sm:text-sm">
+          <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between">
+            <div><strong>Step 1: Greeting & Lead Check</strong> - Call attend aanavudane <code>check_existing_lead(phone)</code> call aagum. Already user irundha name solli greet pannum.</div>
+            <span class="text-xs font-mono text-sky-600">check_existing_lead</span>
+          </div>
+          <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between">
+            <div><strong>Step 2: Collect Needs</strong> - Problem, City, Locality ketkum. Collect aanavudane CRM lead save pannum.</div>
+            <span class="text-xs font-mono text-sky-600">create_or_update_lead</span>
+          </div>
+          <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between">
+            <div><strong>Step 3: Centre Search</strong> - Real-time verified private hospitals & clinics list fetch panni top options solli discount explain pannum.</div>
+            <span class="text-xs font-mono text-sky-600 font-bold">search_centres</span>
+          </div>
+          <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between">
+            <div><strong>Step 4: Appointment & WhatsApp</strong> - Customer hospital & slot confirm pannavudane booking execute panni, WhatsApp summary anuppum.</div>
+            <span class="text-xs font-mono text-sky-600">book_appointment</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Flow 2: Outbound Call -->
+      <div class="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <span class="px-2.5 py-1 rounded bg-indigo-100 text-indigo-800 font-bold text-xs uppercase">Flow 2</span>
+            <h3 class="text-base font-bold text-slate-900">Outbound Call (Bot calls Campaign Lead)</h3>
+          </div>
+          <span class="text-xs text-slate-500">Typical duration: 60 - 90 secs</span>
+        </div>
+        
+        <div class="space-y-3 text-xs sm:text-sm">
+          <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between">
+            <div><strong>Step 1: Personalized Opening</strong> - Customer name, city already theriyum. "Vanakkam {Name} sir, Oxxy health checkup offer pathi contact pandrom."</div>
+            <span class="text-xs font-mono text-indigo-600">Pre-loaded Context</span>
+          </div>
+          <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between">
+            <div><strong>Step 2: Instant Hospital Pitch</strong> - Customer locality-la irukra verified centre-a <code>search_centres</code> moolama fetch panni direct-ah suggest pannum.</div>
+            <span class="text-xs font-mono text-indigo-600 font-bold">search_centres</span>
+          </div>
+          <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between">
+            <div><strong>Step 3: Quick Booking & Instant Pass</strong> - Customer slot ok sonnal book panni WhatsApp-la discount pass anuppi call wrap up pannum.</div>
+            <span class="text-xs font-mono text-indigo-600">send_whatsapp_summary</span>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- TAB 5: PROVIDER SETUP -->
+    <section id="tab-provider" class="tab-content hidden space-y-6">
+      <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+        <h2 class="text-lg font-bold text-slate-900 mb-2">Voice Agent Platform Integration</h2>
+        <p class="text-xs text-slate-500 mb-6">
+          Vapi.ai, Retell AI, LiveKit, SharyX, or OpenAI Realtime API dashboard-la indha configuration-a copy panni set pannunga.
+        </p>
+
+        <div class="space-y-6">
+          
+          <!-- Step 1: Base Configuration -->
+          <div>
+            <h3 class="text-sm font-semibold text-slate-900 mb-2">1. Webhook Server & Authentication Headers</h3>
+            <div class="bg-slate-950 text-slate-200 rounded-xl p-4 font-mono text-xs space-y-2">
+              <div class="flex justify-between">
+                <span class="text-slate-400">Server / Webhook Base URL:</span>
+                <span class="text-sky-400 font-bold">https://oxxy.sharyx.ai/api/v1/Actions</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Header Key:</span>
+                <span class="text-amber-400 font-bold">X-Api-Key</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Header Value:</span>
+                <span class="text-slate-300">&lt;YOUR_ACTIONS_API_KEY&gt; (Found in backend .env)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2: Vapi / Retell Tool Schema (search_centres) -->
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-sm font-semibold text-slate-900">2. search_centres Tool Function Schema (OpenAI / Vapi Format)</h3>
+              <button onclick="copyToClipboard('provider-schema-code')" class="text-xs px-2.5 py-1 rounded bg-sky-100 text-sky-700 font-medium hover:bg-sky-200 transition">
+                Copy Schema
+              </button>
+            </div>
+            <pre id="provider-schema-code" class="bg-slate-950 text-slate-200 rounded-xl p-4 font-mono text-xs overflow-x-auto max-h-80"><code>{
+  "type": "function",
+  "function": {
+    "name": "search_centres",
+    "description": "Live search for Oxxy verified private hospitals, clinics, diagnostic labs and dental centres by city, locality, and doctor specialization.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string",
+          "description": "City name, e.g. Chennai, Delhi, Mumbai, Bengaluru"
+        },
+        "locality": {
+          "type": "string",
+          "description": "Locality, landmark or area name e.g. Anna Nagar, T Nagar, Malviya Nagar"
+        },
+        "specialisation": {
+          "type": "string",
+          "description": "Specialisation or medical requirement e.g. dental, cardiology, eye, general, full body checkup, radiology"
+        },
+        "radius_km": {
+          "type": "number",
+          "description": "Search radius in kilometers. Default is 10.",
+          "default": 10
+        }
+      },
+      "required": ["city"]
+    }
+  }
+}</code></pre>
+          </div>
+
+          <!-- Documentation Links -->
+          <div class="p-4 bg-sky-50 rounded-xl border border-sky-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div>
+              <div class="font-bold text-sky-900">Postman Collection & Full Markdown File Available:</div>
+              <div class="text-sky-700">File location: <code>docs/VOICE_AGENT_TOOLS_CONFIGURATION_GUIDE.md</code> & <code>docs/oxxy-voice-agent-api.postman_collection.json</code></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Modal for Tool Details -->
+  <div id="tool-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-slate-200 shadow-2xl">
+      <div class="p-5 border-b border-slate-200 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <h3 id="modal-title" class="font-bold font-mono text-sky-600 text-base">Tool Details</h3>
+          <span id="modal-method" class="px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-700">GET</span>
+        </div>
+        <button onclick="closeToolModal()" class="text-slate-400 hover:text-slate-600 text-xl font-bold p-1">&times;</button>
+      </div>
+      <div class="p-5 overflow-y-auto space-y-4 text-xs">
+        <div>
+          <div class="font-semibold text-slate-700 mb-1">API Endpoint:</div>
+          <div id="modal-endpoint" class="p-2 rounded bg-slate-100 font-mono text-slate-800"></div>
+        </div>
+        <div>
+          <div class="font-semibold text-slate-700 mb-1">When Voice Agent Should Call This:</div>
+          <div id="modal-trigger" class="p-2.5 rounded bg-sky-50 text-sky-800 border border-sky-100"></div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <span class="font-semibold text-slate-700">Tool Function Schema:</span>
+            <button onclick="copyToClipboard('modal-schema-code')" class="text-sky-600 hover:underline">Copy</button>
+          </div>
+          <pre id="modal-schema-code" class="bg-slate-950 text-slate-200 p-3 rounded-lg font-mono overflow-x-auto max-h-60"></pre>
+        </div>
+      </div>
+      <div class="p-4 border-t border-slate-200 flex justify-end">
+        <button onclick="closeToolModal()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-medium rounded-lg transition">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Tab Switching
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('tab-active');
+        btn.classList.remove('text-sky-600');
+        btn.classList.add('border-transparent', 'text-slate-500');
+      });
+
+      const activeTab = document.getElementById('tab-' + tabId);
+      const activeBtn = document.getElementById('tab-btn-' + tabId);
+      if (activeTab) activeTab.classList.remove('hidden');
+      if (activeBtn) {
+        activeBtn.classList.add('tab-active');
+        activeBtn.classList.remove('border-transparent', 'text-slate-500');
+      }
+    }
+
+    // Tool Filtering
+    function filterTools(category) {
+      document.querySelectorAll('.filter-chip').forEach(chip => {
+        chip.className = 'filter-chip px-3 py-1 text-xs rounded-full bg-slate-100 text-slate-600';
+      });
+      event.target.className = 'filter-chip px-3 py-1 text-xs rounded-full bg-sky-100 text-sky-800 font-medium';
+
+      document.querySelectorAll('.tool-card').forEach(card => {
+        if (category === 'all' || card.dataset.category === category) {
+          card.style.display = 'flex';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    }
+
+    // Modal Details Data
+    const toolDetails = {
+      check_existing_lead: {
+        name: "check_existing_lead",
+        method: "GET",
+        endpoint: "https://oxxy.sharyx.ai/api/v1/Actions/CheckLead?phone=9876543210",
+        trigger: "Inbound call attend aana udaney caller phone number vechu CRM lead exist aagudhanu check panna call pannanum.",
+        schema: {
+          type: "function",
+          function: {
+            name: "check_existing_lead",
+            description: "Check if caller already has a lead or appointment in Oxxy CRM.",
+            parameters: {
+              type: "object",
+              properties: {
+                phone: { type: "string", description: "Caller 10-digit phone number with or without country code" }
+              },
+              required: ["phone"]
+            }
+          }
+        }
+      },
+      create_or_update_lead: {
+        name: "create_or_update_lead",
+        method: "POST",
+        endpoint: "https://oxxy.sharyx.ai/api/v1/Actions/CreateLead",
+        trigger: "Caller kitta irundhu Name, City, or Medical Concern kettu therinjikitta udaney CRM-la update panna.",
+        schema: {
+          type: "function",
+          function: {
+            name: "create_or_update_lead",
+            description: "Create or update lead in CRM with caller name, city, locality, and medical concern.",
+            parameters: {
+              type: "object",
+              properties: {
+                phone: { type: "string" },
+                name: { type: "string" },
+                city: { type: "string" },
+                locality: { type: "string" },
+                medical_concern: { type: "string" }
+              },
+              required: ["phone"]
+            }
+          }
+        }
+      },
+      book_appointment: {
+        name: "book_appointment",
+        method: "POST",
+        endpoint: "https://oxxy.sharyx.ai/api/v1/Actions/BookAppointment",
+        trigger: "Customer hospital select panni, preferred date & time slot confirm panna udaney slot booking panna.",
+        schema: {
+          type: "function",
+          function: {
+            name: "book_appointment",
+            description: "Book an appointment slot at a selected Oxxy hospital/centre.",
+            parameters: {
+              type: "object",
+              properties: {
+                phone: { type: "string" },
+                centre_id: { type: "string", description: "Centre UUID from search_centres" },
+                patient_name: { type: "string" },
+                appointment_date: { type: "string", description: "YYYY-MM-DD" },
+                appointment_time: { type: "string", description: "HH:MM or 10:00 AM" },
+                concern: { type: "string" }
+              },
+              required: ["phone", "centre_id", "patient_name", "appointment_date", "appointment_time"]
+            }
+          }
+        }
+      },
+      send_whatsapp_consent: {
+        name: "send_whatsapp_consent",
+        method: "POST",
+        endpoint: "https://oxxy.sharyx.ai/api/v1/Actions/SendWhatsAppConsent",
+        trigger: "Customer WhatsApp-la appointment slip, hospital address, and discount pass vaanga consent sonnal.",
+        schema: {
+          type: "function",
+          function: {
+            name: "send_whatsapp_consent",
+            description: "Send WhatsApp consent template message and verification OTP.",
+            parameters: {
+              type: "object",
+              properties: {
+                phone: { type: "string" },
+                patient_name: { type: "string" }
+              },
+              required: ["phone"]
+            }
+          }
+        }
+      },
+      verify_whatsapp_otp: {
+        name: "verify_whatsapp_otp",
+        method: "POST",
+        endpoint: "https://oxxy.sharyx.ai/api/v1/Actions/VerifyWhatsAppOtp",
+        trigger: "Caller received 6-digit WhatsApp OTP-a call-la solra bodhu verify panna.",
+        schema: {
+          type: "function",
+          function: {
+            name: "verify_whatsapp_otp",
+            description: "Verify the 6-digit WhatsApp OTP given by caller.",
+            parameters: {
+              type: "object",
+              properties: {
+                phone: { type: "string" },
+                otp: { type: "string", description: "6-digit numeric OTP code" }
+              },
+              required: ["phone", "otp"]
+            }
+          }
+        }
+      },
+      send_whatsapp_summary: {
+        name: "send_whatsapp_summary",
+        method: "POST",
+        endpoint: "https://oxxy.sharyx.ai/api/v1/Actions/SendWhatsAppSummary",
+        trigger: "Call mudiyum bodhu booked hospital name, slot time, address and Oxxy discount pass link WhatsApp anuppa.",
+        schema: {
+          type: "function",
+          function: {
+            name: "send_whatsapp_summary",
+            description: "Send appointment confirmation and discount summary to caller on WhatsApp.",
+            parameters: {
+              type: "object",
+              properties: {
+                phone: { type: "string" },
+                appointment_id: { type: "string" },
+                centre_name: { type: "string" },
+                slot_info: { type: "string" }
+              },
+              required: ["phone"]
+            }
+          }
+        }
+      },
+      emergency_escalate: {
+        name: "emergency_escalate",
+        method: "POST",
+        endpoint: "https://oxxy.sharyx.ai/api/v1/Actions/EmergencyEscalate",
+        trigger: "Caller severe chest pain, breathing difficulty, or unconsciousness report panna udaney emergency transfer panna.",
+        schema: {
+          type: "function",
+          function: {
+            name: "emergency_escalate",
+            description: "Escalate critical medical emergency immediately to human doctor/supervisor.",
+            parameters: {
+              type: "object",
+              properties: {
+                phone: { type: "string" },
+                symptom: { type: "string" },
+                city: { type: "string" }
+              },
+              required: ["phone", "symptom"]
+            }
+          }
+        }
+      }
+    };
+
+    function showToolModal(toolKey) {
+      const data = toolDetails[toolKey];
+      if (!data) return;
+      document.getElementById('modal-title').textContent = data.name;
+      document.getElementById('modal-method').textContent = data.method;
+      document.getElementById('modal-endpoint').textContent = data.endpoint;
+      document.getElementById('modal-trigger').textContent = data.trigger;
+      document.getElementById('modal-schema-code').textContent = JSON.stringify(data.schema, null, 2);
+      document.getElementById('tool-modal').classList.remove('hidden');
+    }
+
+    function closeToolModal() {
+      document.getElementById('tool-modal').classList.add('hidden');
+    }
+
+    function copyToClipboard(elementId) {
+      const text = document.getElementById(elementId).innerText || document.getElementById(elementId).textContent;
+      navigator.clipboard.writeText(text);
+      alert('Copied to clipboard!');
+    }
+
+    // Simulator logic
+    function simulateIntent(type) {
+      const input = document.getElementById('sim-input');
+      if (type === 'dental') {
+        input.value = "Chennai Anna Nagar-la dental clinic irukka?";
+      } else if (type === 'lead_check') {
+        input.value = "Enoda number 9876543210, enaku already appointment irukka?";
+      } else if (type === 'book') {
+        input.value = "Apollo Clinic-la nalaikku 10 AM-ku appointment book pannidunga.";
+      } else if (type === 'emergency') {
+        input.value = "Nenju vali romba athigama irukku, moochu vida mudiyala!";
+      }
+      runSimulation();
+    }
+
+    function runSimulation() {
+      const val = document.getElementById('sim-input').value.toLowerCase();
+      const toolName = document.getElementById('sim-tool-name');
+      const toolArgs = document.getElementById('sim-tool-args');
+      const apiRes = document.getElementById('sim-api-res');
+      const voiceReply = document.getElementById('sim-voice-reply');
+
+      if (val.includes('emergency') || val.includes('nenju') || val.includes('moochu') || val.includes('chest')) {
+        toolName.textContent = "emergency_escalate";
+        toolArgs.textContent = JSON.stringify({ phone: "9876543210", symptom: "Severe chest pain & breathlessness" }, null, 2);
+        apiRes.textContent = JSON.stringify({ status: "ESCALATED", doctor_line: "+91-800-OXXY-EMERGENCY", note: "Immediate transfer" }, null, 2);
+        voiceReply.textContent = "Sir, idhu emergency symptom madhiri irukku. Please oru nimisham hold pannunga, ungala udaney emergency doctor kooda connect pandren!";
+      } else if (val.includes('book') || val.includes('nalaikku') || val.includes('slot')) {
+        toolName.textContent = "book_appointment";
+        toolArgs.textContent = JSON.stringify({ phone: "9876543210", centre_id: "2bea8038-...", appointment_date: "2026-11-27", appointment_time: "10:00 AM" }, null, 2);
+        apiRes.textContent = JSON.stringify({ status: "CONFIRMED", appointment_id: "APT-2026-7891", centre_name: "Apollo Clinic Anna Nagar", slot: "10:00 AM" }, null, 2);
+        voiceReply.textContent = "Super sir! Apollo Clinic Anna Nagar-la nalaikku 10 AM-ku ungaloda appointment confirm aayiduchu. Details-a unga WhatsApp-ku ippove anuppiruken.";
+      } else if (val.includes('number') || val.includes('lead') || val.includes('check') || val.includes('98765')) {
+        toolName.textContent = "check_existing_lead";
+        toolArgs.textContent = JSON.stringify({ phone: "9876543210" }, null, 2);
+        apiRes.textContent = JSON.stringify({ exists: true, name: "Karthik", city: "Chennai", recent_interest: "Dental Checkup" }, null, 2);
+        voiceReply.textContent = "Vanakkam Karthik sir! Oxxy helpline-ku welcome. Unga dental checkup sambadhama pesalama sir?";
+      } else {
+        // default search centres
+        toolName.textContent = "search_centres";
+        toolArgs.textContent = JSON.stringify({ city: "Chennai", locality: "Anna Nagar", specialisation: "dental", radius_km: 10 }, null, 2);
+        apiRes.textContent = JSON.stringify({ count: 2, centres: [{ name: "Apollo Clinic", locality: "Anna Nagar", distance_km: 2.4, specialisations: ["general", "dental"] }] }, null, 2);
+        voiceReply.textContent = "Kandippa sir, Chennai Anna Nagar-la 2.4 km distance-la Apollo Clinic irukku. Anga dental-ku Oxxy discount kedaikkum. Appointment book pannattuma?";
+      }
+    }
+  </script>
+</body>
+</html>

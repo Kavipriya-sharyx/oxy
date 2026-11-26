@@ -7,7 +7,7 @@
   "variable": [
     {
       "key": "base_url",
-      "value": "https://your-bot-host"
+      "value": "https://oxxy.sharyx.ai"
     },
     {
       "key": "api_key",
