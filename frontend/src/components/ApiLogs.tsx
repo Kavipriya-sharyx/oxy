@@ -91,6 +91,15 @@ export default function ApiLogs() {
   const [search, setSearch] = useState("");
   const [live, setLive] = useState(true);
   const [open, setOpen] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const copyText = (txt: string, fieldId: string) => {
+    try {
+      navigator.clipboard?.writeText(txt);
+      setCopiedField(fieldId);
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch (_) {}
+  };
 
   const stats = useQuery({
     queryKey: ["apiLogs", "stats", hours],
@@ -345,37 +354,128 @@ export default function ApiLogs() {
                   </tr>
                   {open === r.id && (
                     <tr>
-                      <td colSpan={6} style={{ background: "var(--sunk)" }}>
+                      <td colSpan={6} style={{ background: "var(--sunk)", padding: "16px 20px" }}>
                         <dl className="kv">
-                          <dt>Meaning</dt>
-                          <dd>{STATUS_TEXT[r.status_code] ?? `HTTP ${r.status_code}`}</dd>
-                          <dt>Called</dt>
-                          <dd className="mono small">
-                            {r.method} {r.path}
+                          <dt>Status & Duration</dt>
+                          <dd>
+                            <b>{STATUS_TEXT[r.status_code] ?? `HTTP ${r.status_code}`}</b>
+                            <span className="muted" style={{ marginLeft: 8 }}>({r.duration_ms} ms)</span>
                           </dd>
-                          {r.error_message && (
-                            <>
-                              <dt>Error the caller got</dt>
-                              <dd>{r.error_message}</dd>
-                            </>
-                          )}
-                          <dt>From</dt>
-                          <dd className="mono small">
-                            {r.ip ?? "—"} · {r.user_agent ?? "no user agent"}
+
+                          <dt>Full Request URL</dt>
+                          <dd className="row" style={{ gap: 8, alignItems: "center" }}>
+                            <code className="mono small" style={{ background: "var(--card)", padding: "4px 8px", borderRadius: 4, flex: 1, overflowWrap: "anywhere" }}>
+                              {r.method} {String(r.detail?.url ?? r.path)}
+                            </code>
+                            <button
+                              type="button"
+                              className="btn sm"
+                              onClick={() => copyText(String(r.detail?.url ?? r.path), `url-${r.id}`)}
+                            >
+                              {copiedField === `url-${r.id}` ? "Copied!" : "Copy URL"}
+                            </button>
                           </dd>
-                          {r.detail && Object.keys(r.detail).length > 0 && (
+
+                          {Boolean(r.detail?.payload || r.detail?.query) && (
                             <>
-                              <dt>Sent</dt>
-                              <dd className="mono small" style={{ whiteSpace: "pre-wrap" }}>
-                                {Object.entries(r.detail)
-                                  .map(
-                                    ([k, v]) =>
-                                      `${k.replace(/_/g, " ")}: ${Array.isArray(v) ? v.join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v)}`,
-                                  )
-                                  .join("\n")}
+                              <dt>Request Payload / Params</dt>
+                              <dd>
+                                <div style={{ position: "relative" }}>
+                                  <pre
+                                    className="mono small"
+                                    style={{
+                                      background: "var(--card)",
+                                      padding: "8px 12px",
+                                      borderRadius: 6,
+                                      maxHeight: 180,
+                                      overflow: "auto",
+                                      whiteSpace: "pre-wrap",
+                                    }}
+                                  >
+                                    {JSON.stringify(r.detail?.payload ?? r.detail?.query, null, 2)}
+                                  </pre>
+                                  <button
+                                    type="button"
+                                    className="btn sm"
+                                    style={{ position: "absolute", top: 6, right: 6 }}
+                                    onClick={() =>
+                                      copyText(
+                                        JSON.stringify(r.detail?.payload ?? r.detail?.query, null, 2),
+                                        `payload-${r.id}`,
+                                      )
+                                    }
+                                  >
+                                    {copiedField === `payload-${r.id}` ? "Copied!" : "Copy Payload"}
+                                  </button>
+                                </div>
                               </dd>
                             </>
                           )}
+
+                          {Boolean(r.detail?.response || r.error_message) && (
+                            <>
+                              <dt>Response Body</dt>
+                              <dd>
+                                <div style={{ position: "relative" }}>
+                                  <pre
+                                    className="mono small"
+                                    style={{
+                                      background: "var(--card)",
+                                      padding: "8px 12px",
+                                      borderRadius: 6,
+                                      maxHeight: 240,
+                                      overflow: "auto",
+                                      whiteSpace: "pre-wrap",
+                                      color: r.status_code >= 400 ? "var(--crit)" : undefined,
+                                    }}
+                                  >
+                                    {JSON.stringify(
+                                      r.detail?.response ?? {
+                                        error: true,
+                                        status: r.status_code,
+                                        message: r.error_message,
+                                      },
+                                      null,
+                                      2,
+                                    )}
+                                  </pre>
+                                  <button
+                                    type="button"
+                                    className="btn sm"
+                                    style={{ position: "absolute", top: 6, right: 6 }}
+                                    onClick={() =>
+                                      copyText(
+                                        JSON.stringify(
+                                          r.detail?.response ?? {
+                                            error: true,
+                                            status: r.status_code,
+                                            message: r.error_message,
+                                          },
+                                          null,
+                                          2,
+                                        ),
+                                        `res-${r.id}`,
+                                      )
+                                    }
+                                  >
+                                    {copiedField === `res-${r.id}` ? "Copied!" : "Copy Response"}
+                                  </button>
+                                </div>
+                              </dd>
+                            </>
+                          )}
+
+                          {r.error_message && !r.detail?.response && (
+                            <>
+                              <dt>Error Detail</dt>
+                              <dd style={{ color: "var(--crit)" }}>{r.error_message}</dd>
+                            </>
+                          )}
+
+                          <dt>Caller & Client IP</dt>
+                          <dd className="mono small">
+                            {r.key_label} · {r.ip ?? "—"} · {r.user_agent ?? "no user agent"}
+                          </dd>
                         </dl>
                       </td>
                     </tr>

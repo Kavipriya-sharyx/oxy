@@ -8,7 +8,20 @@ export interface ApiCaller {
 }
 
 // query values that are safe to keep as they are (paging and filters, never personal data)
-const SAFE_QUERY = new Set(["after", "limit", "offset", "status", "view", "type", "audience"]);
+const SAFE_QUERY = new Set([
+  "after",
+  "limit",
+  "offset",
+  "status",
+  "view",
+  "type",
+  "audience",
+  "city",
+  "locality",
+  "specialisation",
+  "radius_km",
+  "phone",
+]);
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 const last4 = (v: unknown) => {
@@ -158,14 +171,49 @@ export class ApiLogMiddleware implements NestMiddleware {
 
   use(req: any, res: any, next: () => void) {
     const start = Date.now();
+    let responseBody: any = null;
+
+    // Capture response payload safely
+    const originalSend = res.send;
+    res.send = function (chunk: any) {
+      if (chunk) {
+        try {
+          if (typeof chunk === "string") {
+            responseBody = JSON.parse(chunk);
+          } else if (Buffer.isBuffer(chunk)) {
+            responseBody = JSON.parse(chunk.toString("utf8"));
+          } else if (typeof chunk === "object") {
+            responseBody = chunk;
+          }
+        } catch {
+          responseBody = typeof chunk === "string" ? chunk.slice(0, 4000) : null;
+        }
+      }
+      return originalSend.apply(res, arguments as any);
+    };
+
     res.on("finish", () => {
       const caller: ApiCaller | undefined = req.oxxyApiCaller;
       const given = String(req.headers?.["x-api-key"] ?? "");
       const label =
         caller?.label ??
         (given ? `Wrong or expired key (${given.slice(0, 8)}…)` : "No key sent");
-      const path = String(req.originalUrl ?? req.url ?? "").split("?")[0].slice(0, 300);
+      const fullUrl = String(req.originalUrl ?? req.url ?? "");
+      const path = fullUrl.split("?")[0].slice(0, 300);
       const status = Number(res.statusCode) || 0;
+
+      const safeDetail: Record<string, unknown> = {
+        ...summariseCall(req.query, req.body),
+        url: fullUrl,
+        payload:
+          req.body && Object.keys(req.body).length
+            ? req.body
+            : req.query && Object.keys(req.query).length
+              ? req.query
+              : undefined,
+        response: responseBody ?? undefined,
+      };
+
       void this._Log.record({
         method: String(req.method ?? "GET").slice(0, 10),
         path,
@@ -178,7 +226,7 @@ export class ApiLogMiddleware implements NestMiddleware {
         user_agent: req.headers?.["user-agent"] ? String(req.headers["user-agent"]).slice(0, 200) : null,
         error_message:
           status >= 400 ? String(res.locals?.oxxyApiError ?? `HTTP ${status}`).slice(0, 1000) : null,
-        detail: summariseCall(req.query, req.body),
+        detail: safeDetail,
       });
     });
     next();

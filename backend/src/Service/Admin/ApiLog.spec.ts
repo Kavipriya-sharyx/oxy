@@ -55,7 +55,7 @@ describe("API logs (Super Admin)", () => {
         key_label: "CRM live (oxk_live…)",
         ip: "10.0.0.5",
         error_message: "Booking is not pending",
-        detail: { body_fields: ["confirmed_by"] },
+        detail: expect.objectContaining({ body_fields: ["confirmed_by"] }),
       }),
     );
   });
